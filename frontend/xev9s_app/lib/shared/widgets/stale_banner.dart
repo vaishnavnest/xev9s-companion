@@ -1,12 +1,23 @@
 import 'package:material_ui/material_ui.dart';
+import '../../core/utils/formatters.dart';
 
 class StaleBanner extends StatelessWidget {
   const StaleBanner({
     super.key,
-    this.message = 'Vehicle is offline. Showing last reported data.',
+    this.message,
+    this.lastUpdatedAt,
   });
 
-  final String message;
+  final String? message;
+  final DateTime? lastUpdatedAt;
+
+  String get _displayMessage {
+    if (message != null) return message!;
+    if (lastUpdatedAt != null) {
+      return 'Vehicle is offline. Last reported: ${Formatters.formatRelative(lastUpdatedAt)}';
+    }
+    return 'Vehicle is offline. Showing last reported data.';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +35,7 @@ class StaleBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              message,
+              _displayMessage,
               style: TextStyle(
                 color: Colors.amber.shade900,
                 fontSize: 13,

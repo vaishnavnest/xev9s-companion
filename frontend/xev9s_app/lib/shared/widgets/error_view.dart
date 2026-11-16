@@ -1,16 +1,30 @@
 import 'package:material_ui/material_ui.dart';
+import '../../core/network/api_exception.dart';
 
 class ErrorView extends StatelessWidget {
   const ErrorView({
     super.key,
     required this.message,
-    this.onRetry,
     this.title = 'Something went wrong',
+    this.error,
+    this.onRetry,
+    this.showRetry,
   });
 
   final String title;
   final String message;
+  final Object? error;
   final VoidCallback? onRetry;
+  final bool? showRetry;
+
+  bool get _shouldShowRetry {
+    if (showRetry != null) return showRetry! && onRetry != null;
+    if (onRetry == null) return false;
+    if (error is AppError) {
+      return (error as AppError).retryable;
+    }
+    return true;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +56,7 @@ class ErrorView extends StatelessWidget {
               ),
               textAlign: TextAlign.center,
             ),
-            if (onRetry != null) ...[
+            if (_shouldShowRetry) ...[
               const SizedBox(height: 24),
               OutlinedButton.icon(
                 onPressed: onRetry,

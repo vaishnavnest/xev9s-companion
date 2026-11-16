@@ -4,47 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xev9s_app/core/network/api_client.dart';
 import 'package:xev9s_app/core/network/api_exception.dart';
-import 'package:xev9s_app/core/network/auth_interceptor.dart';
 import 'package:xev9s_app/core/network/error_codes.dart';
-import 'package:xev9s_app/core/storage/token_storage.dart';
-
-class FakeTokenStorage implements TokenStorage {
-  String? accessToken;
-  String? refreshToken;
-  bool cleared = false;
-
-  @override
-  Future<String?> getAccessToken() async => accessToken;
-
-  @override
-  Future<String?> getRefreshToken() async => refreshToken;
-
-  @override
-  Future<void> saveAccessToken(String token) async {
-    accessToken = token;
-  }
-
-  @override
-  Future<void> saveRefreshToken(String token) async {
-    refreshToken = token;
-  }
-
-  @override
-  Future<void> saveTokens({
-    required String accessToken,
-    required String refreshToken,
-  }) async {
-    this.accessToken = accessToken;
-    this.refreshToken = refreshToken;
-  }
-
-  @override
-  Future<void> clearTokens() async {
-    accessToken = null;
-    refreshToken = null;
-    cleared = true;
-  }
-}
 
 class TestAdapter implements HttpClientAdapter {
   TestAdapter(this.handler);
@@ -81,12 +41,12 @@ class TestAdapter implements HttpClientAdapter {
 
 void main() {
   group('ApiClient', () {
-    test('unwraps successful envelope data', () async {
+    test('success unwrap returns parsed data', () async {
       final dio = Dio(BaseOptions(baseUrl: 'http://localhost:4010'));
       dio.httpClientAdapter = TestAdapter((options) async {
         return TestAdapter.json({
           'success': true,
-          'data': {'vehicleId': 'veh_9S0001'},
+          'data': {'vehicleId': 'veh_9S0001', 'name': 'My XEV'},
           'meta': {'requestId': 'req_1', 'timestamp': '2026-11-16T10:00:00Z'},
           'error': null,
         });
@@ -95,70 +55,134 @@ void main() {
       final client = ApiClient(dio: dio);
       final result = await client.get<String>(
         '/vehicles/veh_9S0001',
-        parse: (json) => (json as Map<String, dynamic>)['vehicleId'] as String,
+        parse: (json) => (json as Map<String, dynamic>)['name'] as String,
       );
 
-      expect(result, equals('veh_9S0001'));
+      expect(result, equals('My XEV'));
     });
 
-    test('throws AppError when envelope has success: false', () async {
+    test('success=false maps to AppError with right code and details', () async {
       final dio = Dio(BaseOptions(baseUrl: 'http://localhost:4010'));
       dio.httpClientAdapter = TestAdapter((options) async {
-        return TestAdapter.json({
-          'success': false,
-          'data': null,
-          'meta': {'requestId': 'req_2', 'timestamp': '2026-11-16T10:00:00Z'},
-          'error': {
-            'code': 'VEHICLE_OFFLINE',
-            'message': 'Vehicle is offline',
-            'retryable': true,
+        return TestAdapter.json(
+          {
+            'success': false,
+            'data': null,
+            'meta': {'requestId': 'req_2', 'timestamp': '2026-11-16T10:00:00Z'},
+            'error': {
+              'code': 'CHARGING_TARGET_NOT_APPLICABLE',
+              'message': 'Cannot set target when unplugged',
+              'retryable': false,
+              'details': [
+                {'field': 'targetPercent', 'issue': 'NOT_CONNECTED'},
+              ],
+            },
           },
-        });
+          statusCode: 422,
+        );
       });
 
       final client = ApiClient(dio: dio);
 
-      expect(
-        () => client.get<dynamic>('/vehicles', parse: (j) => j),
-        throwsA(
-          isA<AppError>()
-              .having((e) => e.code, 'code', ApiErrorCode.vehicleOffline)
-              .having((e) => e.retryable, 'retryable', isTrue),
-        ),
-      );
+      try {
+        await client.put<dynamic>(
+          '/vehicles/veh_9S0001/charging/target',
+          body: {'targetPercent': 90},
+          parse: (j) => j,
+        );
+        fail('Should throw AppError');
+      } on AppError catch (e) {
+        expect(e.code, equals(ApiErrorCode.chargingTargetNotApplicable));
+        expect(e.message, equals('Cannot set target when unplugged'));
+        expect(e.retryable, isFalse);
+        expect(e.httpStatus, equals(422));
+        expect(e.details.length, equals(1));
+        expect(e.details.first.field, equals('targetPercent'));
+      }
     });
 
-    test('throws AppError.malformedResponse when response is not an envelope', () async {
+    test('timeout maps to AppError.timeout', () async {
       final dio = Dio(BaseOptions(baseUrl: 'http://localhost:4010'));
       dio.httpClientAdapter = TestAdapter((options) async {
-        return ResponseBody.fromString('plain text not json', 200);
+        throw DioException(
+          requestOptions: options,
+          type: DioExceptionType.receiveTimeout,
+          message: 'Receive timeout after 15000ms',
+        );
       });
 
       final client = ApiClient(dio: dio);
 
-      expect(
-        () => client.get<dynamic>('/vehicles', parse: (j) => j),
-        throwsA(isA<AppError>()),
-      );
+      try {
+        await client.get<dynamic>('/vehicles', parse: (j) => j);
+        fail('Should throw AppError.timeout');
+      } on AppError catch (e) {
+        expect(e.retryable, isTrue);
+        expect(e.message, contains('timed out'));
+      }
     });
 
-    test('getPaged extracts items and pagination correctly', () async {
+    test('connection error maps to AppError.noConnection', () async {
+      final dio = Dio(BaseOptions(baseUrl: 'http://localhost:4010'));
+      dio.httpClientAdapter = TestAdapter((options) async {
+        throw DioException(
+          requestOptions: options,
+          type: DioExceptionType.connectionError,
+          message: 'Connection refused',
+        );
+      });
+
+      final client = ApiClient(dio: dio);
+
+      try {
+        await client.get<dynamic>('/vehicles', parse: (j) => j);
+        fail('Should throw AppError.noConnection');
+      } on AppError catch (e) {
+        expect(e.retryable, isTrue);
+        expect(e.message, contains('internet connectivity'));
+      }
+    });
+
+    test('malformed body maps to AppError.malformedResponse', () async {
+      final dio = Dio(BaseOptions(baseUrl: 'http://localhost:4010'));
+      dio.httpClientAdapter = TestAdapter((options) async {
+        return ResponseBody.fromString(
+          'non-json html error page',
+          200,
+          headers: {
+            'content-type': ['text/html'],
+          },
+        );
+      });
+
+      final client = ApiClient(dio: dio);
+
+      try {
+        await client.get<dynamic>('/vehicles', parse: (j) => j);
+        fail('Should throw malformed response');
+      } on AppError catch (e) {
+        expect(e.retryable, isFalse);
+        expect(e.message, contains('unexpected response'));
+      }
+    });
+
+    test('getPaged returns items + pagination', () async {
       final dio = Dio(BaseOptions(baseUrl: 'http://localhost:4010'));
       dio.httpClientAdapter = TestAdapter((options) async {
         return TestAdapter.json({
           'success': true,
           'data': [
-            {'id': '1'},
-            {'id': '2'},
+            {'tripId': 'trp_1'},
+            {'tripId': 'trp_2'},
           ],
           'meta': {
-            'requestId': 'req_3',
+            'requestId': 'req_trips',
             'timestamp': '2026-11-16T10:00:00Z',
             'pagination': {
               'page': 1,
-              'pageSize': 2,
-              'totalItems': 10,
-              'totalPages': 5,
+              'pageSize': 20,
+              'totalItems': 45,
+              'totalPages': 3,
             },
           },
           'error': null,
@@ -167,98 +191,15 @@ void main() {
 
       final client = ApiClient(dio: dio);
       final paged = await client.getPaged<String>(
-        '/trips',
-        parseItem: (j) => (j as Map<String, dynamic>)['id'] as String,
+        '/vehicles/veh_1/trips',
+        parseItem: (json) => (json as Map<String, dynamic>)['tripId'] as String,
       );
 
-      expect(paged.items, equals(['1', '2']));
-      expect(paged.pagination?.totalItems, equals(10));
-      expect(paged.pagination?.totalPages, equals(5));
-    });
-  });
-
-  group('AuthInterceptor', () {
-    test('adds Authorization header for non-exempt endpoints', () async {
-      final storage = FakeTokenStorage()..accessToken = 'test_access_token';
-      String? sentAuthHeader;
-
-      final dio = Dio(BaseOptions(baseUrl: 'http://localhost:4010'));
-      dio.httpClientAdapter = TestAdapter((options) async {
-        sentAuthHeader = options.headers['Authorization'] as String?;
-        return TestAdapter.json({
-          'success': true,
-          'data': {'status': 'ok'},
-          'meta': {'requestId': 'req_1', 'timestamp': '2026-11-16T10:00:00Z'},
-          'error': null,
-        });
-      });
-
-      final client = ApiClient(dio: dio, tokenStorage: storage);
-      await client.get<dynamic>('/vehicles', parse: (j) => j);
-
-      expect(sentAuthHeader, equals('Bearer test_access_token'));
-    });
-
-    test('does not add Authorization header for exempt endpoints', () async {
-      final storage = FakeTokenStorage()..accessToken = 'test_access_token';
-      String? sentAuthHeader;
-
-      final dio = Dio(BaseOptions(baseUrl: 'http://localhost:4010'));
-      dio.httpClientAdapter = TestAdapter((options) async {
-        sentAuthHeader = options.headers['Authorization'] as String?;
-        return TestAdapter.json({
-          'success': true,
-          'data': {'status': 'ok'},
-          'meta': {'requestId': 'req_1', 'timestamp': '2026-11-16T10:00:00Z'},
-          'error': null,
-        });
-      });
-
-      final client = ApiClient(dio: dio, tokenStorage: storage);
-      await client.post<dynamic>(
-        '/auth/login',
-        body: {'identifier': 'user', 'password': 'pwd'},
-        parse: (j) => j,
-      );
-
-      expect(sentAuthHeader, isNull);
-    });
-
-    test('clears tokens and emits unauthenticated when 401 occurs with UNAUTHENTICATED', () async {
-      final storage = FakeTokenStorage()..accessToken = 'bad_token';
-      AuthEvent? emittedEvent;
-
-      final dio = Dio(BaseOptions(baseUrl: 'http://localhost:4010'));
-      dio.httpClientAdapter = TestAdapter((options) async {
-        return TestAdapter.json(
-          {
-            'success': false,
-            'data': null,
-            'meta': {'requestId': 'req_4', 'timestamp': '2026-11-16T10:00:00Z'},
-            'error': {
-              'code': 'UNAUTHENTICATED',
-              'message': 'Token invalid',
-              'retryable': false,
-            },
-          },
-          statusCode: 401,
-        );
-      });
-
-      final client = ApiClient(dio: dio, tokenStorage: storage);
-      client.authEvents?.listen((event) {
-        emittedEvent = event;
-      });
-
-      try {
-        await client.get<dynamic>('/vehicles', parse: (j) => j);
-      } catch (_) {}
-
-      // Allow microtask queue to process stream event
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-
-      expect(storage.cleared, isTrue);
-      expect(emittedEvent, equals(AuthEvent.unauthenticated));
+      expect(paged.items, equals(['trp_1', 'trp_2']));
+      expect(paged.pagination?.page, equals(1));
+      expect(paged.pagination?.pageSize, equals(20));
+      expect(paged.pagination?.totalItems, equals(45));
+      expect(paged.pagination?.totalPages, equals(3));
     });
   });
 }

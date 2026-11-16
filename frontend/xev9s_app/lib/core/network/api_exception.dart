@@ -101,7 +101,9 @@ class AppError extends Equatable implements Exception {
   factory AppError.malformedResponse([String? message]) {
     return AppError(
       code: ApiErrorCode.unknown,
-      message: message ?? 'Received an unexpected response from the server.',
+      message: message != null
+          ? 'Received an unexpected response from the server: $message'
+          : 'Received an unexpected response from the server.',
       retryable: false,
     );
   }

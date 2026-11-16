@@ -180,9 +180,9 @@ class ApiClient {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
-        return AppError.timeout(error.message);
+        return AppError.timeout();
       case DioExceptionType.connectionError:
-        return AppError.noConnection(error.message);
+        return AppError.noConnection();
       case DioExceptionType.badResponse:
         return AppError(
           code: ApiErrorCode.unknown,
