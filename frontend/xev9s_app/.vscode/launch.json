@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Web (mock)",
+      "type": "dart",
+      "request": "launch",
+      "program": "lib/main.dart",
+      "args": [
+        "-d",
+        "chrome",
+        "--dart-define=API_BASE_URL=http://localhost:4010",
+        "--dart-define=WS_BASE_URL=ws://localhost:4010"
+      ]
+    },
+    {
+      "name": "Android emulator (mock)",
+      "type": "dart",
+      "request": "launch",
+      "program": "lib/main.dart",
+      "args": [
+        "--dart-define=API_BASE_URL=http://10.0.2.2:4010",
+        "--dart-define=WS_BASE_URL=ws://10.0.2.2:4010"
+      ]
+    }
+  ]
+}
