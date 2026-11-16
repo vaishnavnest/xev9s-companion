@@ -1,12 +1,30 @@
-@"
-name: CI
+name: CI Pipeline
 
-on: [push]
+on:
+  push:
+    branches:
+      - dev
+      - main
+      - 'release/**'
+  pull_request:
+    branches:
+      - dev
+      - main
 
 jobs:
-  hello:
+  smoke-test:
+    name: Structure & Environment Check
     runs-on: ubuntu-latest
+
     steps:
-      - name: Say Hello
-        run: echo "GitHub Actions is working!"
-"@ | Out-File -FilePath .github\workflows\ci.yml -Encoding utf8
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Verify Workspace Directory Structure
+        run: |
+          echo "Checking essential directories..."
+          test -d backend || (echo "backend folder missing" && exit 1)
+          test -d frontend || (echo "frontend folder missing" && exit 1)
+          test -d simulator || (echo "simulator folder missing" && exit 1)
+          test -d infrastructure || (echo "infrastructure folder missing" && exit 1)
+          echo "All core directories are present."
