@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xev9s_app/app/app.dart';
 import 'package:xev9s_app/core/providers.dart';
 import 'package:xev9s_app/core/storage/token_storage.dart';
+import 'package:xev9s_app/features/auth/presentation/login_page.dart';
 
 class FakeTokenStorage implements TokenStorage {
   @override
@@ -25,7 +26,7 @@ class FakeTokenStorage implements TokenStorage {
 }
 
 void main() {
-  testWidgets('App renders login placeholder when unauthenticated',
+  testWidgets('App renders login page when unauthenticated',
       (WidgetTester tester) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -38,6 +39,7 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Sign In Page (Placeholder)'), findsOneWidget);
+    expect(find.byType(LoginPage), findsOneWidget);
+    expect(find.text('Welcome to XEV 9S'), findsOneWidget);
   });
 }
