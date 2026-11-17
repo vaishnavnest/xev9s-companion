@@ -25,12 +25,6 @@ on:
       - 'frontend/**'
       - '.github/workflows/ci.yml'
 
-  # push:
-  #   branches: [dev]
-  #   paths:
-  #     - 'frontend/**'
-  #     - '.github/workflows/ci.yml'
-
 jobs:
   flutter-verify:
     name: Flutter Analyze & Test
@@ -55,6 +49,7 @@ jobs:
         with:
           flutter-version: '3.50.0'
           channel: 'stable'
+          cache: true
 
       - name: Install dependencies
         run: flutter pub get
@@ -62,8 +57,26 @@ jobs:
       - name: Analyze code
         run: flutter analyze
 
-      - name: Run tests
-        run: flutter test
+      - name: Run tests with coverage
+        run: flutter test --coverage
+
+      - name: Enforce 70% Line Coverage & Generate HTML Report
+        run: |
+          sudo apt-get update && sudo apt-get install -y lcov
+          COVERAGE=$(lcov --summary coverage/lcov.info | grep "lines......:" | awk '{print $2}' | tr -d '%')
+          echo "### Flutter Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Line Coverage:** ${COVERAGE}%" >> $GITHUB_STEP_SUMMARY
+          echo "- **Required Threshold:** 70.0%" >> $GITHUB_STEP_SUMMARY
+          genhtml coverage/lcov.info -o coverage/html
+          awk -v cov="$COVERAGE" 'BEGIN { if (cov < 70.0) { print "❌ Coverage " cov "% is below the 70% threshold!"; exit 1 } }'
+          echo "✅ Coverage check passed (${COVERAGE}% >= 70.0%)"
+
+      - name: Upload HTML Coverage Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flutter-html-coverage-report
+          path: frontend/xev9s_app/coverage/html
 
       - name: Build APK
         run: flutter build apk --release
