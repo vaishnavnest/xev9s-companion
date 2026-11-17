@@ -2,11 +2,28 @@ import 'package:equatable/equatable.dart';
 import 'api_response.dart';
 import 'error_codes.dart';
 
+/// Discriminator that lets the UI distinguish the category of error without
+/// inspecting the raw [ApiErrorCode] or error message string.
+enum AppErrorKind {
+  /// A structured error returned by the server (success=false with an error payload).
+  api,
+
+  /// No network connection was available.
+  noConnection,
+
+  /// The request timed out before the server responded.
+  timeout,
+
+  /// The server returned a response that did not match the expected envelope.
+  malformed,
+}
+
 /// Normalized domain exception thrown across the networking layer.
 class AppError extends Equatable implements Exception {
   const AppError({
     required this.code,
     required this.message,
+    this.kind = AppErrorKind.api,
     this.details = const [],
     this.retryable = false,
     this.httpStatus,
@@ -14,12 +31,28 @@ class AppError extends Equatable implements Exception {
 
   final ApiErrorCode code;
   final String message;
+
+  /// High-level kind, useful for UI branching without inspecting [code].
+  final AppErrorKind kind;
+
   final List<ApiErrorDetail> details;
   final bool retryable;
   final int? httpStatus;
 
   /// User-friendly message tailored for UI display.
   String get displayMessage {
+    // Network-layer kinds get distinct friendly messages regardless of code.
+    switch (kind) {
+      case AppErrorKind.noConnection:
+        return 'No internet connection. Please check your network and try again.';
+      case AppErrorKind.timeout:
+        return 'The request timed out. Check your connection and try again.';
+      case AppErrorKind.malformed:
+        return 'Received an unexpected response from the server. Please try again.';
+      case AppErrorKind.api:
+        break;
+    }
+
     switch (code) {
       case ApiErrorCode.invalidCredentials:
         return 'Invalid email or password. Please try again.';
@@ -66,6 +99,7 @@ class AppError extends Equatable implements Exception {
 
     return AppError(
       code: ApiErrorCode.fromString(codeStr),
+      kind: AppErrorKind.api,
       message: message,
       details: details,
       retryable: retryable,
@@ -73,9 +107,11 @@ class AppError extends Equatable implements Exception {
     );
   }
 
-  factory AppError.unknown(String message, {int? httpStatus, bool retryable = false}) {
+  factory AppError.unknown(String message,
+      {int? httpStatus, bool retryable = false}) {
     return AppError(
       code: ApiErrorCode.unknown,
+      kind: AppErrorKind.api,
       message: message,
       httpStatus: httpStatus,
       retryable: retryable,
@@ -85,7 +121,9 @@ class AppError extends Equatable implements Exception {
   factory AppError.noConnection([String? message]) {
     return AppError(
       code: ApiErrorCode.unknown,
-      message: message ?? 'No network connection. Please check your internet connectivity.',
+      kind: AppErrorKind.noConnection,
+      message: message ??
+          'No network connection. Please check your internet connectivity.',
       retryable: true,
     );
   }
@@ -93,7 +131,9 @@ class AppError extends Equatable implements Exception {
   factory AppError.timeout([String? message]) {
     return AppError(
       code: ApiErrorCode.unknown,
-      message: message ?? 'Request timed out. Please check your connection and try again.',
+      kind: AppErrorKind.timeout,
+      message:
+          message ?? 'Request timed out. Please check your connection and try again.',
       retryable: true,
     );
   }
@@ -101,6 +141,7 @@ class AppError extends Equatable implements Exception {
   factory AppError.malformedResponse([String? message]) {
     return AppError(
       code: ApiErrorCode.unknown,
+      kind: AppErrorKind.malformed,
       message: message != null
           ? 'Received an unexpected response from the server: $message'
           : 'Received an unexpected response from the server.',
@@ -110,8 +151,8 @@ class AppError extends Equatable implements Exception {
 
   @override
   String toString() =>
-      'AppError(code: ${code.wireValue}, httpStatus: $httpStatus, message: $message, retryable: $retryable)';
+      'AppError(kind: $kind, code: ${code.wireValue}, httpStatus: $httpStatus, message: $message, retryable: $retryable)';
 
   @override
-  List<Object?> get props => [code, message, details, retryable, httpStatus];
+  List<Object?> get props => [code, kind, message, details, retryable, httpStatus];
 }
