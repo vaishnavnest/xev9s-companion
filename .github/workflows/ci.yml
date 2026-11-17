@@ -63,7 +63,11 @@ jobs:
       - name: Enforce 70% Line Coverage & Generate HTML Report
         run: |
           sudo apt-get update && sudo apt-get install -y lcov
-          COVERAGE=$(lcov --summary coverage/lcov.info | grep "lines......:" | awk '{print $2}' | tr -d '%')
+          COVERAGE=$(lcov --summary coverage/lcov.info 2>&1 | grep "lines" | awk '{print $2}' | tr -d '%')
+          if [ -z "$COVERAGE" ]; then
+            echo "❌ Failed to parse coverage percentage from lcov output."
+            exit 1
+          fi
           echo "### Flutter Coverage Summary" >> $GITHUB_STEP_SUMMARY
           echo "- **Line Coverage:** ${COVERAGE}%" >> $GITHUB_STEP_SUMMARY
           echo "- **Required Threshold:** 70.0%" >> $GITHUB_STEP_SUMMARY
