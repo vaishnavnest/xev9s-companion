@@ -1,16 +1,65 @@
-Name: CI Pipeline
+# Name: CI Pipeline
+
+# on:
+#   pull_request:
+#     branches:
+#       - dev
+
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Build
+#         run: echo "Building application..."
+
+
+name: Frontend CI
 
 on:
   pull_request:
-    branches:
-      - dev
+    branches: [dev, 'release/*', main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/ci.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'frontend/**'
 
 jobs:
-  build:
+  flutter-verify:
+    name: Flutter Analyze & Test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/xev9s_app
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build
-        run: echo "Building application..."
+      - name: Setup Flutter 3.50.0
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: 'stable'
+
+      - name: Cache Pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-${{ hashFiles('frontend/xev9s_app/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Fetch dependencies
+        run: flutter pub get
+
+      - name: Static code analysis
+        run: flutter analyze
+
+      - name: Run unit & widget tests with coverage
+        run: flutter test --coverage
