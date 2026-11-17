@@ -8,6 +8,22 @@ enum AuthEvent {
   tokenRefreshed,
 }
 
+/// Sealed result for _executeRefresh so callers can distinguish success from
+/// failure and act appropriately without relying on a bare null return.
+sealed class _RefreshResult {}
+
+class _RefreshSuccess extends _RefreshResult {
+  _RefreshSuccess(this.accessToken);
+  final String accessToken;
+}
+
+/// Refresh call failed — either a network error (timeout, no connection) or
+/// a server-side rejection (401 from /auth/refresh).
+class _RefreshFailure extends _RefreshResult {
+  _RefreshFailure({required this.isNetworkError});
+  final bool isNetworkError;
+}
+
 /// Dio Interceptor handling Bearer token injection, synchronized token refresh,
 /// and infinite-loop prevention.
 class AuthInterceptor extends QueuedInterceptor {
@@ -24,10 +40,10 @@ class AuthInterceptor extends QueuedInterceptor {
   final _authEventController = StreamController<AuthEvent>.broadcast();
   Stream<AuthEvent> get authEvents => _authEventController.stream;
 
-  // Single in-flight refresh future to coordinate concurrent 401s
-  Future<String?>? _refreshFuture;
+  // Single in-flight refresh future to coordinate concurrent 401s.
+  Future<_RefreshResult>? _refreshFuture;
 
-  // Paths exempt from Bearer token attachment and automatic refresh
+  // Paths exempt from Bearer token attachment and automatic refresh.
   static const _exemptPaths = [
     '/auth/login',
     '/auth/register',
@@ -60,15 +76,14 @@ class AuthInterceptor extends QueuedInterceptor {
     final response = err.response;
     final statusCode = response?.statusCode;
 
-    // Guard: Exempt endpoints or non-401 errors pass through
+    // Guard: Exempt endpoints or non-401 errors pass through.
     if (statusCode != 401 || _isExempt(err.requestOptions.path)) {
       return handler.next(err);
     }
 
-    // Guard against infinite retry loops
+    // Guard against infinite retry loops.
     if (err.requestOptions.extra['isRetry'] == true) {
-      await tokenStorage.clearTokens();
-      _authEventController.add(AuthEvent.unauthenticated);
+      await _clearTokensAndNotify();
       return handler.next(err);
     }
 
@@ -83,18 +98,24 @@ class AuthInterceptor extends QueuedInterceptor {
 
     final parsedCode = ApiErrorCode.fromString(errorCode);
 
-    // If token is expired, coordinate a single synchronized refresh
+    // If token is expired, coordinate a single synchronized refresh.
     if (parsedCode == ApiErrorCode.tokenExpired) {
       final currentToken = await tokenStorage.getAccessToken();
       final sentHeader = err.requestOptions.headers['Authorization'] as String?;
       final sentToken = sentHeader?.replaceFirst('Bearer ', '').trim();
 
       String? newAccessToken;
-      if (currentToken != null && currentToken.isNotEmpty && currentToken != sentToken) {
-        // Token was already refreshed by another concurrent request
+      if (currentToken != null &&
+          currentToken.isNotEmpty &&
+          currentToken != sentToken) {
+        // Token was already refreshed by another concurrent request.
         newAccessToken = currentToken;
       } else {
-        newAccessToken = await _performSynchronizedRefresh();
+        final result = await _performSynchronizedRefresh();
+        if (result is _RefreshSuccess) {
+          newAccessToken = result.accessToken;
+        }
+        // On failure, fall through to clear + notify below.
       }
 
       if (newAccessToken != null) {
@@ -103,7 +124,10 @@ class AuthInterceptor extends QueuedInterceptor {
           requestOptions.headers['Authorization'] = 'Bearer $newAccessToken';
           requestOptions.extra['isRetry'] = true;
 
-          // Use a standalone Dio instance for the retry to avoid QueuedInterceptor re-entry deadlocks
+          // Use a standalone Dio instance for the retry to avoid
+          // QueuedInterceptor re-entry deadlocks. No interceptors are added —
+          // the refresh Dio also has no interceptors, so neither path re-enters
+          // this interceptor queue.
           final retryDio = Dio(BaseOptions(
             baseUrl: dio.options.baseUrl,
             connectTimeout: dio.options.connectTimeout,
@@ -115,21 +139,24 @@ class AuthInterceptor extends QueuedInterceptor {
           return handler.resolve(retriedResponse);
         } on DioException catch (retryErr) {
           if (retryErr.response?.statusCode == 401) {
-            await tokenStorage.clearTokens();
-            _authEventController.add(AuthEvent.unauthenticated);
+            await _clearTokensAndNotify();
           }
           return handler.next(retryErr);
         }
       }
     }
 
-    // Refresh failed or error was UNAUTHENTICATED
-    await tokenStorage.clearTokens();
-    _authEventController.add(AuthEvent.unauthenticated);
+    // Refresh failed or error was UNAUTHENTICATED — clear everything.
+    await _clearTokensAndNotify();
     return handler.next(err);
   }
 
-  Future<String?> _performSynchronizedRefresh() {
+  Future<void> _clearTokensAndNotify() async {
+    await tokenStorage.clearTokens();
+    _authEventController.add(AuthEvent.unauthenticated);
+  }
+
+  Future<_RefreshResult> _performSynchronizedRefresh() {
     if (_refreshFuture != null) {
       return _refreshFuture!;
     }
@@ -141,21 +168,24 @@ class AuthInterceptor extends QueuedInterceptor {
     });
   }
 
-  Future<String?> _executeRefresh() async {
+  Future<_RefreshResult> _executeRefresh() async {
     final refreshToken = await tokenStorage.getRefreshToken();
     if (refreshToken == null || refreshToken.isEmpty) {
-      return null;
+      return _RefreshFailure(isNetworkError: false);
     }
 
-    try {
-      final refreshDio = Dio(BaseOptions(
-        baseUrl: dio.options.baseUrl,
-        headers: {'Content-Type': 'application/json'},
-        connectTimeout: const Duration(seconds: 15),
-        receiveTimeout: const Duration(seconds: 15),
-      ));
-      refreshDio.httpClientAdapter = dio.httpClientAdapter;
+    // The refreshDio is intentionally created WITHOUT any interceptors —
+    // especially not this AuthInterceptor — so the refresh call can never
+    // re-enter the queue and loop.
+    final refreshDio = Dio(BaseOptions(
+      baseUrl: dio.options.baseUrl,
+      headers: {'Content-Type': 'application/json'},
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 15),
+    ));
+    refreshDio.httpClientAdapter = dio.httpClientAdapter;
 
+    try {
       final response = await refreshDio.post<Map<String, dynamic>>(
         refreshEndpoint,
         data: {'refreshToken': refreshToken},
@@ -173,14 +203,22 @@ class AuthInterceptor extends QueuedInterceptor {
             refreshToken: newRefreshToken,
           );
           _authEventController.add(AuthEvent.tokenRefreshed);
-          return newAccessToken;
+          return _RefreshSuccess(newAccessToken);
         }
       }
-    } catch (_) {
-      // Refresh network or validation error
-    }
 
-    return null;
+      // Server replied but indicated failure (e.g. success=false / missing tokens).
+      return _RefreshFailure(isNetworkError: false);
+    } on DioException catch (e) {
+      // Network-level failures (timeout, no connection, 401 from /auth/refresh).
+      final isNetworkErr = e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.sendTimeout ||
+          e.type == DioExceptionType.connectionError;
+      return _RefreshFailure(isNetworkError: isNetworkErr);
+    } catch (_) {
+      return _RefreshFailure(isNetworkError: false);
+    }
   }
 
   void dispose() {

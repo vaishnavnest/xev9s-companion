@@ -274,5 +274,143 @@ void main() {
       expect(storage.cleared, isTrue);
       expect(receivedEvent, equals(AuthEvent.unauthenticated));
     });
+
+    // ------------------------------------------------------------------ NEW TESTS
+    test('refresh returns 401 — tokens cleared and unauthenticated event emitted', () async {
+      // Scenario: /auth/refresh itself returns 401 (refresh token revoked).
+      final storage = FakeTokenStorage(
+        accessToken: 'expired_access',
+        refreshToken: 'revoked_refresh',
+      );
+
+      final events = <AuthEvent>[];
+
+      final dio = Dio(BaseOptions(baseUrl: 'http://localhost:4010'));
+      dio.httpClientAdapter = TestAdapter((options) async {
+        if (options.path == '/auth/refresh') {
+          return TestAdapter.json(
+            {
+              'success': false,
+              'error': {'code': 'UNAUTHENTICATED', 'message': 'Refresh token revoked'},
+            },
+            statusCode: 401,
+          );
+        }
+        // Original request returns TOKEN_EXPIRED.
+        return TestAdapter.json(
+          {
+            'success': false,
+            'error': {'code': 'TOKEN_EXPIRED', 'message': 'Token expired'},
+          },
+          statusCode: 401,
+        );
+      });
+
+      final interceptor = AuthInterceptor(tokenStorage: storage, dio: dio);
+      interceptor.authEvents.listen(events.add);
+      dio.interceptors.add(interceptor);
+
+      await expectLater(
+        dio.get<dynamic>('/protected'),
+        throwsA(isA<DioException>()),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(storage.cleared, isTrue, reason: 'tokens must be cleared after refresh 401');
+      expect(events, contains(AuthEvent.unauthenticated),
+          reason: 'unauthenticated event must be emitted after refresh 401');
+    });
+
+    test('refresh times out — tokens cleared and unauthenticated event emitted', () async {
+      // Scenario: the refresh network call throws a receiveTimeout.
+      final storage = FakeTokenStorage(
+        accessToken: 'expired_access',
+        refreshToken: 'valid_refresh',
+      );
+
+      final events = <AuthEvent>[];
+
+      final dio = Dio(BaseOptions(
+        baseUrl: 'http://localhost:4010',
+        receiveTimeout: const Duration(milliseconds: 50),
+      ));
+      dio.httpClientAdapter = TestAdapter((options) async {
+        if (options.path == '/auth/refresh') {
+          // Simulate a hang that exceeds receiveTimeout.
+          await Future<void>.delayed(const Duration(seconds: 10));
+          return TestAdapter.json({'success': true, 'data': {}});
+        }
+        return TestAdapter.json(
+          {
+            'success': false,
+            'error': {'code': 'TOKEN_EXPIRED', 'message': 'Token expired'},
+          },
+          statusCode: 401,
+        );
+      });
+
+      final interceptor = AuthInterceptor(tokenStorage: storage, dio: dio);
+      interceptor.authEvents.listen(events.add);
+      dio.interceptors.add(interceptor);
+
+      await expectLater(
+        dio.get<dynamic>('/protected'),
+        throwsA(isA<DioException>()),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(storage.cleared, isTrue, reason: 'tokens must be cleared after refresh timeout');
+      expect(events, contains(AuthEvent.unauthenticated),
+          reason: 'unauthenticated event must be emitted after refresh timeout');
+    });
+
+    test('refresh request itself never triggers another refresh (no interceptor re-entry)', () async {
+      // Scenario: even if the refresh endpoint returns 401, the interceptor
+      // must NOT attempt to refresh again (infinite loop guard).
+      final storage = FakeTokenStorage(
+        accessToken: 'expired_access',
+        refreshToken: 'valid_refresh',
+      );
+
+      int refreshCallCount = 0;
+
+      final dio = Dio(BaseOptions(baseUrl: 'http://localhost:4010'));
+      dio.httpClientAdapter = TestAdapter((options) async {
+        if (options.path == '/auth/refresh') {
+          refreshCallCount++;
+          // Refresh returns 401 — if the interceptor re-entered it would loop.
+          return TestAdapter.json(
+            {
+              'success': false,
+              'error': {'code': 'UNAUTHENTICATED', 'message': 'Revoked'},
+            },
+            statusCode: 401,
+          );
+        }
+        return TestAdapter.json(
+          {
+            'success': false,
+            'error': {'code': 'TOKEN_EXPIRED', 'message': 'Expired'},
+          },
+          statusCode: 401,
+        );
+      });
+
+      dio.interceptors.add(AuthInterceptor(tokenStorage: storage, dio: dio));
+
+      await expectLater(
+        dio.get<dynamic>('/protected'),
+        throwsA(isA<DioException>()),
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // refreshCallCount must be exactly 1 — the interceptor must NOT
+      // see the refresh 401 and try to refresh again.
+      expect(refreshCallCount, equals(1),
+          reason: 'refresh must be called exactly once; >1 means re-entry loop');
+    });
   });
 }
