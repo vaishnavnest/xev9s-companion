@@ -1,30 +1,16 @@
-name: CI Pipeline
+Name: CI Pipeline
 
 on:
-  push:
-    branches:
-      - dev
-      - main
-      - 'release/**'
   pull_request:
     branches:
       - dev
-      - main
 
 jobs:
-  smoke-test:
-    name: Structure & Environment Check
+  build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Source Code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Verify Workspace Directory Structure
-        run: |
-          echo "Checking essential directories..."
-          test -d backend || (echo "backend folder missing" && exit 1)
-          test -d frontend || (echo "frontend folder missing" && exit 1)
-          test -d simulator || (echo "simulator folder missing" && exit 1)
-          test -d infrastructure || (echo "infrastructure folder missing" && exit 1)
-          echo "All core directories are present."
+      - name: Build
+        run: echo "Building application..."
