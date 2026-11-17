@@ -25,11 +25,11 @@ on:
       - 'frontend/**'
       - '.github/workflows/ci.yml'
 
-  push:
-    branches: [dev]
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/ci.yml'
+  # push:
+  #   branches: [dev]
+  #   paths:
+  #     - 'frontend/**'
+  #     - '.github/workflows/ci.yml'
 
 jobs:
   flutter-verify:
