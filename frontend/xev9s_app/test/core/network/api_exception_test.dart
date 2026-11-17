@@ -24,6 +24,7 @@ void main() {
       expect(error.details.length, equals(1));
       expect(error.details.first.field, equals('targetPercent'));
       expect(error.details.first.issue, equals('OUT_OF_RANGE'));
+      expect(error.fieldErrors, equals({'targetPercent': 'OUT_OF_RANGE'}));
     });
 
     test('provides helpful displayMessage based on error code', () {
@@ -33,7 +34,43 @@ void main() {
       );
       expect(
         credsError.displayMessage,
-        equals('Invalid email or password. Please try again.'),
+        equals('Incorrect email or password.'),
+      );
+
+      final duplicateEmail = AppError(
+        code: ApiErrorCode.duplicateEmail,
+        message: 'duplicate',
+      );
+      expect(
+        duplicateEmail.displayMessage,
+        equals('An account with this email already exists.'),
+      );
+
+      final vehicleNotFound = AppError(
+        code: ApiErrorCode.vehicleNotFound,
+        message: 'not found',
+      );
+      expect(
+        vehicleNotFound.displayMessage,
+        equals("We couldn't find a vehicle with that identifier."),
+      );
+
+      final vehicleAlreadyAssociated = AppError(
+        code: ApiErrorCode.vehicleAlreadyAssociated,
+        message: 'already associated',
+      );
+      expect(
+        vehicleAlreadyAssociated.displayMessage,
+        equals('This vehicle is already linked to an account.'),
+      );
+
+      final validationError = AppError(
+        code: ApiErrorCode.validationError,
+        message: 'Custom field validation failure',
+      );
+      expect(
+        validationError.displayMessage,
+        equals('Custom field validation failure'),
       );
 
       final expiredError = AppError(
@@ -42,7 +79,7 @@ void main() {
       );
       expect(
         expiredError.displayMessage,
-        equals('Session expired. Please sign in again.'),
+        equals('Your session has expired. Please sign in again.'),
       );
 
       final offlineError = AppError(
@@ -52,6 +89,15 @@ void main() {
       expect(
         offlineError.displayMessage,
         equals('Vehicle is currently offline. Showing last reported data.'),
+      );
+
+      final serverError = AppError(
+        code: ApiErrorCode.internalError,
+        message: 'internal',
+      );
+      expect(
+        serverError.displayMessage,
+        equals('Something went wrong on our side. Please try again later.'),
       );
     });
 
@@ -75,11 +121,11 @@ void main() {
     test('displayMessage for noConnection and timeout have distinct friendly text', () {
       expect(
         AppError.noConnection().displayMessage,
-        equals('No internet connection. Please check your network and try again.'),
+        equals("Can't reach the server. Check your connection and try again."),
       );
       expect(
         AppError.timeout().displayMessage,
-        equals('The request timed out. Check your connection and try again.'),
+        equals('The server took too long to respond. Please try again.'),
       );
       expect(
         AppError.malformedResponse().displayMessage,
