@@ -8,13 +8,16 @@ from backend.app.core.database import (
     connect_to_database,
     close_database_connection,
 )
+from backend.app.core.indexes import ensure_database_indexes
 
+from backend.app.routes.auth import router as auth_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.database = connect_to_database()
 
     try:
+        ensure_database_indexes(app.state.database)
         yield
     finally:
         close_database_connection()
@@ -27,6 +30,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(auth_router)
 
 @app.get("/")
 def root():
