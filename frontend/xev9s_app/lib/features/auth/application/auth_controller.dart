@@ -113,6 +113,7 @@ class AuthController extends Notifier<AuthState> {
   Future<void> login(String identifier, String password) async {
     try {
       final session = await _authRepository.login(identifier, password);
+      ref.invalidate(vehiclesControllerProvider);
       state = AuthAuthenticated(session.user);
     } on AppError {
       rethrow;
@@ -123,6 +124,7 @@ class AuthController extends Notifier<AuthState> {
   Future<void> register(String name, String email, String password) async {
     try {
       final session = await _authRepository.register(name, email, password);
+      ref.invalidate(vehiclesControllerProvider);
       state = AuthAuthenticated(session.user);
     } on AppError {
       rethrow;

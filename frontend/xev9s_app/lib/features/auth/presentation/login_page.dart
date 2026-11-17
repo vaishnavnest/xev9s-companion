@@ -458,8 +458,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscurePassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
                             color: const Color(0xFF64748B),
                             size: 20,
                           ),
