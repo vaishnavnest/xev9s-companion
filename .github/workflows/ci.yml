@@ -87,9 +87,9 @@ jobs:
           name: flutter-html-coverage-report
           path: frontend/xev9s_app/coverage/html
 
-  # 2. Backend Validation (Runs when backend tests exist and backend files change)
+# 2. FastAPI Backend Validation (Runs when backend tests exist and backend files change)
   backend-verify:
-    name: Backend Lint & Test
+    name: FastAPI Backend Lint & Test
     runs-on: ubuntu-latest
 
     steps:
@@ -125,18 +125,30 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies & test tools
+      - name: Install FastAPI Dependencies & Test Tools
         if: steps.filter.outputs.backend == 'true' && hashFiles('backend/tests/**') != ''
         run: |
           python -m pip install --upgrade pip
           if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
-          pip install pytest pytest-cov ruff
+          pip install fastapi uvicorn httpx pytest pytest-cov ruff
 
-      - name: Lint Python code
+      - name: Lint Python & FastAPI Code
         if: steps.filter.outputs.backend == 'true' && hashFiles('backend/tests/**') != ''
-        run: cd backend && ruff check .
+        run: |
+          cd backend
+          ruff check .
 
-      - name: Run pytest with 70% Coverage Gate & HTML Report
+      - name: Validate FastAPI App & OpenAPI Schema
+        if: steps.filter.outputs.backend == 'true' && hashFiles('backend/tests/**') != ''
+        env:
+          MONGO_URI: "mongodb://localhost:27017"
+          MONGO_DB_NAME: "Xev9s_db"
+          JWT_SECRET: "test_only_non_secret_jwt_value_32_characters_minimum" # gitleaks:allow
+        run: |
+          cd backend
+          python -c "from app.main import app; schema = app.openapi(); print(f'✅ FastAPI OpenAPI schema valid ({len(schema.get(\"paths\", {}))} endpoints registered)')"
+
+      - name: Run FastAPI Pytest Suite with 70% Coverage Gate
         if: steps.filter.outputs.backend == 'true' && hashFiles('backend/tests/**') != ''
         env:
           MONGO_URI: "mongodb://localhost:27017"
