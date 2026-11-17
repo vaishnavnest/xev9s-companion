@@ -53,6 +53,10 @@ void main() {
         equals(ApiErrorCode.reportNotReady),
       );
       expect(
+        ApiErrorCode.fromString('SCENARIO_ALREADY_RUNNING'),
+        equals(ApiErrorCode.scenarioAlreadyRunning),
+      );
+      expect(
         ApiErrorCode.fromString('VEHICLE_OFFLINE'),
         equals(ApiErrorCode.vehicleOffline),
       );
