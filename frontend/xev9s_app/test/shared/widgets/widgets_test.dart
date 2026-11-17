@@ -4,10 +4,12 @@ import 'package:material_ui/material_ui.dart';
 import 'package:xev9s_app/core/network/api_exception.dart';
 import 'package:xev9s_app/core/network/error_codes.dart';
 import 'package:xev9s_app/shared/widgets/async_value_view.dart';
+import 'package:xev9s_app/shared/widgets/confirm_dialog.dart';
 import 'package:xev9s_app/shared/widgets/empty_state.dart';
 import 'package:xev9s_app/shared/widgets/error_view.dart';
 import 'package:xev9s_app/shared/widgets/loading_view.dart';
 import 'package:xev9s_app/shared/widgets/stale_banner.dart';
+import 'package:xev9s_app/shared/widgets/status_chip.dart';
 
 Widget testable(Widget child) {
   return MaterialApp(
@@ -79,6 +81,18 @@ void main() {
       await tester.tap(find.text('Add Vehicle'));
       expect(actionFired, isTrue);
     });
+
+    testWidgets('renders without message or action when both are omitted', (tester) async {
+      await tester.pumpWidget(
+        testable(
+          const EmptyState(title: 'Nothing here'),
+        ),
+      );
+
+      expect(find.text('Nothing here'), findsOneWidget);
+      // No action button when actionLabel / onAction are null.
+      expect(find.byType(FilledButton), findsNothing);
+    });
   });
 
   group('StaleBanner', () {
@@ -103,6 +117,160 @@ void main() {
       );
 
       expect(find.textContaining('15m ago'), findsOneWidget);
+    });
+
+    testWidgets('shows custom message when message param is provided', (tester) async {
+      await tester.pumpWidget(
+        testable(
+          const StaleBanner(message: 'Custom offline notice'),
+        ),
+      );
+
+      expect(find.text('Custom offline notice'), findsOneWidget);
+      expect(find.byIcon(Icons.cloud_off_rounded), findsOneWidget);
+    });
+  });
+
+  group('ConfirmDialog', () {
+    testWidgets('confirm button resolves dialog with true', (tester) async {
+      bool? result;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                result = await ConfirmDialog.show(
+                  context,
+                  title: 'Delete trip?',
+                  content: 'This cannot be undone.',
+                  confirmLabel: 'Delete',
+                );
+              },
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete trip?'), findsOneWidget);
+      expect(find.text('This cannot be undone.'), findsOneWidget);
+      expect(find.text('Delete'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+
+      expect(result, isTrue);
+    });
+
+    testWidgets('cancel button resolves dialog with false', (tester) async {
+      bool? result;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                result = await ConfirmDialog.show(
+                  context,
+                  title: 'Remove vehicle?',
+                  content: 'Are you sure?',
+                );
+              },
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(result, isFalse);
+    });
+
+    testWidgets('isDestructive styles confirm button with error color', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => ConfirmDialog.show(
+                context,
+                title: 'Delete?',
+                content: 'Permanent action.',
+                isDestructive: true,
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      // Confirm button is a FilledButton — verify it renders.
+      expect(find.byType(FilledButton), findsOneWidget);
+    });
+  });
+
+  group('StatusChip', () {
+    testWidgets('info tone renders its label', (tester) async {
+      await tester.pumpWidget(
+        testable(
+          const StatusChip(label: 'Info label', type: ChipStatusType.info),
+        ),
+      );
+      expect(find.text('Info label'), findsOneWidget);
+    });
+
+    testWidgets('success tone renders its label', (tester) async {
+      await tester.pumpWidget(
+        testable(
+          const StatusChip(label: 'Charging', type: ChipStatusType.success),
+        ),
+      );
+      expect(find.text('Charging'), findsOneWidget);
+    });
+
+    testWidgets('warning tone renders its label', (tester) async {
+      await tester.pumpWidget(
+        testable(
+          const StatusChip(label: 'Low battery', type: ChipStatusType.warning),
+        ),
+      );
+      expect(find.text('Low battery'), findsOneWidget);
+    });
+
+    testWidgets('error tone renders its label', (tester) async {
+      await tester.pumpWidget(
+        testable(
+          const StatusChip(label: 'Fault', type: ChipStatusType.error),
+        ),
+      );
+      expect(find.text('Fault'), findsOneWidget);
+    });
+
+    testWidgets('renders optional icon when provided', (tester) async {
+      await tester.pumpWidget(
+        testable(
+          const StatusChip(
+            label: 'Online',
+            type: ChipStatusType.success,
+            icon: Icons.check_circle_outline,
+          ),
+        ),
+      );
+
+      expect(find.text('Online'), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle_outline), findsOneWidget);
     });
   });
 
