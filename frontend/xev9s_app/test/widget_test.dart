@@ -40,6 +40,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(LoginPage), findsOneWidget);
-    expect(find.text('Welcome to XEV 9S'), findsOneWidget);
+    expect(find.text('Welcome Back'), findsOneWidget);
+    expect(find.text('XEV 9S'), findsOneWidget);
   });
 }

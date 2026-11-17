@@ -28,6 +28,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   bool _isLoading = false;
+  bool _agreedToTerms = true;
   String? _generalError;
   Map<String, String> _fieldErrors = {};
   bool _hasUserInteracted = false;
@@ -64,16 +65,25 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
   bool get _isFormInputValid {
     final nameErr = Validators.required(_nameController.text, 'Full name') ??
-        Validators.maxLength(_nameController.text, AppConstants.maxNameLength, fieldName: 'Full name');
+        Validators.maxLength(_nameController.text, AppConstants.maxNameLength,
+            fieldName: 'Full name');
     final emailErr = Validators.required(_emailController.text, 'Email') ??
         Validators.email(_emailController.text);
-    final passwordErr = Validators.password(_passwordController.text);
+    final passwordErr =
+        Validators.required(_passwordController.text, 'Password') ??
+            Validators.minLength(
+                _passwordController.text, AppConstants.minPasswordLength,
+                fieldName: 'Password');
     final confirmErr = Validators.matches(
       _passwordController.text,
       _confirmPasswordController.text,
       'Passwords do not match.',
     );
-    return nameErr == null && emailErr == null && passwordErr == null && confirmErr == null;
+    return nameErr == null &&
+        emailErr == null &&
+        passwordErr == null &&
+        confirmErr == null &&
+        _agreedToTerms;
   }
 
   Future<void> _submit() async {
@@ -92,7 +102,6 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
             _emailController.text,
             _passwordController.text,
           );
-      // Router will automatically navigate upon authController state change
     } on AppError catch (e) {
       if (!mounted) return;
       setState(() {
@@ -125,13 +134,40 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        toolbarHeight: 44,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            size: 18,
+            color: Color(0xFF0F172A),
+          ),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/login');
+            }
+          },
+        ),
+        title: const Text(
+          'Create Account',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF0F172A),
+          ),
+        ),
+      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: Form(
@@ -143,40 +179,52 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
+                    // Main Title
+                    const Text(
                       'Create Account',
-                      style: theme.textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
+                      style: TextStyle(
+                        color: Color(0xFF0B192C),
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
                       ),
-                      textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Join the XEV 9S companion platform',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 4),
 
+                    // Subtitle
+                    const Text(
+                      'Sign up to connect and manage your XEV 9S.',
+                      style: TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // General Error Banner
                     if (_generalError != null) ...[
                       Container(
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.errorContainer,
-                          borderRadius: BorderRadius.circular(8),
+                          color: const Color(0xFFFEF2F2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: const Color(0xFFFECACA),
+                          ),
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.error_outline_rounded,
-                                size: 20, color: theme.colorScheme.onErrorContainer),
-                            const SizedBox(width: 8),
+                            const Icon(
+                              Icons.error_outline_rounded,
+                              size: 18,
+                              color: Color(0xFFDC2626),
+                            ),
+                            const SizedBox(width: 10),
                             Expanded(
                               child: Text(
                                 _generalError!,
-                                style: TextStyle(
-                                  color: theme.colorScheme.onErrorContainer,
+                                style: const TextStyle(
+                                  color: Color(0xFF991B1B),
                                   fontSize: 13,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -185,101 +233,370 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                     ],
 
-                    // Full name
+                    // Field 1: Full Name Label
+                    const Text(
+                      'FULL NAME',
+                      style: TextStyle(
+                        color: Color(0xFF334155),
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+
+                    // Field 1: Full Name Input
                     TextFormField(
                       key: const Key('register-name'),
                       controller: _nameController,
-                      autofillHints: const [AutofillHints.name],
                       textInputAction: TextInputAction.next,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF0F172A),
+                      ),
                       decoration: InputDecoration(
-                        labelText: 'Full name',
-                        prefixIcon: const Icon(Icons.person_outline),
-                        border: const OutlineInputBorder(),
+                        hintText: 'e.g. Alex Vance',
+                        hintStyle: const TextStyle(
+                          color: Color(0xFF94A3B8),
+                          fontSize: 14,
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        prefixIcon: const Icon(
+                          Icons.person_outline_rounded,
+                          color: Color(0xFF64748B),
+                          size: 20,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE2E8F0),
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE2E8F0),
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF00ACC1),
+                            width: 1.5,
+                          ),
+                        ),
+                        errorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFEF4444),
+                          ),
+                        ),
+                        focusedErrorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFEF4444),
+                            width: 1.5,
+                          ),
+                        ),
                         errorText: _fieldErrors['name'],
                       ),
                       validator: (val) {
                         return Validators.required(val, 'Full name') ??
-                            Validators.maxLength(val, AppConstants.maxNameLength, fieldName: 'Full name');
+                            Validators.maxLength(
+                                val, AppConstants.maxNameLength,
+                                fieldName: 'Full name');
                       },
-                      onFieldSubmitted: (_) => _emailFocusNode.requestFocus(),
+                      onFieldSubmitted: (_) {
+                        FocusScope.of(context).requestFocus(_emailFocusNode);
+                      },
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
 
-                    // Email
+                    // Field 2: Email Label
+                    const Text(
+                      'EMAIL',
+                      style: TextStyle(
+                        color: Color(0xFF334155),
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+
+                    // Field 2: Email Input
                     TextFormField(
                       key: const Key('register-email'),
                       controller: _emailController,
                       focusNode: _emailFocusNode,
-                      autofillHints: const [AutofillHints.email],
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF0F172A),
+                      ),
                       decoration: InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon: const Icon(Icons.email_outlined),
-                        border: const OutlineInputBorder(),
+                        hintText: 'name@example.com',
+                        hintStyle: const TextStyle(
+                          color: Color(0xFF94A3B8),
+                          fontSize: 14,
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        prefixIcon: const Icon(
+                          Icons.mail_outline_rounded,
+                          color: Color(0xFF64748B),
+                          size: 20,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE2E8F0),
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE2E8F0),
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF00ACC1),
+                            width: 1.5,
+                          ),
+                        ),
+                        errorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFEF4444),
+                          ),
+                        ),
+                        focusedErrorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFEF4444),
+                            width: 1.5,
+                          ),
+                        ),
                         errorText: _fieldErrors['email'],
                       ),
                       validator: (val) {
-                        return Validators.required(val, 'Email') ?? Validators.email(val);
+                        return Validators.required(val, 'Email') ??
+                            Validators.email(val);
                       },
-                      onFieldSubmitted: (_) => _passwordFocusNode.requestFocus(),
+                      onFieldSubmitted: (_) {
+                        FocusScope.of(context).requestFocus(_passwordFocusNode);
+                      },
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
 
-                    // Password
+                    // Field 3: Password Label
+                    const Text(
+                      'PASSWORD',
+                      style: TextStyle(
+                        color: Color(0xFF334155),
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+
+                    // Field 3: Password Input
                     TextFormField(
                       key: const Key('register-password'),
                       controller: _passwordController,
                       focusNode: _passwordFocusNode,
                       obscureText: _obscurePassword,
-                      autofillHints: const [AutofillHints.newPassword],
                       textInputAction: TextInputAction.next,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF0F172A),
+                      ),
                       decoration: InputDecoration(
-                        labelText: 'Password',
-                        helperText: 'Must be at least ${AppConstants.minPasswordLength} characters',
-                        prefixIcon: const Icon(Icons.lock_outlined),
-                        border: const OutlineInputBorder(),
-                        errorText: _fieldErrors['password'],
+                        hintText: 'Create a password',
+                        hintStyle: const TextStyle(
+                          color: Color(0xFF94A3B8),
+                          fontSize: 14,
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        prefixIcon: const Icon(
+                          Icons.lock_outline_rounded,
+                          color: Color(0xFF64748B),
+                          size: 20,
+                        ),
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscurePassword
                                 ? Icons.visibility_outlined
                                 : Icons.visibility_off_outlined,
+                            color: const Color(0xFF64748B),
+                            size: 20,
                           ),
                           tooltip: _obscurePassword ? 'Show password' : 'Hide password',
-                          onPressed: () =>
-                              setState(() => _obscurePassword = !_obscurePassword),
+                          onPressed: () {
+                            setState(() {
+                              _obscurePassword = !_obscurePassword;
+                            });
+                          },
                         ),
+                        helperText: 'Must be at least 8 characters',
+                        helperStyle: const TextStyle(
+                          color: Color(0xFF64748B),
+                          fontSize: 11,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE2E8F0),
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE2E8F0),
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF00ACC1),
+                            width: 1.5,
+                          ),
+                        ),
+                        errorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFEF4444),
+                          ),
+                        ),
+                        focusedErrorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFEF4444),
+                            width: 1.5,
+                          ),
+                        ),
+                        errorText: _fieldErrors['password'],
                       ),
-                      validator: Validators.password,
-                      onFieldSubmitted: (_) => _confirmPasswordFocusNode.requestFocus(),
+                      validator: (val) {
+                        return Validators.required(val, 'Password') ??
+                            Validators.minLength(
+                                val, AppConstants.minPasswordLength,
+                                fieldName: 'Password');
+                      },
+                      onFieldSubmitted: (_) {
+                        FocusScope.of(context)
+                            .requestFocus(_confirmPasswordFocusNode);
+                      },
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
 
-                    // Confirm Password
+                    // Field 4: Confirm Password Label
+                    const Text(
+                      'CONFIRM PASSWORD',
+                      style: TextStyle(
+                        color: Color(0xFF334155),
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+
+                    // Field 4: Confirm Password Input
                     TextFormField(
                       key: const Key('register-confirm'),
                       controller: _confirmPasswordController,
                       focusNode: _confirmPasswordFocusNode,
                       obscureText: _obscureConfirm,
-                      autofillHints: const [AutofillHints.newPassword],
                       textInputAction: TextInputAction.done,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF0F172A),
+                      ),
                       decoration: InputDecoration(
-                        labelText: 'Confirm password',
-                        prefixIcon: const Icon(Icons.lock_reset_outlined),
-                        border: const OutlineInputBorder(),
+                        hintText: 'Re-enter your password',
+                        hintStyle: const TextStyle(
+                          color: Color(0xFF94A3B8),
+                          fontSize: 14,
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        prefixIcon: const Icon(
+                          Icons.lock_outline_rounded,
+                          color: Color(0xFF64748B),
+                          size: 20,
+                        ),
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscureConfirm
                                 ? Icons.visibility_outlined
                                 : Icons.visibility_off_outlined,
+                            color: const Color(0xFF64748B),
+                            size: 20,
                           ),
                           tooltip: _obscureConfirm ? 'Show password' : 'Hide password',
-                          onPressed: () =>
-                              setState(() => _obscureConfirm = !_obscureConfirm),
+                          onPressed: () {
+                            setState(() {
+                              _obscureConfirm = !_obscureConfirm;
+                            });
+                          },
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE2E8F0),
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE2E8F0),
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF00ACC1),
+                            width: 1.5,
+                          ),
+                        ),
+                        errorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFEF4444),
+                          ),
+                        ),
+                        focusedErrorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFEF4444),
+                            width: 1.5,
+                          ),
                         ),
                       ),
                       validator: (val) {
@@ -291,14 +608,116 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                       },
                       onFieldSubmitted: (_) => _submit(),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 12),
 
-                    // Submit button
+                    // Terms & Privacy Checkbox
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: Checkbox(
+                            value: _agreedToTerms,
+                            onChanged: (val) {
+                              setState(() {
+                                _agreedToTerms = val ?? false;
+                              });
+                            },
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            activeColor: const Color(0xFF00ACC1),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Wrap(
+                              children: [
+                                const Text(
+                                  'I agree to the ',
+                                  style: TextStyle(
+                                    color: Color(0xFF475569),
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                GestureDetector(
+                                  onTap: () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('XEV Motors Terms of Service'),
+                                      ),
+                                    );
+                                  },
+                                  child: const Text(
+                                    'Terms of Service',
+                                    style: TextStyle(
+                                      color: Color(0xFF00838F),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                                const Text(
+                                  ' and ',
+                                  style: TextStyle(
+                                    color: Color(0xFF475569),
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                GestureDetector(
+                                  onTap: () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('XEV Motors Privacy Policy'),
+                                      ),
+                                    );
+                                  },
+                                  child: const Text(
+                                    'Privacy Policy',
+                                    style: TextStyle(
+                                      color: Color(0xFF00838F),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                                const Text(
+                                  '.',
+                                  style: TextStyle(
+                                    color: Color(0xFF475569),
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Submit Button (Cyan)
                     SizedBox(
-                      height: 48,
+                      height: 50,
                       child: FilledButton(
                         key: const Key('register-submit'),
                         onPressed: (_isFormInputValid && !_isLoading) ? _submit : null,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF00BCD4),
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor:
+                              const Color(0xFF00BCD4).withValues(alpha: 0.35),
+                          disabledForegroundColor:
+                              Colors.white.withValues(alpha: 0.7),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          elevation: (_isFormInputValid && !_isLoading) ? 3 : 0,
+                          shadowColor: const Color(0xFF00BCD4).withValues(alpha: 0.35),
+                        ),
                         child: _isLoading
                             ? const SizedBox(
                                 width: 20,
@@ -308,25 +727,56 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                                   color: Colors.white,
                                 ),
                               )
-                            : const Text('Create Account'),
+                            : const Text(
+                                'CREATE ACCOUNT',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1.0,
+                                ),
+                              ),
                       ),
                     ),
                     const SizedBox(height: 16),
 
-                    // Link back to Login
+                    // Link back to Sign In
                     Wrap(
                       alignment: WrapAlignment.center,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Text(
-                          'Already have an account?',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
+                        const Text(
+                          'Already have an account? ',
+                          style: TextStyle(
+                            color: Color(0xFF475569),
+                            fontSize: 14,
                           ),
                         ),
                         TextButton(
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                           onPressed: _isLoading ? null : () => context.go('/login'),
-                          child: const Text('Sign in'),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              Text(
+                                'SIGN IN',
+                                style: TextStyle(
+                                  color: Color(0xFF00838F),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              SizedBox(width: 4),
+                              Icon(
+                                Icons.chevron_right_rounded,
+                                size: 18,
+                                color: Color(0xFF00838F),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
