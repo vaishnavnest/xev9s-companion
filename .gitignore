@@ -1,0 +1,34 @@
+# Environment & Secrets (Keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
+# Python (Backend, Simulator, Report Worker)
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.ruff_cache/
+
+# Flutter / Dart
+.dart_tool/
+build/
+coverage/
+
+# Terraform & LocalStack (Workflow 7)
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+
+# OS & IDEs
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
