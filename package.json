@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "name": "xev9s-companion",
+  "description": "XEV 9S Companion - workspace scripts",
+  "scripts": {
+    "mock": "prism mock docs/openapi.yaml -p 4010 --cors",
+    "lint:api": "npx @redocly/cli lint docs/openapi.yaml"
+  },
+  "devDependencies": {
+    "@stoplight/prism-cli": "^5.0.0"
+  }
+}
