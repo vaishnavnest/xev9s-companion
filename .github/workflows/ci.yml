@@ -5,12 +5,10 @@ on:
   pull_request:
     branches: [dev, 'release/*', main]
 
-# Minimum permissions required by the workflow and PR path filtering.
 permissions:
   contents: read
   pull-requests: read
 
-# Cancel outdated runs for the same PR or branch.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -63,7 +61,7 @@ jobs:
         if: steps.filter.outputs.frontend == 'true'
         run: |
           if [ ! -s coverage/lcov.info ]; then
-            echo "❌ Coverage report is missing or empty."
+            echo "Coverage report is missing or empty."
             exit 1
           fi
 
@@ -75,7 +73,7 @@ jobs:
             head -n 1)
 
           if [ -z "$COVERAGE" ]; then
-            echo "❌ Failed to parse coverage percentage."
+            echo "Failed to parse coverage percentage."
             exit 1
           fi
 
@@ -87,12 +85,12 @@ jobs:
 
           awk -v cov="$COVERAGE" 'BEGIN {
             if (cov < 70.0) {
-              print "❌ Coverage " cov "% is below the 70% threshold!"
+              print "Coverage " cov "% is below the 70% threshold!"
               exit 1
             }
           }'
 
-          echo "✅ Coverage check passed (${COVERAGE}% >= 70.0%)"
+          echo "Flutter coverage check passed (${COVERAGE}% >= 70.0%)"
 
       - name: Upload Flutter HTML Coverage Report
         uses: actions/upload-artifact@v4
@@ -100,7 +98,6 @@ jobs:
         with:
           name: flutter-html-coverage-report
           path: frontend/xev9s_app/coverage/html
-
 
 
   # 2. FastAPI Backend Validation
@@ -130,27 +127,36 @@ jobs:
             echo "Backend application found."
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "Backend application not found. Skipping validation."
+            echo "Backend application not found. Skipping backend validation."
           fi
+
+      - name: Verify backend requirements and tests
+        if: steps.backend-check.outputs.available == 'true'
+        run: |
+          if [ ! -f backend/requirements.txt ]; then
+            echo "backend/requirements.txt is missing."
+            exit 1
+          fi
+
+          if [ ! -d backend/tests ]; then
+            echo "backend/tests directory is missing."
+            exit 1
+          fi
+
+          echo "Backend requirements and test directories found."
 
       - name: Setup Python
         if: steps.backend-check.outputs.available == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-          cache: 'pip'
+          cache: pip
           cache-dependency-path: backend/requirements.txt
 
       - name: Install Backend Dependencies
         if: steps.backend-check.outputs.available == 'true'
         run: |
           python -m pip install --upgrade pip
-
-          if [ ! -f backend/requirements.txt ]; then
-            echo "requirements.txt not found!"
-            exit 1
-          fi
-
           pip install -r backend/requirements.txt
           pip install pytest pytest-cov ruff
 
@@ -163,7 +169,7 @@ jobs:
             LINES=$(wc -l < "$file")
 
             if [ "$LINES" -gt 200 ]; then
-              echo "❌ $file has $LINES lines (limit is 200)"
+              echo "$file has $LINES lines (limit is 200)"
               FAILED=1
             fi
           done < <(find backend/app -name "*.py" -print0)
@@ -172,33 +178,33 @@ jobs:
             exit 1
           fi
 
-          echo "✅ All backend Python files are within 200 lines."
+          echo "All backend Python files are within 200 lines."
 
       - name: Lint Python Code
         if: steps.backend-check.outputs.available == 'true'
-        run: |
-          cd backend
-          ruff check .
+        working-directory: backend
+        run: ruff check .
 
       - name: Validate FastAPI App & OpenAPI Schema
         if: steps.backend-check.outputs.available == 'true'
+        working-directory: backend
         env:
-          PYTHONPATH: backend
+          PYTHONPATH: ${{ github.workspace }}/backend
           MONGO_URI: mongodb://localhost:27017
           MONGO_DB_NAME: Xev9s_db
           JWT_SECRET: test_only_non_secret_jwt_value_32_characters_minimum
         run: |
-          python -c "from app.main import app; schema = app.openapi(); print(f'✅ FastAPI OpenAPI schema valid ({len(schema.get(\"paths\", {}))} endpoints registered)')"
+          python -c "from app.main import app; schema = app.openapi(); print(f'FastAPI OpenAPI schema valid ({len(schema.get(\"paths\", {}))} endpoints registered)')"
 
       - name: Run Backend Tests with 70% Coverage Gate
-        if: steps.backend-check.outputs.available == 'true' && hashFiles('backend/tests/**/*.py', 'backend/tests/*.py') != ''
+        if: steps.backend-check.outputs.available == 'true'
+        working-directory: backend
         env:
-          PYTHONPATH: backend
+          PYTHONPATH: ${{ github.workspace }}/backend
           MONGO_URI: mongodb://localhost:27017
           MONGO_DB_NAME: Xev9s_db
           JWT_SECRET: test_only_non_secret_jwt_value_32_characters_minimum
         run: |
-          cd backend
           pytest tests \
             --cov=app \
             --cov-report=term-missing \
@@ -212,7 +218,6 @@ jobs:
         with:
           name: backend-html-coverage-report
           path: backend/htmlcov
-
 
 
   # 3. Security Scans
@@ -271,18 +276,18 @@ jobs:
           echo "Security result: $SECURITY_RESULT"
 
           if [[ "$FLUTTER_RESULT" != "success" && "$FLUTTER_RESULT" != "skipped" ]]; then
-            echo "❌ Flutter checks failed!"
+            echo "Flutter checks failed!"
             exit 1
           fi
 
           if [[ "$BACKEND_RESULT" != "success" && "$BACKEND_RESULT" != "skipped" ]]; then
-            echo "❌ Backend checks failed!"
+            echo "Backend checks failed!"
             exit 1
           fi
 
           if [[ "$SECURITY_RESULT" != "success" ]]; then
-            echo "❌ Security scans failed!"
+            echo "Security scans failed!"
             exit 1
           fi
 
-          echo "✅ All mandatory CI and security gates passed!"
+          echo "All mandatory CI and security gates passed!"
