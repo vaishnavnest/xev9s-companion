@@ -6,6 +6,7 @@ from backend.app.core.database import (
 )
 from backend.app.core.indexes import ensure_database_indexes
 from backend.app.routes.auth import router as auth_router
+from backend.app.routes.vehicles import router as vehicles_router
 from fastapi import FastAPI, HTTPException, Request
 from pymongo.errors import PyMongoError
 
@@ -29,6 +30,7 @@ app = FastAPI(
 )
 
 app.include_router(auth_router)
+app.include_router(vehicles_router)
 
 
 @app.get("/")
