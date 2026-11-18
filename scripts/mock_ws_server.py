@@ -1,0 +1,308 @@
+"""
+Pure Python Mock WebSocket Server for XEV 9S Companion.
+Requires no external dependencies (built on Python standard library socketserver/hashlib/base64).
+Listens on port 4011 at /ws?token=...&vehicleId=...
+Simulates:
+- Periodic vehicle.status telemetry broadcasts every 3 seconds
+- Periodic charging.updated broadcasts every 15 seconds
+- Connectivity toggles every 30 seconds
+
+POST http://localhost:4012/control  — inject a custom WS broadcast:
+  {"event": "vehicle.status", "battery": 15.0, "vehicleState": "DRIVING",
+   "speedKmh": 90.0, "isOnline": true, "chargingState": "CHARGING", "powerKw": 48.5}
+"""
+
+import base64
+import hashlib
+import json
+import socket
+import socketserver
+import threading
+import time
+from datetime import datetime, timezone
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+
+PORT = 4011
+CONTROL_PORT = 4012
+GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+clients = set()
+clients_lock = threading.Lock()
+state = {
+    "isOnline": True,
+    "batteryPercent": 64.0,
+    "speed": 0.0,
+    "chargingState": "NOT_CONNECTED",
+    "powerKw": None,
+    "vehicleState": "PARKED",
+    "lockState": "LOCKED",
+    "preconditioningState": "INACTIVE",
+    "odometerKm": 12874.3,
+    "name": "My XEV 9S",
+    "model": "XEV 9S AWD Performance",
+}
+state_lock = threading.Lock()
+
+def make_frame(payload_str: str) -> bytes:
+    payload_bytes = payload_str.encode('utf-8')
+    length = len(payload_bytes)
+    if length < 126:
+        header = bytes([0x81, length])
+    elif length <= 65535:
+        header = bytes([0x81, 126, (length >> 8) & 0xFF, length & 0xFF])
+    else:
+        header = bytes([0x81, 127]) + length.to_bytes(8, byteorder='big')
+    return header + payload_bytes
+
+def broadcast(event_name: str, data: dict, vehicle_id: str = "veh_mock_9s_01"):
+    message = json.dumps({
+        "event": event_name,
+        "vehicleId": vehicle_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "data": data,
+    })
+    frame = make_frame(message)
+    with clients_lock:
+        to_remove = set()
+        for client in clients:
+            try:
+                client.sendall(frame)
+            except Exception:
+                to_remove.add(client)
+        clients.difference_update(to_remove)
+
+class WebSocketHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        # Read HTTP Upgrade Handshake
+        request_line = self.rfile.readline().decode('utf-8', errors='ignore')
+        if not request_line or 'GET' not in request_line:
+            return
+
+        headers = {}
+        while True:
+            line = self.rfile.readline().decode('utf-8', errors='ignore').strip()
+            if not line:
+                break
+            if ':' in line:
+                k, v = line.split(':', 1)
+                headers[k.strip().lower()] = v.strip()
+
+        key = headers.get('sec-websocket-key')
+        if not key:
+            self.wfile.write(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+            return
+
+        # Handshake response
+        accept_val = base64.b64encode(hashlib.sha1((key + GUID).encode()).digest()).decode()
+        response = (
+            "HTTP/1.1 101 Switching Protocols\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Accept: {accept_val}\r\n"
+            "\r\n"
+        )
+        self.wfile.write(response.encode('utf-8'))
+        self.wfile.flush()
+
+        print(f"[MockWS] Client connected from {self.client_address}")
+        with clients_lock:
+            clients.add(self.request)
+
+        # Send initial status frame immediately upon connect — read from live state
+        with state_lock:
+            s = dict(state)
+        self.request.sendall(make_frame(json.dumps({
+            "event": "vehicle.status",
+            "vehicleId": "veh_mock_9s_01",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "data": _build_status_payload(s),
+        })))
+
+        try:
+            while True:
+                # Keep socket open and consume incoming frames / pings
+                b1_b2 = self.rfile.read(2)
+                if not b1_b2 or len(b1_b2) < 2:
+                    break
+                opcode = b1_b2[0] & 0x0F
+                if opcode == 0x08:  # Close frame
+                    break
+                length = b1_b2[1] & 0x7F
+                if length == 126:
+                    length = int.from_bytes(self.rfile.read(2), 'big')
+                elif length == 127:
+                    length = int.from_bytes(self.rfile.read(8), 'big')
+                # Read mask and payload
+                mask = self.rfile.read(4)
+                payload = self.rfile.read(length)
+                if opcode == 0x09:  # Ping -> reply Pong
+                    self.request.sendall(bytes([0x8A, 0x00]))
+        except Exception:
+            pass
+        finally:
+            with clients_lock:
+                clients.discard(self.request)
+            print(f"[MockWS] Client disconnected from {self.client_address}")
+
+class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
+
+def ticker():
+    status_counter = 0
+    while True:
+        time.sleep(3)
+        status_counter += 1
+        with clients_lock:
+            has_clients = len(clients) > 0
+
+        if not has_clients:
+            continue
+
+        with state_lock:
+            if not state["isOnline"]:
+                continue
+            # Only drain battery when actively driving (realistic simulation)
+            if state["vehicleState"] == "DRIVING":
+                state["batteryPercent"] = max(10.0, round(state["batteryPercent"] - 0.1, 1))
+                state["speed"] = state.get("speed", 42.0) or 42.0
+            else:
+                state["speed"] = 0.0
+            s = dict(state)
+
+        # Full vehicle.status broadcast — all fields the Flutter app reads
+        broadcast("vehicle.status", _build_status_payload(s))
+
+        # Charging update every 15s
+        if status_counter % 5 == 0:
+            with state_lock:
+                s = dict(state)
+            broadcast("charging.updated", {
+                "state": s["chargingState"],
+                "powerKw": s["powerKw"],
+                "batteryPercent": s["batteryPercent"],
+                "remainingMinutes": 45 if s["chargingState"] == "CHARGING" else None,
+            })
+
+
+def _build_status_payload(s: dict) -> dict:
+    """Build a full vehicle.status data payload from current state dict."""
+    battery_pct = s["batteryPercent"]
+    return {
+        "vehicleId": "veh_mock_9s_01",
+        "name": s.get("name", "My XEV 9S"),
+        "model": s.get("model", "XEV 9S AWD Performance"),
+        "vehicleState": s["vehicleState"],
+        "connectivity": "ONLINE" if s["isOnline"] else "OFFLINE",
+        "battery": {
+            "percent": battery_pct,
+            "level": "WARNING" if battery_pct <= 20 else "NORMAL",
+        },
+        "range": {"estimatedKm": round(battery_pct * 4.8, 1)},
+        "odometerKm": s.get("odometerKm", 12874.3),
+        "speedKmh": s["speed"],
+        "lockState": s.get("lockState", "LOCKED"),
+        "preconditioningState": s.get("preconditioningState", "INACTIVE"),
+        "charging": {
+            "state": s["chargingState"],
+            "powerKw": s["powerKw"],
+        },
+        "lastUpdatedAt": datetime.now(timezone.utc).isoformat(),
+        "isStale": not s["isOnline"],
+    }
+
+state["vehicleState"] = "PARKED"
+
+# ── HTTP Control Server on port 4012 ─────────────────────────────────────────
+class ControlHandler(BaseHTTPRequestHandler):
+    """Accepts POST /control to update state and trigger an immediate broadcast."""
+
+    def _cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._cors()
+        self.end_headers()
+
+    def do_GET(self):
+        # GET /control/state → read current state
+        with state_lock:
+            body = json.dumps({"state": dict(state)}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self._cors()
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        payload = json.loads(self.rfile.read(length)) if length else {}
+
+        event = payload.get("event", "vehicle.status")
+
+        with state_lock:
+            if "battery"              in payload: state["batteryPercent"]      = float(payload["battery"])
+            if "speedKmh"             in payload: state["speed"]               = float(payload["speedKmh"])
+            if "isOnline"             in payload: state["isOnline"]            = bool(payload["isOnline"])
+            if "vehicleState"         in payload: state["vehicleState"]        = payload["vehicleState"]
+            if "chargingState"        in payload: state["chargingState"]       = payload["chargingState"]
+            if "powerKw"              in payload: state["powerKw"]             = payload["powerKw"]
+            if "lockState"            in payload: state["lockState"]           = payload["lockState"]
+            if "preconditioningState" in payload: state["preconditioningState"]= payload["preconditioningState"]
+            if "odometerKm"           in payload: state["odometerKm"]          = float(payload["odometerKm"])
+            s = dict(state)
+
+        # Build and broadcast the right event
+        if event == "connectivity.changed":
+            broadcast("connectivity.changed", {
+                "status": "ONLINE" if s["isOnline"] else "OFFLINE",
+                "lastCommunicationAt": datetime.now(timezone.utc).isoformat(),
+            })
+            # Also send a full vehicle.status so the app updates all fields
+            broadcast("vehicle.status", _build_status_payload(s))
+        elif event == "charging.updated":
+            broadcast("charging.updated", {
+                "state": s["chargingState"],
+                "powerKw": s["powerKw"],
+                "batteryPercent": s["batteryPercent"],
+                "remainingMinutes": payload.get("remainingMinutes", 45) if s["chargingState"] == "CHARGING" else None,
+            })
+        else:  # default: vehicle.status — full payload with all telemetry fields
+            broadcast("vehicle.status", _build_status_payload(s))
+
+        print(f"[ControlServer] Broadcast '{event}' → state: {s}")
+        import sys; sys.stdout.flush()
+
+        resp = json.dumps({"ok": True, "event": event, "state": s}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(resp)))
+        self._cors()
+        self.end_headers()
+        self.wfile.write(resp)
+
+    def log_message(self, fmt, *args):
+        pass  # silence access logs
+
+
+if __name__ == '__main__':
+    t = threading.Thread(target=ticker, daemon=True)
+    t.start()
+
+    # Start HTTP control server on port 4012
+    control_server = ThreadingHTTPServer(('0.0.0.0', CONTROL_PORT), ControlHandler)
+    ct = threading.Thread(target=control_server.serve_forever, daemon=True)
+    ct.start()
+    print(f"XEV 9S Mock WebSocket Server  → ws://127.0.0.1:{PORT}/ws")
+    print(f"XEV 9S Mock Control Endpoint  → http://127.0.0.1:{CONTROL_PORT}/control")
+    print("Broadcasting live telemetry on port 4011...")
+
+    ws_server = ThreadedTCPServer(('0.0.0.0', PORT), WebSocketHandler)
+    try:
+        ws_server.serve_forever()
+    except KeyboardInterrupt:
+        ws_server.server_close()
+        control_server.server_close()

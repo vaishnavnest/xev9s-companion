@@ -2,13 +2,36 @@
 Lightweight mock server for XEV 9S Companion Platform API.
 Runs with Python standard library (no dependencies required).
 Supports CORS and conforms to the OpenAPI envelope schema.
+
+POST /control  — update live state without restarting:
+  {"battery": 15.0, "vehicleState": "DRIVING", "speedKmh": 90.0,
+   "chargingState": "CHARGING", "powerKw": 48.5, "isOnline": false}
 """
 
 import json
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import sys
+import threading
+from datetime import datetime, timezone
 
 PORT = 4010
+
+# ── Shared mutable state (updated via POST /control) ─────────────────────────
+_state_lock = threading.Lock()
+state = {
+    "vehicleId":            "veh_mock_9s_01",
+    "name":                 "My XEV 9S",
+    "model":                "XEV 9S AWD Performance",
+    "vehicleState":         "PARKED",
+    "isOnline":             True,
+    "batteryPercent":       64.0,
+    "speedKmh":             0.0,
+    "odometerKm":           12874.3,
+    "lockState":            "LOCKED",
+    "preconditioningState": "INACTIVE",
+    "chargingState":        "NOT_CONNECTED",
+    "powerKw":              None,
+}
 
 class MockApiHandler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
@@ -36,6 +59,7 @@ class MockApiHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(body)))
+        self.send_header('Connection', 'close')
         self._send_cors_headers()
         self.end_headers()
         self.wfile.write(body)
@@ -61,6 +85,8 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 "createdAt": "2026-01-01T00:00:00Z"
             })
         elif path in ('/vehicles', '/api/v1/vehicles'):
+            with _state_lock:
+                connectivity = "ONLINE" if state["isOnline"] else "OFFLINE"
             self._send_json(200, data=[
                 {
                     "vehicleId": "veh_mock_9s_01",
@@ -68,16 +94,76 @@ class MockApiHandler(BaseHTTPRequestHandler):
                     "model": "XEV 9S",
                     "identifier": "VIN9S2026MOCK01",
                     "associationStatus": "ASSOCIATED",
-                    "connectivity": "ONLINE"
+                    "connectivity": connectivity,
                 }
             ])
+        elif '/status' in path:
+            vehicle_id = path.split('/vehicles/')[1].split('/status')[0] if '/vehicles/' in path else 'veh_mock_9s_01'
+            with _state_lock:
+                s = dict(state)
+            battery_pct = s["batteryPercent"]
+            self._send_json(200, data={
+                "vehicleId": vehicle_id,
+                "name": s["name"],
+                "model": s["model"],
+                "vehicleState": s["vehicleState"],
+                "connectivity": "ONLINE" if s["isOnline"] else "OFFLINE",
+                "battery": {
+                    "percent": battery_pct,
+                    "level": "WARNING" if battery_pct <= 20 else "NORMAL",
+                },
+                "range": {
+                    "estimatedKm": round(battery_pct * 4.8, 1),
+                },
+                "odometerKm": s["odometerKm"],
+                "speedKmh": s["speedKmh"],
+                "lockState": s["lockState"],
+                "preconditioningState": s["preconditioningState"],
+                "charging": {
+                    "state": s["chargingState"],
+                    "powerKw": s["powerKw"],
+                },
+                "lastUpdatedAt": datetime.now(timezone.utc).isoformat(),
+                "isStale": not s["isOnline"],
+            })
+        elif path in ('/control/state', '/api/v1/control/state'):
+            # Read-only view of current mock state
+            with _state_lock:
+                self._send_json(200, data=dict(state))
         else:
-            # Fallback 200 with empty map
             self._send_json(200, data={})
 
     def do_POST(self):
         path = self.path.split('?')[0]
         body = self._read_body_json()
+
+        # ── Control endpoint: update live mock state ──────────────────────────
+        if path in ('/control', '/api/v1/control'):
+            with _state_lock:
+                if 'battery' in body:
+                    state['batteryPercent'] = float(body['battery'])
+                if 'vehicleState' in body:
+                    state['vehicleState'] = body['vehicleState']
+                if 'speedKmh' in body:
+                    state['speedKmh'] = float(body['speedKmh'])
+                if 'isOnline' in body:
+                    state['isOnline'] = bool(body['isOnline'])
+                if 'lockState' in body:
+                    state['lockState'] = body['lockState']
+                if 'preconditioningState' in body:
+                    state['preconditioningState'] = body['preconditioningState']
+                if 'chargingState' in body:
+                    state['chargingState'] = body['chargingState']
+                if 'powerKw' in body:
+                    state['powerKw'] = body['powerKw']
+                if 'odometerKm' in body:
+                    state['odometerKm'] = float(body['odometerKm'])
+                current = dict(state)
+            print(f"[MockServer] /control → state updated: {current}")
+            sys.stdout.flush()
+            self._send_json(200, data={"message": "State updated", "state": current})
+            return
+        # ─────────────────────────────────────────────────────────────────────
 
         if path in ('/auth/register', '/api/v1/auth/register'):
             name = body.get('name', 'Jane Doe')
@@ -139,7 +225,7 @@ class MockApiHandler(BaseHTTPRequestHandler):
         sys.stdout.flush()
 
 if __name__ == '__main__':
-    server = HTTPServer(('0.0.0.0', PORT), MockApiHandler)
+    server = ThreadingHTTPServer(('0.0.0.0', PORT), MockApiHandler)
     print(f"XEV 9S Mock Server running on http://127.0.0.1:{PORT} (and 0.0.0.0:{PORT})")
     print("Press Ctrl+C to stop.")
     sys.stdout.flush()

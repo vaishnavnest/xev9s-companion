@@ -13,4 +13,7 @@ class AppConstants {
 
   /// Maximum allowed user full name length.
   static const int maxNameLength = 100;
+
+  /// Threshold percentage below which battery level is considered WARNING.
+  static const double lowBatteryWarningPercent = 20.0;
 }

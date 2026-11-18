@@ -18,4 +18,9 @@ echo "API base URL: http://localhost:4010"
 echo "Press Ctrl+C to stop."
 echo ""
 
-npx @stoplight/prism-cli mock "$SPEC" -p 4010 --cors
+if command -v npx >/dev/null 2>&1; then
+  npx @stoplight/prism-cli mock "$SPEC" -p 4010 --cors
+else
+  echo "npx not found, falling back to Python Mock Server..."
+  python "$SCRIPT_DIR/mock_server.py"
+fi
