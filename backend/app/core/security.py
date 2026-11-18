@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -13,6 +14,7 @@ password_hash = PasswordHash.recommended()
 
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY") or os.getenv("JWT_SECRET")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
+VEHICLE_PAIRING_PEPPER = os.getenv("VEHICLE_PAIRING_PEPPER")
 
 if not JWT_SECRET_KEY or len(JWT_SECRET_KEY) < 32:
     raise ValueError("A valid JWT_SECRET_KEY must be configured")
@@ -65,3 +67,25 @@ def generate_refresh_token() -> str:
 def hash_refresh_token(token: str) -> str:
     """Hash a refresh token before storing it."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+def hash_pairing_code(pairing_code: str) -> str:
+    """Create a keyed hash of a vehicle pairing code."""
+
+    if (
+        not VEHICLE_PAIRING_PEPPER
+        or len(VEHICLE_PAIRING_PEPPER) < 32
+    ):
+        raise RuntimeError(
+            "A valid VEHICLE_PAIRING_PEPPER must be configured"
+        )
+
+    message = (
+        b"xev9s:vehicle-pairing:v1:"
+        + pairing_code.encode("utf-8")
+    )
+
+    return hmac.new(
+        VEHICLE_PAIRING_PEPPER.encode("utf-8"),
+        message,
+        hashlib.sha256,
+    ).hexdigest()

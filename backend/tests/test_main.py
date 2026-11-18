@@ -80,7 +80,10 @@ def test_ensure_database_indexes():
     mock_db = {
         "users": MagicMock(),
         "sessions": MagicMock(),
+        "vehicles": MagicMock(),
+        "user_vehicles": MagicMock(),
     }
+
     ensure_database_indexes(mock_db)
 
     mock_db["users"].create_index.assert_called_once()
