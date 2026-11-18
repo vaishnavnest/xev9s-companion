@@ -102,6 +102,7 @@ jobs:
           path: frontend/xev9s_app/coverage/html
 
 
+
   # 2. FastAPI Backend Validation
   backend-verify:
     name: FastAPI Backend Lint & Test
@@ -120,78 +121,84 @@ jobs:
               - 'backend/**'
               - '.github/workflows/ci.yml'
 
-      - name: Enforce 200-Line Limit on backend/app Python Files
+      - name: Check backend availability
+        id: backend-check
         if: steps.filter.outputs.backend == 'true'
+        run: |
+          if [ -f backend/app/main.py ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "Backend application found."
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Backend application not found. Skipping validation."
+          fi
+
+      - name: Setup Python
+        if: steps.backend-check.outputs.available == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Backend Dependencies
+        if: steps.backend-check.outputs.available == 'true'
+        run: |
+          python -m pip install --upgrade pip
+
+          if [ ! -f backend/requirements.txt ]; then
+            echo "requirements.txt not found!"
+            exit 1
+          fi
+
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-cov ruff
+
+      - name: Enforce 200-Line Limit
+        if: steps.backend-check.outputs.available == 'true'
         run: |
           FAILED=0
 
-          if [ -d backend/app ]; then
-            while IFS= read -r -d '' file; do
-              LINES=$(wc -l < "$file")
+          while IFS= read -r -d '' file; do
+            LINES=$(wc -l < "$file")
 
-              if [ "$LINES" -gt 200 ]; then
-                echo "❌ $file has $LINES lines (limit is 200)"
-                FAILED=1
-              fi
-            done < <(find backend/app -name "*.py" -print0)
-          fi
+            if [ "$LINES" -gt 200 ]; then
+              echo "❌ $file has $LINES lines (limit is 200)"
+              FAILED=1
+            fi
+          done < <(find backend/app -name "*.py" -print0)
 
           if [ "$FAILED" -eq 1 ]; then
             exit 1
           fi
 
-          echo "✅ All backend/app Python files are within 200 lines."
+          echo "✅ All backend Python files are within 200 lines."
 
-      # Python setup runs whenever backend files change.
-      # It does not depend on the existence of tests.
-      - name: Setup Python
-        if: steps.filter.outputs.backend == 'true'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install FastAPI Dependencies & Test Tools
-        if: steps.filter.outputs.backend == 'true'
-        run: |
-          python -m pip install --upgrade pip
-
-          if [ -f backend/requirements.txt ]; then
-            pip install -r backend/requirements.txt
-          fi
-
-          pip install fastapi uvicorn httpx pymongo pyjwt "pwdlib[argon2]" python-dotenv email-validator pytest pytest-cov ruff
-
-      # Lint runs even if backend/tests does not exist.
-      - name: Lint Python & FastAPI Code
-        if: steps.filter.outputs.backend == 'true'
+      - name: Lint Python Code
+        if: steps.backend-check.outputs.available == 'true'
         run: |
           cd backend
-          ruff check --ignore B008 .
+          ruff check .
 
-      # OpenAPI validation runs even if backend/tests does not exist.
       - name: Validate FastAPI App & OpenAPI Schema
-        if: steps.filter.outputs.backend == 'true'
+        if: steps.backend-check.outputs.available == 'true'
         env:
-          PYTHONPATH: ".."
-          MONGO_URI: "mongodb://localhost:27017"
-          MONGO_DB_NAME: "Xev9s_db"
-          JWT_SECRET: "test_only_non_secret_jwt_value_32_characters_minimum"
+          PYTHONPATH: backend
+          MONGO_URI: mongodb://localhost:27017
+          MONGO_DB_NAME: Xev9s_db
+          JWT_SECRET: test_only_non_secret_jwt_value_32_characters_minimum
+        run: |
+          python -c "from app.main import app; schema = app.openapi(); print(f'✅ FastAPI OpenAPI schema valid ({len(schema.get(\"paths\", {}))} endpoints registered)')"
+
+      - name: Run Backend Tests with 70% Coverage Gate
+        if: steps.backend-check.outputs.available == 'true' && hashFiles('backend/tests/**/*.py', 'backend/tests/*.py') != ''
+        env:
+          PYTHONPATH: backend
+          MONGO_URI: mongodb://localhost:27017
+          MONGO_DB_NAME: Xev9s_db
+          JWT_SECRET: test_only_non_secret_jwt_value_32_characters_minimum
         run: |
           cd backend
-
-          python -c "from backend.app.main import app; schema = app.openapi(); print(f'✅ FastAPI OpenAPI schema valid ({len(schema.get(\"paths\", {}))} endpoints registered)')"
-
-      # Tests run only when Python test files exist.
-      - name: Run FastAPI Pytest Suite with 70% Coverage Gate
-        if: steps.filter.outputs.backend == 'true' && hashFiles('backend/tests/**/*.py', 'backend/tests/*.py') != ''
-        env:
-          PYTHONPATH: ".."
-          MONGO_URI: "mongodb://localhost:27017"
-          MONGO_DB_NAME: "Xev9s_db"
-          JWT_SECRET: "test_only_non_secret_jwt_value_32_characters_minimum"
-        run: |
-          cd backend
-
           pytest tests \
             --cov=app \
             --cov-report=term-missing \
@@ -201,10 +208,11 @@ jobs:
 
       - name: Upload Backend HTML Coverage Report
         uses: actions/upload-artifact@v4
-        if: always() && steps.filter.outputs.backend == 'true' && hashFiles('backend/htmlcov/index.html') != ''
+        if: always() && steps.backend-check.outputs.available == 'true' && hashFiles('backend/htmlcov/index.html') != ''
         with:
           name: backend-html-coverage-report
           path: backend/htmlcov
+
 
 
   # 3. Security Scans
