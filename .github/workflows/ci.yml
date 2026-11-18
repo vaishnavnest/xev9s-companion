@@ -144,6 +144,7 @@ jobs:
           MONGO_URI: "mongodb://localhost:27017"
           MONGO_DB_NAME: "Xev9s_db"
           JWT_SECRET: "test_only_non_secret_jwt_value_32_characters_minimum" # gitleaks:allow
+          JWT_SECRET_KEY: "test_only_non_secret_jwt_value_32_characters_minimum" # gitleaks:allow
         run: |
           cd backend
           python -c "from app.main import app; schema = app.openapi(); print(f'✅ FastAPI OpenAPI schema valid ({len(schema.get(\"paths\", {}))} endpoints registered)')"
@@ -154,6 +155,7 @@ jobs:
           MONGO_URI: "mongodb://localhost:27017"
           MONGO_DB_NAME: "Xev9s_db"
           JWT_SECRET: "test_only_non_secret_jwt_value_32_characters_minimum" # gitleaks:allow
+          JWT_SECRET_KEY: "test_only_non_secret_jwt_value_32_characters_minimum" # gitleaks:allow
         run: |
           cd backend
           pytest tests --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-fail-under=70 -v
