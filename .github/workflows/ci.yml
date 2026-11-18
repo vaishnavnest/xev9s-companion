@@ -187,26 +187,26 @@ jobs:
 
       - name: Validate FastAPI App & OpenAPI Schema
         if: steps.backend-check.outputs.available == 'true'
-        working-directory: backend
         env:
-          PYTHONPATH: ${{ github.workspace }}/backend
+          PYTHONPATH: ${{ github.workspace }}
           MONGO_URI: mongodb://localhost:27017
           MONGO_DB_NAME: Xev9s_db
-          JWT_SECRET: test_only_non_secret_jwt_value_32_characters_minimum
+          JWT_SECRET: test_only_non_secret_jwt_value_32_characters_minimum # gitleaks:allow
+          JWT_SECRET_KEY: test_only_non_secret_jwt_value_32_characters_minimum # gitleaks:allow
         run: |
-          python -c "from app.main import app; schema = app.openapi(); print(f'FastAPI OpenAPI schema valid ({len(schema.get(\"paths\", {}))} endpoints registered)')"
+          python -c "from backend.app.main import app; schema = app.openapi(); print(f'FastAPI OpenAPI schema valid ({len(schema.get(\"paths\", {}))} endpoints registered)')"
 
       - name: Run Backend Tests with 70% Coverage Gate
         if: steps.backend-check.outputs.available == 'true'
-        working-directory: backend
         env:
-          PYTHONPATH: ${{ github.workspace }}/backend
+          PYTHONPATH: ${{ github.workspace }}
           MONGO_URI: mongodb://localhost:27017
           MONGO_DB_NAME: Xev9s_db
-          JWT_SECRET: test_only_non_secret_jwt_value_32_characters_minimum
+          JWT_SECRET: test_only_non_secret_jwt_value_32_characters_minimum # gitleaks:allow
+          JWT_SECRET_KEY: test_only_non_secret_jwt_value_32_characters_minimum # gitleaks:allow
         run: |
-          pytest tests \
-            --cov=app \
+          pytest backend/tests \
+            --cov=backend.app \
             --cov-report=term-missing \
             --cov-report=html:htmlcov \
             --cov-fail-under=70 \
@@ -214,10 +214,10 @@ jobs:
 
       - name: Upload Backend HTML Coverage Report
         uses: actions/upload-artifact@v4
-        if: always() && steps.backend-check.outputs.available == 'true' && hashFiles('backend/htmlcov/index.html') != ''
+        if: always() && steps.backend-check.outputs.available == 'true' && hashFiles('htmlcov/index.html') != ''
         with:
           name: backend-html-coverage-report
-          path: backend/htmlcov
+          path: htmlcov
 
 
   # 3. Security Scans
