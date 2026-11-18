@@ -42,4 +42,32 @@ class AppConfig {
     'WS_BASE_URL',
     defaultValue: 'ws://localhost:4010',
   );
+
+  /// Raw realtime communication mode: 'ws' (WebSocket) or 'polling'.
+  /// Injected via `--dart-define=REALTIME_MODE=...`.
+  static const String rawRealtimeMode = String.fromEnvironment(
+    'REALTIME_MODE',
+    defaultValue: 'ws',
+  );
+
+  /// Validated realtime mode (defaults to WebSocket for any unrecognized value).
+  static RealtimeMode get realtimeMode {
+    if (rawRealtimeMode.trim().toLowerCase() == 'polling') {
+      return RealtimeMode.polling;
+    }
+    return RealtimeMode.ws;
+  }
+
+  /// Interval in seconds for fallback polling mode.
+  /// Injected via `--dart-define=POLL_INTERVAL_SECONDS=...`.
+  static const int pollIntervalSeconds = int.fromEnvironment(
+    'POLL_INTERVAL_SECONDS',
+    defaultValue: 10,
+  );
+}
+
+/// Operational modes for vehicle status and telemetry synchronization.
+enum RealtimeMode {
+  ws,
+  polling,
 }
