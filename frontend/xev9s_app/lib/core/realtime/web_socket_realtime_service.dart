@@ -128,6 +128,10 @@ class WebSocketRealtimeService implements RealtimeService {
         cancelOnError: true,
       );
 
+      // Await socket handshake completion so connection errors (refusal, DNS, bad host)
+      // are handled cleanly in the try/catch block rather than surfacing as unhandled exceptions
+      await channel.ready;
+
       // Successfully connected
       final wasReconnecting = _isReconnecting || _reconnectAttempts > 0;
       _reconnectAttempts = 0;
