@@ -35,6 +35,7 @@ jobs:
           filters: |
             frontend:
               - 'frontend/**'
+              - 'docs/openapi.yaml'
               - '.github/workflows/ci.yml'
 
       - name: Setup Flutter
@@ -116,6 +117,7 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
+              - 'docs/openapi.yaml'
               - '.github/workflows/ci.yml'
 
       - name: Check backend availability
@@ -209,8 +211,22 @@ jobs:
             --cov=backend.app \
             --cov-report=term-missing \
             --cov-report=html:htmlcov \
-            --cov-fail-under=70 \
+            --cov-report=json:coverage.json \
             -v
+
+          COVERAGE=$(python -c "import json; data=json.load(open('coverage.json')); print(f\"{data['totals']['percent_covered']:.1f}\")")
+
+          echo "### FastAPI Backend Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Line Coverage:** ${COVERAGE}%" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Required Threshold:** 70.0%" >> "$GITHUB_STEP_SUMMARY"
+
+          python -c "
+          cov = float('$COVERAGE')
+          if cov < 70.0:
+              print(f'Backend coverage {cov}% is below the 70.0% threshold!')
+              exit(1)
+          print(f'Backend coverage check passed ({cov}% >= 70.0%)')
+          "
 
       - name: Upload Backend HTML Coverage Report
         uses: actions/upload-artifact@v4
