@@ -4,9 +4,11 @@
   "description": "XEV 9S Companion - workspace scripts",
   "scripts": {
     "mock": "prism mock docs/openapi.yaml -p 4010 --cors",
+    "mock:ws": "node scripts/mock-ws-server.js",
     "lint:api": "npx @redocly/cli lint docs/openapi.yaml"
   },
   "devDependencies": {
-    "@stoplight/prism-cli": "^5.0.0"
+    "@stoplight/prism-cli": "^5.0.0",
+    "ws": "^8.18.0"
   }
 }
