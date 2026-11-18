@@ -23,54 +23,96 @@ cd frontend/xev9s_app
 flutter pub get
 ```
 
-## Running the Mock Backend
+## Running the Mock Backends
 
-The mock backend uses [Prism](https://stoplight.io/open-source/prism) to serve the OpenAPI contract with example responses.
+Local development utilizes two lightweight mock services:
+1. **REST API Mock (Port 4010)**: [Prism](https://stoplight.io/open-source/prism) serves the OpenAPI contract with example responses, or the stateful Python mock (`scripts/mock_server.py`).
+2. **WebSocket Mock Server (Port 4011)**: A Node.js mock WebSocket server (`scripts/mock-ws-server.js`) that simulates live vehicle telemetry, status broadcasts, and connectivity drops.
 
+### 1. Start REST Mock (Port 4010)
 ```powershell
-# From the repo root — PowerShell
+# From repository root — PowerShell
 .\scripts\start-mock.ps1
 
-# Or using bash
+# Or bash
 ./scripts/start-mock.sh
 
-# Or using npx directly
+# Or directly via Prism CLI
 npx @stoplight/prism-cli mock docs/openapi.yaml -p 4010 --cors
 ```
 
-The mock server starts at **`http://localhost:4010`**.
+### 2. Start WebSocket Mock (Port 4011)
+```powershell
+# From repository root — PowerShell
+.\scripts\start-mock-ws.ps1
 
-> **URL prefix:** Prism serves endpoints at the root (e.g., `http://localhost:4010/vehicles`), **not** under `/api/v1`. The real backend will use `http://localhost:8080/api/v1/vehicles`. The `API_BASE_URL` dart-define handles this difference.
+# Or bash
+./scripts/start-mock-ws.sh
+
+# Or directly via npm
+npm run mock:ws
+```
+> **Interactive Controls**: In the WebSocket mock terminal, press `o` to simulate going offline, `n` to go back online, `c` to toggle charging, or `q` to quit.
 
 ## Running the App
 
-Start the mock server first (see above), then in a separate terminal:
+Start both mock servers first, then run the app:
 
 ```bash
 cd frontend/xev9s_app
 
-# Chrome (web)
-flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:4010
+# Chrome (Web) - WebSocket mode (default)
+flutter run -d chrome \
+  --dart-define=API_BASE_URL=http://localhost:4010 \
+  --dart-define=WS_BASE_URL=ws://localhost:4011 \
+  --dart-define=REALTIME_MODE=ws
 
-# Android emulator (10.0.2.2 maps to the host's localhost)
-flutter run -d <emulator-id> --dart-define=API_BASE_URL=http://10.0.2.2:4010
+# Chrome (Web) - Polling mode (re-fetches REST every 5s)
+flutter run -d chrome \
+  --dart-define=API_BASE_URL=http://localhost:4010 \
+  --dart-define=REALTIME_MODE=polling \
+  --dart-define=POLL_INTERVAL_SECONDS=5
 
-# Real Android device (use your PC's LAN IP)
-flutter run -d <device-id> --dart-define=API_BASE_URL=http://192.168.x.x:4010
+# Android emulator (10.0.2.2 maps to host localhost)
+flutter run -d <emulator-id> \
+  --dart-define=API_BASE_URL=http://10.0.2.2:4010 \
+  --dart-define=WS_BASE_URL=ws://10.0.2.2:4011 \
+  --dart-define=REALTIME_MODE=ws
 ```
 
 VS Code users: use the pre-configured **"Web (mock)"** or **"Android emulator (mock)"** launch configurations in `.vscode/launch.json`.
 
 ## Configuration
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `API_BASE_URL` | Base URL for all REST API calls | `http://localhost:4010` (mock) |
-| `WS_BASE_URL` | Base URL for WebSocket connections | `ws://localhost:4010` |
+| Variable | Purpose | Default | Accepted Values |
+|----------|---------|---------|-----------------|
+| `API_BASE_URL` | Base URL for REST API calls | `http://localhost:4010` (mock) | e.g. `http://localhost:8080/api/v1` |
+| `WS_BASE_URL` | Base URL for WebSocket connection | `ws://localhost:4011` | e.g. `wss://api.example.com` |
+| `REALTIME_MODE` | Live telemetry transport mode | `ws` | `ws`, `polling` |
+| `POLL_INTERVAL_SECONDS` | Interval between REST polls in polling mode | `10` | Positive integer (seconds) |
 
-These are injected at compile time via `--dart-define`. See `lib/core/config/app_config.dart` for details.
+These are injected at compile time via `--dart-define`. See `lib/core/config/app_config.dart`.
 
-When pointing at the real backend, set `API_BASE_URL=http://localhost:8080/api/v1`.
+## Architecture & Realtime Telemetry
+
+### Single Source of Truth: `vehicleStatusProvider`
+To ensure data consistency across features:
+- **All screens read `vehicleStatusProvider`.**
+- No screen, widget, or sub-view calls `GET /vehicles/{id}/status` directly or subscribes directly to the raw WebSocket stream.
+- The provider handles initial REST fetch, WebSocket/polling lifecycle, deduplication, out-of-order discarding, and merging partial updates.
+
+### Supported Real-Time Push Events
+
+| Event Name | Schema Type | Handled in VehicleStatus | Description |
+|------------|-------------|--------------------------|-------------|
+| `vehicle.status` | `VehicleStatus` | Complete replacement | Full telemetry update (battery, range, speed, odometer, lock state). |
+| `charging.updated` | `ChargingOverview` | Partial merge | Updates charging state, charging power (kW), and battery level. |
+| `connectivity.changed` | `ConnectivityStatus` | Status & stale toggle | Sets connectivity to `ONLINE` or `OFFLINE`, activates `StaleBanner`, and nulls live-only fields. |
+| `vehicle.location` | `VehicleLocation` | Parsed safely | GPS coordinate updates (for Map/Location view). |
+| `command.updated` | `Command` | Parsed safely | Remote command execution status (Lock/Unlock/Climate). |
+| `notification.created` | `Notification` | Parsed safely | Alert and push notification dispatch. |
+
+*Unknown event types are handled gracefully without disconnecting the client or throwing exceptions.*
 
 ## Testing
 
@@ -246,4 +288,29 @@ curl -X POST http://localhost:4010/vehicles \
   -H "Content-Type: application/json" \
   -d '{"identifier":"XEV9S-2026-0001","pairingCode":"123456","name":"Primary Vehicle"}'
 ```
+
+## Vehicle Dashboard & Real-Time Service (UC-02)
+
+### Status & Implemented Features
+The Dashboard and Real-Time Service (UC-02) are fully implemented, verified with 175 tests, and passing `flutter analyze` with 0 issues:
+
+- **Telemetry Dashboard (`/home`):**
+  - Displays connected vehicle status: vehicle state chip (`Parked`, `Driving`, `Charging`, `Offline`), connectivity indicator (`Online` / `Offline`), battery level & estimated range, odometer, current speed, lock state (`Locked` / `Unlocked`), preconditioning state, and charging power (kW).
+  - Tolerant presentation: Unavailable/missing values display as `"-"` and never `"0"`.
+  - Offline presentation: Stale banner with last known timestamp; live telemetry values (speed, charging power) dimmed or omitted per spec.
+  - Periodic 30s timer updating relative time ("Updated 2m ago") without rebuilding entire vehicle state.
+  - Pull-to-refresh keeping previous telemetry data visible without flashing a blank loading screen (`copyWithPrevious`).
+  - Responsive layout: Single column on narrow displays (`< 720px`), two-column adaptive grid on wide displays (`>= 720px`).
+  - Quick action shortcuts navigating to Location (`/location`), Charging (`/charging`), and Remote Controls (`/controls`).
+- **Real-Time Service (`lib/core/realtime`):**
+  - Unified `RealtimeService` interface with implementations for both WebSocket and Polling.
+  - Configurable via `--dart-define=REALTIME_MODE=ws|polling` and `--dart-define=POLL_INTERVAL_SECONDS=10`.
+  - Auto-reconnect with exponential backoff (`1s, 2s, 4s, 8s, 16s, max 30s`) plus random jitter.
+  - Emits synthetic `onResync` signal upon reconnection or polling tick to trigger REST catch-up.
+  - Detects expired token close codes (`4001`/`4401`/`401`) and triggers token refresh before retrying.
+  - Background lifecycle observer: pauses polling while the app is in the background and resyncs immediately on resume.
+- **Single Source of Truth (`vehicleStatusProvider`):**
+  - Manages REST fetch, deduplication, out-of-order discarding, and merging push events.
+  - Listens to incoming push events (`vehicle.status`, `charging.updated`, `connectivity.changed`).
+
 
