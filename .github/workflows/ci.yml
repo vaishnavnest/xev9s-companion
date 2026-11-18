@@ -87,7 +87,7 @@ jobs:
           name: flutter-html-coverage-report
           path: frontend/xev9s_app/coverage/html
 
-# 2. FastAPI Backend Validation (Runs when backend tests exist and backend files change)
+  # 2. FastAPI Backend Validation (Runs when backend tests exist and backend files change)
   backend-verify:
     name: FastAPI Backend Lint & Test
     runs-on: ubuntu-latest
@@ -130,27 +130,29 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
-          pip install fastapi uvicorn httpx pytest pytest-cov ruff
+          pip install fastapi uvicorn httpx pymongo pyjwt "pwdlib[argon2]" python-dotenv email-validator pytest pytest-cov ruff
 
       - name: Lint Python & FastAPI Code
         if: steps.filter.outputs.backend == 'true' && hashFiles('backend/tests/**') != ''
         run: |
           cd backend
-          ruff check .
+          ruff check --ignore B008 .
 
       - name: Validate FastAPI App & OpenAPI Schema
         if: steps.filter.outputs.backend == 'true' && hashFiles('backend/tests/**') != ''
         env:
+          PYTHONPATH: ".."
           MONGO_URI: "mongodb://localhost:27017"
           MONGO_DB_NAME: "Xev9s_db"
           JWT_SECRET: "test_only_non_secret_jwt_value_32_characters_minimum" # gitleaks:allow
         run: |
           cd backend
-          python -c "from app.main import app; schema = app.openapi(); print(f'✅ FastAPI OpenAPI schema valid ({len(schema.get(\"paths\", {}))} endpoints registered)')"
+          python -c "from backend.app.main import app; schema = app.openapi(); print(f'✅ FastAPI OpenAPI schema valid ({len(schema.get(\"paths\", {}))} endpoints registered)')"
 
       - name: Run FastAPI Pytest Suite with 70% Coverage Gate
         if: steps.filter.outputs.backend == 'true' && hashFiles('backend/tests/**') != ''
         env:
+          PYTHONPATH: ".."
           MONGO_URI: "mongodb://localhost:27017"
           MONGO_DB_NAME: "Xev9s_db"
           JWT_SECRET: "test_only_non_secret_jwt_value_32_characters_minimum" # gitleaks:allow
