@@ -1,7 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
-import '../features/vehicles/selected_vehicle_provider.dart';
+import '../features/vehicles/application/vehicles_controller.dart';
+import '../features/vehicles/presentation/vehicle_switcher_sheet.dart';
 
 class AppShell extends ConsumerWidget {
   const AppShell({
@@ -69,7 +70,7 @@ class AppShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final vehicleId = ref.watch(selectedVehicleProvider);
+    final currentVehicle = ref.watch(currentVehicleProvider);
     final currentIndex = navigationShell.currentIndex;
 
     final appBar = AppBar(
@@ -79,10 +80,8 @@ class AppShell extends ConsumerWidget {
           padding: const EdgeInsets.only(right: 12.0),
           child: ActionChip(
             avatar: const Icon(Icons.directions_car_outlined, size: 18),
-            label: Text(vehicleId ?? 'Select Vehicle'),
-            onPressed: () {
-              context.push('/vehicles');
-            },
+            label: Text(currentVehicle?.displayName ?? 'Select vehicle'),
+            onPressed: () => showVehicleSwitcher(context),
           ),
         ),
       ],

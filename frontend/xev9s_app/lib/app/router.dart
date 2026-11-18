@@ -1,13 +1,12 @@
-import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../core/network/auth_interceptor.dart';
-import '../core/providers.dart';
-import '../core/storage/token_storage.dart';
 import '../features/analytics/presentation/analytics_page.dart';
-import '../features/auth/presentation/auth_page.dart';
+import '../features/auth/application/auth_controller.dart';
+import '../features/auth/presentation/login_page.dart';
+import '../features/auth/presentation/register_page.dart';
+import '../features/auth/presentation/splash_page.dart';
 import '../features/charging/presentation/charging_page.dart';
 import '../features/controls/presentation/controls_page.dart';
 import '../features/dashboard/presentation/dashboard_page.dart';
@@ -15,29 +14,30 @@ import '../features/location/presentation/location_page.dart';
 import '../features/notifications/presentation/notifications_page.dart';
 import '../features/profile/presentation/profile_page.dart';
 import '../features/trips/presentation/trips_page.dart';
+import '../features/vehicles/presentation/add_vehicle_page.dart';
 import '../features/vehicles/presentation/vehicles_page.dart';
+import '../features/vehicles/selected_vehicle_provider.dart';
 import 'app_shell.dart';
 
-/// Helper class converting a Stream into a Listenable for GoRouter refresh.
-class GoRouterRefreshStream extends ChangeNotifier {
-  GoRouterRefreshStream(Stream<dynamic> stream) {
-    _subscription = stream.asBroadcastStream().listen((_) => notifyListeners());
-  }
-
-  late final StreamSubscription<dynamic> _subscription;
-
-  @override
-  void dispose() {
-    _subscription.cancel();
-    super.dispose();
-  }
+/// Notifier signaling GoRouter to re-evaluate route redirection.
+class RouterRefreshNotifier extends ChangeNotifier {
+  void trigger() => notifyListeners();
 }
 
-/// Creates a GoRouter instance with authentication guard and session-expiry handling.
+/// Provider managing GoRouter refresh events from auth and vehicle selection changes.
+final routerRefreshProvider = Provider<RouterRefreshNotifier>((ref) {
+  final notifier = RouterRefreshNotifier();
+  ref.listen(authControllerProvider, (_, _) => notifier.trigger());
+  ref.listen(selectedVehicleProvider, (_, _) => notifier.trigger());
+  return notifier;
+});
+
+/// Creates a GoRouter instance wired to the application auth lifecycle.
 GoRouter createAppRouter({
-  required TokenStorage tokenStorage,
-  Stream<AuthEvent>? authEvents,
-  String initialLocation = '/home',
+  required AuthState Function() getAuthState,
+  required String? Function() getSelectedVehicleId,
+  Listenable? refreshListenable,
+  String initialLocation = '/splash',
   GlobalKey<NavigatorState>? navigatorKey,
 }) {
   final rootKey = navigatorKey ?? GlobalKey<NavigatorState>(debugLabel: 'root');
@@ -45,37 +45,68 @@ GoRouter createAppRouter({
   return GoRouter(
     navigatorKey: rootKey,
     initialLocation: initialLocation,
-    refreshListenable: authEvents != null ? GoRouterRefreshStream(authEvents) : null,
-    redirect: (BuildContext context, GoRouterState state) async {
-      final token = await tokenStorage.getAccessToken();
-      final isLoggedIn = token != null && token.isNotEmpty;
+    refreshListenable: refreshListenable,
+    redirect: (BuildContext context, GoRouterState state) {
+      final authState = getAuthState();
+      final selectedVehicleId = getSelectedVehicleId();
       final loc = state.matchedLocation;
-      final isAuthRoute = loc == '/login' || loc == '/register';
 
-      // If user is unauthenticated, redirect to login unless already on auth route
-      if (!isLoggedIn) {
+      // 1. Unknown or startup failure -> route to /splash
+      if (authState is AuthUnknown || authState is AuthStartupFailed) {
+        return loc == '/splash' ? null : '/splash';
+      }
+
+      // 2. Unauthenticated -> allow /login and /register, otherwise force /login
+      if (authState is AuthUnauthenticated) {
+        final isAuthRoute = loc == '/login' || loc == '/register';
         return isAuthRoute ? null : '/login';
       }
 
-      // If user is already authenticated and attempts to access login/register, redirect to home
-      if (isAuthRoute || loc == '/') {
-        return '/home';
+      // 3. Authenticated
+      if (authState is AuthAuthenticated) {
+        final hasVehicle = selectedVehicleId != null && selectedVehicleId.isNotEmpty;
+        final isOnAuthOrSplash =
+            loc == '/login' || loc == '/register' || loc == '/splash' || loc == '/';
+
+        if (isOnAuthOrSplash) {
+          return hasVehicle ? '/home' : '/vehicles';
+        }
+
+        // If authenticated without a selected vehicle, force /vehicles
+        // (except when already on /vehicles, /vehicles/add, or /profile)
+        if (!hasVehicle) {
+          final isAllowedWithoutVehicle =
+              loc == '/vehicles' || loc == '/vehicles/add' || loc == '/profile';
+          if (!isAllowedWithoutVehicle) {
+            return '/vehicles';
+          }
+        }
       }
 
       return null;
     },
     routes: [
       GoRoute(
+        path: '/splash',
+        builder: (context, state) => const SplashPage(),
+      ),
+      GoRoute(
         path: '/login',
-        builder: (context, state) => const AuthPage(isRegister: false),
+        builder: (context, state) => const LoginPage(),
       ),
       GoRoute(
         path: '/register',
-        builder: (context, state) => const AuthPage(isRegister: true),
+        builder: (context, state) => const RegisterPage(),
       ),
       GoRoute(
         path: '/vehicles',
         builder: (context, state) => const VehiclesPage(),
+        routes: [
+          GoRoute(
+            path: 'add',
+            builder: (context, state) => const AddVehiclePage(),
+          ),
+        ],
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
@@ -154,12 +185,12 @@ GoRouter createAppRouter({
 
 /// Riverpod provider for GoRouter. Overridable in tests.
 final routerProvider = Provider<GoRouter>((ref) {
-  final tokenStorage = ref.watch(tokenStorageProvider);
-  final client = ref.watch(apiClientProvider);
+  final refreshNotifier = ref.watch(routerRefreshProvider);
 
   return createAppRouter(
-    tokenStorage: tokenStorage,
-    authEvents: client.authEvents,
-    initialLocation: '/home',
+    getAuthState: () => ref.read(authControllerProvider),
+    getSelectedVehicleId: () => ref.read(selectedVehicleProvider),
+    refreshListenable: refreshNotifier,
+    initialLocation: '/splash',
   );
 });

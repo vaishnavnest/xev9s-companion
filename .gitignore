@@ -2,7 +2,7 @@
 .env
 .env.*
 !.env.example
-
+ 
 # Python (Backend, Simulator, Report Worker)
 __pycache__/
 *.py[cod]
@@ -15,18 +15,18 @@ env/
 coverage.xml
 htmlcov/
 .ruff_cache/
-
+ 
 # Flutter / Dart
 .dart_tool/
 build/
 coverage/
-
+ 
 # Terraform & LocalStack (Workflow 7)
 .terraform/
 *.tfstate
 *.tfstate.*
 crash.log
-
+ 
 # OS & IDEs
 .DS_Store
 Thumbs.db
