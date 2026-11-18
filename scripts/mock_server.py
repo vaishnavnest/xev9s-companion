@@ -5,7 +5,7 @@ Supports CORS and conforms to the OpenAPI envelope schema.
 """
 
 import json
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import sys
 
 PORT = 4010
@@ -36,6 +36,7 @@ class MockApiHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(body)))
+        self.send_header('Connection', 'close')
         self._send_cors_headers()
         self.end_headers()
         self.wfile.write(body)
@@ -165,7 +166,7 @@ class MockApiHandler(BaseHTTPRequestHandler):
         sys.stdout.flush()
 
 if __name__ == '__main__':
-    server = HTTPServer(('0.0.0.0', PORT), MockApiHandler)
+    server = ThreadingHTTPServer(('0.0.0.0', PORT), MockApiHandler)
     print(f"XEV 9S Mock Server running on http://127.0.0.1:{PORT} (and 0.0.0.0:{PORT})")
     print("Press Ctrl+C to stop.")
     sys.stdout.flush()

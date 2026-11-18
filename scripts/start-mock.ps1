@@ -17,4 +17,9 @@ Write-Host "API base URL: http://localhost:4010"
 Write-Host "Press Ctrl+C to stop."
 Write-Host ""
 
-npx @stoplight/prism-cli mock $Spec -p 4010 --cors
+if (Get-Command npx -ErrorAction SilentlyContinue) {
+    npx @stoplight/prism-cli mock $Spec -p 4010 --cors
+} else {
+    Write-Host "npx not found, falling back to Python Mock Server..."
+    python (Join-Path $ScriptDir "mock_server.py")
+}
