@@ -59,6 +59,26 @@ def test_register(api):
     assert "password_hash" not in response.json()
 
 
+def test_register_duplicate_user(api):
+    client, service = api
+    service.register.side_effect = ValueError(
+        "An account with this email already exists"
+    )
+
+    response = client.post(
+        "/auth/register",
+        json={
+            "full_name": "Test User",
+            "email": "test@example.com",
+            "password": "StrongPassword123!",
+            "confirm_password": "StrongPassword123!",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "An account with this email already exists"
+
+
 def test_register_password_mismatch(api):
     client, service = api
 
@@ -133,6 +153,21 @@ def test_refresh(api):
     assert response.json()["refresh_token"] == "new-refresh-token"
 
 
+def test_refresh_invalid_token(api):
+    client, service = api
+    service.refresh.side_effect = ValueError("Invalid or expired refresh token")
+
+    response = client.post(
+        "/auth/refresh",
+        json={
+            "refresh_token": "invalid-token",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or expired refresh token"
+
+
 def test_logout(api):
     client, _service = api
 
@@ -145,6 +180,33 @@ def test_logout(api):
 
     assert response.status_code == 200
     assert response.json()["message"] == "Logged out successfully"
+
+
+def test_logout_failure(api):
+    client, service = api
+    service.logout.return_value = False
+
+    response = client.post(
+        "/auth/logout",
+        json={
+            "refresh_token": "already-revoked-token",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or already revoked refresh token"
+
+
+def test_get_auth_service():
+    request = MagicMock()
+    request.app.state.database = {
+        "users": MagicMock(),
+        "sessions": MagicMock(),
+    }
+    svc = auth_routes.get_auth_service(request)
+    assert svc is not None
+    assert svc.users is not None
+    assert svc.sessions is not None
 
 
 def test_get_profile(api):
