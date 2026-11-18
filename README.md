@@ -153,3 +153,97 @@ Start the mock server before launching the app:
 .\scripts\start-mock.ps1
 ```
 Verify it is running: `curl http://localhost:4010/vehicles`
+
+---
+
+## Authentication & Vehicles (UC-01)
+
+### Status & Implemented Features
+The Authentication and Vehicle management flows (UC-01) are fully implemented, verified with 125 tests, and passing `flutter analyze` with 0 issues:
+
+- **Authentication (`/login`, `/register`, `/splash`):**
+  - Sign in with email/username and password.
+  - Sign up with full name, email, and password meeting complexity standards (`>= 8` chars, uppercase, lowercase, digit, special character).
+  - Clean error mapping to user-friendly messages for invalid credentials, duplicate email, rate limits, and network errors.
+  - Automatic session startup check against `GET /users/me`.
+  - Silent token refresh with single-flight locking on 401 `TOKEN_EXPIRED`.
+  - Safe logout and session expiration banner handling. Passwords cleared from controllers and memory immediately on submit failure.
+- **Vehicle Pairing & Switching (`/vehicles`, `/vehicles/add`, App Shell):**
+  - List associated vehicles with connectivity status and model tags.
+  - Auto-selects active vehicle when exactly one associated vehicle is available.
+  - Association flow via VIN / identifier and in-vehicle 6-digit PIN (`AppConstants.pairingCodeLength = 6`).
+  - Vehicle switcher bottom sheet / modal accessible across all shell screens.
+  - Active vehicle persists across app restarts via `SharedPreferences`.
+  - Clean unpairing / association state isolation.
+
+### Session Lifecycle & Auth Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> Splash: App Startup
+    Splash --> CheckSession: Read TokenStorage
+    
+    state CheckSession {
+        [*] --> NoToken: token is null
+        [*] --> HasToken: token exists
+        HasToken --> FetchUser: GET /users/me
+        FetchUser --> ValidUser: 200 OK
+        FetchUser --> TokenExpired: 401 TOKEN_EXPIRED
+        TokenExpired --> SilentRefresh: POST /auth/refresh
+        SilentRefresh --> ValidUser: Refresh Success
+        SilentRefresh --> ExpiredSession: Refresh Fails
+        FetchUser --> NetworkError: Timeout / No Connection
+    }
+
+    NoToken --> LoginPage: Redirect to /login
+    ExpiredSession --> LoginPage: Redirect to /login (Session Expired)
+    NetworkError --> Splash: Retry Error View
+    
+    ValidUser --> VehiclesCheck: User Authenticated
+    
+    state VehiclesCheck {
+        [*] --> InspectList: GET /vehicles
+        InspectList --> AutoSelect: 1 associated vehicle
+        InspectList --> MultiVehicles: Multiple / None selected
+    }
+    
+    AutoSelect --> Dashboard: Redirect to /home
+    MultiVehicles --> VehiclesPage: Redirect to /vehicles
+```
+
+### Pairing Rules & Constants
+Defined in `lib/core/constants/app_constants.dart`:
+- `pairingCodeLength`: Exactly `6` digits. Must contain numeric digits only (`0-9`).
+- `minPasswordLength`: `8` characters. Must include at least 1 uppercase, 1 lowercase, 1 number, and 1 special symbol (`!@#$%^&*(),.?":{}|<>`).
+- `maxNameLength`: `100` characters.
+- Token refresh proactively occurs on 401 `TOKEN_EXPIRED` or when less than `60` seconds remain before token expiry.
+
+### Mock-Server Testing Commands
+With Prism running at `http://localhost:4010`:
+
+```bash
+# 1. Register a new user
+curl -X POST http://localhost:4010/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Aarav Sharma","email":"aarav@example.com","password":"Password123!"}'
+
+# 2. Login
+curl -X POST http://localhost:4010/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"identifier":"aarav@example.com","password":"Password123!"}'
+
+# 3. Get Current User (Authenticated)
+curl -X GET http://localhost:4010/users/me \
+  -H "Authorization: Bearer mock-valid-token"
+
+# 4. List Vehicles
+curl -X GET http://localhost:4010/vehicles \
+  -H "Authorization: Bearer mock-valid-token"
+
+# 5. Pair Vehicle
+curl -X POST http://localhost:4010/vehicles \
+  -H "Authorization: Bearer mock-valid-token" \
+  -H "Content-Type: application/json" \
+  -d '{"identifier":"XEV9S-2026-0001","pairingCode":"123456","name":"Primary Vehicle"}'
+```
+
