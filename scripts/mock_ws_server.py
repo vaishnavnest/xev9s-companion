@@ -158,16 +158,32 @@ def ticker():
         if not has_clients:
             continue
 
+        just_went_offline = False
         with state_lock:
             if not state["isOnline"]:
                 continue
             # Only drain battery when actively driving (realistic simulation)
             if state["vehicleState"] == "DRIVING":
-                state["batteryPercent"] = max(10.0, round(state["batteryPercent"] - 0.1, 1))
-                state["speed"] = state.get("speed", 42.0) or 42.0
+                new_battery = round(state["batteryPercent"] - 0.1, 1)
+                if new_battery <= 0.0:
+                    state["batteryPercent"] = 0.0
+                    state["speed"] = 0.0
+                    state["vehicleState"] = "OFFLINE"
+                    state["isOnline"] = False
+                    just_went_offline = True
+                else:
+                    state["batteryPercent"] = new_battery
+                    state["speed"] = state.get("speed", 42.0) or 42.0
             else:
                 state["speed"] = 0.0
             s = dict(state)
+
+        if just_went_offline:
+            print("[MockWS] Battery reached 0.0%! Vehicle shut down and is now OFFLINE.")
+            broadcast("connectivity.changed", {
+                "status": "OFFLINE",
+                "lastCommunicationAt": datetime.now(timezone.utc).isoformat(),
+            })
 
         # Full vehicle.status broadcast — all fields the Flutter app reads
         broadcast("vehicle.status", _build_status_payload(s))
