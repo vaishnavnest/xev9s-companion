@@ -8,6 +8,7 @@ import 'package:xev9s_app/features/auth/domain/user_summary.dart';
 import 'package:xev9s_app/features/auth/presentation/login_page.dart';
 import 'package:xev9s_app/features/auth/presentation/register_page.dart';
 import 'package:xev9s_app/features/auth/presentation/splash_page.dart';
+import 'package:xev9s_app/features/dashboard/presentation/dashboard_page.dart';
 import 'package:xev9s_app/features/vehicles/application/vehicles_controller.dart';
 import 'package:xev9s_app/features/vehicles/domain/vehicle_summary.dart';
 
@@ -105,7 +106,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(router.state.matchedLocation, equals('/home'));
-      expect(find.text('Dashboard Page (Placeholder)'), findsOneWidget);
+      expect(find.byType(DashboardPage), findsOneWidget);
     });
 
     testWidgets('authenticated without selected vehicle routes to /vehicles', (tester) async {
