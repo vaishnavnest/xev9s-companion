@@ -71,6 +71,32 @@ class MockApiHandler(BaseHTTPRequestHandler):
                     "connectivity": "ONLINE"
                 }
             ])
+        elif '/status' in path:
+            vehicle_id = path.split('/vehicles/')[1].split('/status')[0] if '/vehicles/' in path else 'veh_mock_9s_01'
+            self._send_json(200, data={
+                "vehicleId": vehicle_id,
+                "name": "My XEV 9S",
+                "model": "XEV 9S AWD Performance",
+                "vehicleState": "PARKED",
+                "connectivity": "ONLINE",
+                "battery": {
+                    "percent": 64.0,
+                    "level": "NORMAL"
+                },
+                "range": {
+                    "estimatedKm": 312.5
+                },
+                "odometerKm": 12874.3,
+                "speedKmh": 0.0,
+                "lockState": "LOCKED",
+                "preconditioningState": "INACTIVE",
+                "charging": {
+                    "state": "NOT_CONNECTED",
+                    "powerKw": None
+                },
+                "lastUpdatedAt": "2026-11-18T04:30:00Z",
+                "isStale": False
+            })
         else:
             # Fallback 200 with empty map
             self._send_json(200, data={})
