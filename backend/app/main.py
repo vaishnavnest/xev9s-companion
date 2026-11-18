@@ -1,16 +1,14 @@
-
 from contextlib import asynccontextmanager
 
+from backend.app.core.database import (
+    close_database_connection,
+    connect_to_database,
+)
+from backend.app.core.indexes import ensure_database_indexes
+from backend.app.routes.auth import router as auth_router
 from fastapi import FastAPI, HTTPException, Request
 from pymongo.errors import PyMongoError
 
-from backend.app.core.database import (
-    connect_to_database,
-    close_database_connection,
-)
-from backend.app.core.indexes import ensure_database_indexes
-
-from backend.app.routes.auth import router as auth_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -31,6 +29,7 @@ app = FastAPI(
 )
 
 app.include_router(auth_router)
+
 
 @app.get("/")
 def root():

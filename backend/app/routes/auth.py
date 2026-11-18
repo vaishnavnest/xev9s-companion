@@ -1,18 +1,15 @@
-
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-
-from backend.app.repositories.user_repository import UserRepository
+from backend.app.core.dependencies import get_current_user
 from backend.app.repositories.session_repository import SessionRepository
-from backend.app.services.auth_service import AuthService
+from backend.app.repositories.user_repository import UserRepository
 from backend.app.schemas.user import (
+    RefreshTokenRequest,
+    TokenResponse,
     UserCreate,
     UserLogin,
     UserResponse,
-    TokenResponse,
-    RefreshTokenRequest,
 )
-
-from backend.app.core.dependencies import get_current_user
+from backend.app.services.auth_service import AuthService
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -95,6 +92,7 @@ def logout_user(data: RefreshTokenRequest, request: Request):
         )
 
     return {"message": "Logged out successfully"}
+
 
 @router.get("/me", response_model=UserResponse)
 def get_my_profile(

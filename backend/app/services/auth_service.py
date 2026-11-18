@@ -1,20 +1,17 @@
-
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from backend.app.core.security import (
-    hash_password,
-    verify_password,
     create_access_token,
     generate_refresh_token,
+    hash_password,
     hash_refresh_token,
+    verify_password,
 )
-from backend.app.repositories.user_repository import UserRepository
 from backend.app.repositories.session_repository import SessionRepository
+from backend.app.repositories.user_repository import UserRepository
 
-
-REFRESH_TOKEN_EXPIRE_DAYS = int(
-    os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7")
-)
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 
 class AuthService:
@@ -46,9 +43,7 @@ class AuthService:
                 password_hash=hashed,
             )
         except ValueError as error:
-            raise ValueError(
-                "An account with this email already exists"
-            ) from error
+            raise ValueError("An account with this email already exists") from error
 
         return self._public_user(user)
 
@@ -66,22 +61,20 @@ class AuthService:
 
     def refresh(self, refresh_token: str) -> dict:
         old_hash = hash_refresh_token(refresh_token)
-        session = self.sessions.get_session_by_refresh_hash(
-            old_hash
-        )
+        session = self.sessions.get_session_by_refresh_hash(old_hash)
 
         if not session:
             raise ValueError("Invalid or expired refresh token")
 
         if session.get("revoked_at") is not None:
             raise ValueError("Session has been revoked")
-        
+
         expires_at = session["expires_at"]
 
         if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
+            expires_at = expires_at.replace(tzinfo=UTC)
 
-        if expires_at <= datetime.now(timezone.utc):
+        if expires_at <= datetime.now(UTC):
             raise ValueError("Invalid or expired refresh token")
 
         used_hashes = session.get("rotated_token_hashes", [])
@@ -104,7 +97,7 @@ class AuthService:
             new_hash,
             REFRESH_TOKEN_EXPIRE_DAYS,
         )
-        
+
         if not rotated:
             self.sessions.revoke_session_by_id(session["_id"])
             raise ValueError("Refresh token reuse detected")
@@ -116,21 +109,16 @@ class AuthService:
             raise ValueError("Account is unavailable")
 
         return self._token_response(user, new_token)
-        
 
     def logout(self, refresh_token: str) -> bool:
         token_hash = hash_refresh_token(refresh_token)
 
-        session = self.sessions.get_session_by_refresh_hash(
-            token_hash
-        )
+        session = self.sessions.get_session_by_refresh_hash(token_hash)
 
         if not session or session.get("revoked_at") is not None:
             return False
 
-        return self.sessions.revoke_session_by_id(
-        session["_id"]
-        )
+        return self.sessions.revoke_session_by_id(session["_id"])
 
     def _create_tokens(self, user: dict) -> dict:
         refresh_token = generate_refresh_token()

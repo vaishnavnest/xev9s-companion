@@ -1,14 +1,12 @@
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
 from backend.app.core.security import create_access_token
 from backend.app.repositories.user_repository import UserRepository
 from backend.app.routes.auth import router
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -18,7 +16,7 @@ def client(monkeypatch):
         "email": "test@example.com",
         "full_name": "Test User",
         "is_active": True,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
 
     monkeypatch.setattr(
@@ -70,7 +68,7 @@ def test_inactive_user_rejected(client, monkeypatch):
             "email": "test@example.com",
             "full_name": "Test User",
             "is_active": False,
-            "created_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
         },
     )
 

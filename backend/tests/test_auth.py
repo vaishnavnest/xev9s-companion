@@ -1,13 +1,11 @@
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
+from backend.app.core.dependencies import get_current_user
+from backend.app.routes import auth as auth_routes
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
-from backend.app.routes import auth as auth_routes
-from backend.app.core.dependencies import get_current_user
 
 
 @pytest.fixture
@@ -21,7 +19,7 @@ def api(monkeypatch):
         "email": "test@example.com",
         "full_name": "Test User",
         "is_active": True,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
 
     monkeypatch.setattr(
@@ -43,15 +41,18 @@ def test_register(api):
         "email": "test@example.com",
         "full_name": "Test User",
         "is_active": True,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
 
-    response = client.post("/auth/register", json={
-        "full_name": "Test User",
-        "email": "test@example.com",
-        "password": "StrongPassword123!",
-        "confirm_password": "StrongPassword123!",
-    })
+    response = client.post(
+        "/auth/register",
+        json={
+            "full_name": "Test User",
+            "email": "test@example.com",
+            "password": "StrongPassword123!",
+            "confirm_password": "StrongPassword123!",
+        },
+    )
 
     assert response.status_code == 201
     assert response.json()["email"] == "test@example.com"
@@ -61,12 +62,15 @@ def test_register(api):
 def test_register_password_mismatch(api):
     client, service = api
 
-    response = client.post("/auth/register", json={
-        "full_name": "Test User",
-        "email": "test@example.com",
-        "password": "StrongPassword123!",
-        "confirm_password": "DifferentPassword123!",
-    })
+    response = client.post(
+        "/auth/register",
+        json={
+            "full_name": "Test User",
+            "email": "test@example.com",
+            "password": "StrongPassword123!",
+            "confirm_password": "DifferentPassword123!",
+        },
+    )
 
     assert response.status_code == 422
     service.register.assert_not_called()
@@ -81,10 +85,13 @@ def test_login(api):
         "expires_in": 900,
     }
 
-    response = client.post("/auth/login", json={
-        "email": "test@example.com",
-        "password": "StrongPassword123!",
-    })
+    response = client.post(
+        "/auth/login",
+        json={
+            "email": "test@example.com",
+            "password": "StrongPassword123!",
+        },
+    )
 
     assert response.status_code == 200
     assert response.json()["access_token"] == "test-access-token"
@@ -92,14 +99,15 @@ def test_login(api):
 
 def test_login_incorrect_credentials(api):
     client, service = api
-    service.login.side_effect = ValueError(
-        "Incorrect email or password"
-    )
+    service.login.side_effect = ValueError("Incorrect email or password")
 
-    response = client.post("/auth/login", json={
-        "email": "test@example.com",
-        "password": "WrongPassword123!",
-    })
+    response = client.post(
+        "/auth/login",
+        json={
+            "email": "test@example.com",
+            "password": "WrongPassword123!",
+        },
+    )
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Incorrect email or password"
@@ -114,27 +122,33 @@ def test_refresh(api):
         "expires_in": 900,
     }
 
-    response = client.post("/auth/refresh", json={
-        "refresh_token": "old-refresh-token",
-    })
+    response = client.post(
+        "/auth/refresh",
+        json={
+            "refresh_token": "old-refresh-token",
+        },
+    )
 
     assert response.status_code == 200
     assert response.json()["refresh_token"] == "new-refresh-token"
 
 
 def test_logout(api):
-    client, service = api
+    client, _service = api
 
-    response = client.post("/auth/logout", json={
-        "refresh_token": "test-refresh-token",
-    })
+    response = client.post(
+        "/auth/logout",
+        json={
+            "refresh_token": "test-refresh-token",
+        },
+    )
 
     assert response.status_code == 200
     assert response.json()["message"] == "Logged out successfully"
 
 
 def test_get_profile(api):
-    client, service = api
+    client, _service = api
 
     response = client.get(
         "/auth/me",

@@ -1,5 +1,4 @@
-
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 def create_session_document(
@@ -9,7 +8,7 @@ def create_session_document(
 ) -> dict:
     """Build the MongoDB document for a new session."""
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     return {
         "user_id": user_id,

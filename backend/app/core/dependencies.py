@@ -1,24 +1,18 @@
-
 import jwt
-
+from backend.app.core.security import decode_access_token
+from backend.app.repositories.user_repository import UserRepository
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
 )
 
-from backend.app.core.security import decode_access_token
-from backend.app.repositories.user_repository import UserRepository
-
-
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
     request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(
-        bearer_scheme
-    ),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict:
     """Validate JWT and return the authenticated user's public data."""
 

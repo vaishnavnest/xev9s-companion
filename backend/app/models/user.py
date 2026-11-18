@@ -1,5 +1,4 @@
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def create_user_document(
@@ -9,7 +8,7 @@ def create_user_document(
 ) -> dict:
     """Build the MongoDB document for a newly registered user."""
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     return {
         "email": email.strip().lower(),

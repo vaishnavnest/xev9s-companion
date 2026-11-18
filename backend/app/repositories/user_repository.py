@@ -1,9 +1,7 @@
-
+from backend.app.models.user import create_user_document
 from bson import ObjectId
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
-
-from backend.app.models.user import create_user_document
 
 
 class UserRepository:

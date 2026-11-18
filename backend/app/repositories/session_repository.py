@@ -1,9 +1,7 @@
-
-from datetime import datetime, timedelta, timezone
-
-from pymongo.collection import Collection
+from datetime import UTC, datetime, timedelta
 
 from backend.app.models.session import create_session_document
+from pymongo.collection import Collection
 
 
 class SessionRepository:
@@ -32,21 +30,25 @@ class SessionRepository:
         self,
         token_hash: str,
     ) -> dict | None:
-        return self.collection.find_one({
-            "$or": [
-                {"refresh_token_hash": token_hash},
-                {"rotated_token_hashes": token_hash},
-            ]
-        })
+        return self.collection.find_one(
+            {
+                "$or": [
+                    {"refresh_token_hash": token_hash},
+                    {"rotated_token_hashes": token_hash},
+                ]
+            }
+        )
 
     def get_active_session(self, token_hash: str) -> dict | None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
-        return self.collection.find_one({
-            "refresh_token_hash": token_hash,
-            "revoked_at": None,
-            "expires_at": {"$gt": now},
-        })
+        return self.collection.find_one(
+            {
+                "refresh_token_hash": token_hash,
+                "revoked_at": None,
+                "expires_at": {"$gt": now},
+            }
+        )
 
     def rotate_refresh_token(
         self,
@@ -55,7 +57,7 @@ class SessionRepository:
         new_token_hash: str,
         expires_in_days: int,
     ) -> bool:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         result = self.collection.update_one(
             {
@@ -65,15 +67,11 @@ class SessionRepository:
                 "expires_at": {"$gt": now},
             },
             {
-                "$addToSet": {
-                    "rotated_token_hashes": old_token_hash
-                },
+                "$addToSet": {"rotated_token_hashes": old_token_hash},
                 "$set": {
                     "refresh_token_hash": new_token_hash,
                     "created_at": now,
-                    "expires_at": now + timedelta(
-                        days=expires_in_days
-                    ),
+                    "expires_at": now + timedelta(days=expires_in_days),
                 },
             },
         )
@@ -91,11 +89,7 @@ class SessionRepository:
                 "refresh_token_hash": token_hash,
                 "revoked_at": None,
             },
-            {
-                "$set": {
-                    "revoked_at": datetime.now(timezone.utc)
-                }
-            },
+            {"$set": {"revoked_at": datetime.now(UTC)}},
         )
 
         return result.modified_count == 1
@@ -106,11 +100,7 @@ class SessionRepository:
                 "_id": session_id,
                 "revoked_at": None,
             },
-            {
-                "$set": {
-                    "revoked_at": datetime.now(timezone.utc)
-                }
-            },
+            {"$set": {"revoked_at": datetime.now(UTC)}},
         )
 
         return result.modified_count == 1
