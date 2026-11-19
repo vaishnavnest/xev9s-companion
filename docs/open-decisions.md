@@ -13,6 +13,7 @@ Cross-stream decision log between the Flutter app and backend teams.
 | 5 | Backend base URL and port | 8080, 3000, 443 with reverse proxy | http://localhost:8080/api/v1 | TBD | Proposed | — | — |
 | 6 | Vehicle pairing code format | 6-digit numeric, 8-char alphanumeric, QR code | 6-digit numeric code | TBD | Proposed | — | — |
 | 7 | Default low-battery threshold | 10%, 15%, 20%, 25% | 20% | TBD | Proposed | — | — |
+| 8 | Simulator ↔ Backend transport protocol | HTTP REST, MQTT (Mosquitto), gRPC | MQTT via Eclipse Mosquitto | Cross-stream | Agreed | MQTT (broker: `mqtt://mosquitto:1883`, QoS 1, topics `vehicle/{vehicleId}/...`) | 2026-11-19 |
 
 ## How a decision gets applied
 
@@ -34,7 +35,28 @@ These items in `docs/openapi.yaml` are marked `[assumption]` and need backend co
 | 732 | `GET /notifications/unread-count` | Unread notification count [assumption] |
 | 751 | `POST /notifications/read-all` | Mark all notifications as read [assumption] |
 | 911 | `GET /ws` | WebSocket upgrade for live updates [assumption - transport not specified in source] |
-| 1256 | `components/securitySchemes/ServiceKey` | Shared service credential between backend and simulator [assumption] |
-| 1261 | `components/securitySchemes/OperatorKey` | Platform-operator credential for scenario control [assumption] |
-| 1327 | `components/parameters/IdempotencyKey` | Client-generated unique key to prevent duplicate command submission on retry [assumption] |
-| 1865 | `schemas/SetChargingTargetRequest/targetPercent` | Allowed range is an [assumption]; agree final limits across streams |
+| 1318 | `components/securitySchemes/MqttCredentials` | Shared MQTT credentials between backend and simulator (replaces legacy ServiceKey HTTP header) |
+| 1324 | `components/securitySchemes/OperatorKey` | Platform-operator credential for scenario control [assumption] |
+| 1335 | `components/parameters/IdempotencyKey` | Client-generated unique key to prevent duplicate command submission on retry [assumption] |
+| 1873 | `schemas/SetChargingTargetRequest/targetPercent` | Allowed range is an [assumption]; agree final limits across streams |
+
+## Decision #8 Details: Simulator ↔ Backend Transport (Mosquitto MQTT)
+
+* **Decision Date:** 2026-11-19
+* **Status:** Agreed
+* **Broker:** Eclipse Mosquitto (`mqtt://mosquitto:1883`)
+* **Authentication:** Shared `MQTT_USERNAME` and `MQTT_PASSWORD` environment variables.
+* **QoS:** Level 1 (At-least-once) for telemetry and command delivery.
+* **Rationale:** Vehicle IoT telemetry requires continuous low-overhead messaging, pub/sub decoupling, and persistent connections rather than HTTP request/response polling.
+* **Architecture:**
+  - **Simulator → Backend Topics:**
+    - `vehicle/{vehicleId}/telemetry` (QoS 1, retain=false) — Ingest vehicle status, GPS, battery, speed.
+    - `vehicle/{vehicleId}/events/charging` (QoS 1, retain=false) — Charging events (connected, progress, completed, etc.).
+    - `vehicle/{vehicleId}/commands/{commandId}/result` (QoS 1, retain=false) — Command execution results.
+  - **Backend → Simulator Topics:**
+    - `vehicle/{vehicleId}/commands` (QoS 1, retain=false) — Remote commands (LOCK, UNLOCK, PRECONDITIONING).
+    - `vehicle/{vehicleId}/charging-preferences` (QoS 1, retain=true) — Target percent & schedule.
+  - **Operator Control Plane:**
+    - Simulator HTTP server on port 8081 (`/sim/scenarios/*`, `/sim/vehicles/{vehicleId}/state`) is retained for operator testing and scenario orchestration using `X-Operator-Key`.
+  - **Frontend Impact:**
+    - Zero impact on Flutter app. Flutter continues to communicate with FastAPI via HTTP REST + WebSocket (`/ws`).
