@@ -23,9 +23,35 @@ info:
 
     ## Audiences
     1. Flutter app (Android + Web) - tags: Auth, Profile, Vehicles, Charging, Commands, Trips, Analytics, Notifications, Reports, Realtime
-    2. Vehicle simulator <-> backend - tag: Internal
+    2. Vehicle simulator <-> backend - tag: Internal (MQTT over Mosquitto broker)
     3. Platform operator - tag: Simulator
     4. DevOps / SRE - tag: Operations
+
+    ## Simulator ↔ Backend Transport (MQTT)
+    The vehicle simulator and the FastAPI backend communicate exclusively over **MQTT** using an
+    Eclipse Mosquitto broker (default port 1883). OpenAPI HTTP paths under `Internal` and `Simulator`
+    tags document the **message schema and topic contract** — they are not HTTP endpoints.
+
+    **Broker:** `mqtt://mosquitto:1883` (Docker service name). Auth via username/password
+    sourced from env-var `MQTT_USERNAME` / `MQTT_PASSWORD` (same value on both sides).
+
+    ### MQTT Topic Map
+
+    | Direction | Topic | Payload schema | QoS |
+    |-----------|-------|---------------|-----|
+    | Simulator → Backend | `vehicle/{vehicleId}/telemetry` | `TelemetryIngest` | 1 |
+    | Simulator → Backend | `vehicle/{vehicleId}/events/charging` | `ChargingEventIngest` | 1 |
+    | Simulator → Backend | `vehicle/{vehicleId}/commands/{commandId}/result` | `CommandResultIngest` | 1 |
+    | Backend → Simulator | `vehicle/{vehicleId}/commands` | `SimCommandRequest` | 1 |
+    | Backend → Simulator | `vehicle/{vehicleId}/charging-preferences` | `ChargingPreferencesPush` | 1 |
+    | Backend → Simulator | `sim/scenarios/{vehicleId}/control` | `StartScenarioRequest` | 1 |
+
+    QoS 1 (at-least-once) is used for all operational messages. Retained flag is **not** set for
+    telemetry; the backend always uses the latest in-memory state. All payloads are JSON (UTF-8).
+
+    **Note:** The `/sim/*` HTTP endpoints listed below are retained for the **operator control plane
+    only** (scenario start/stop/reset and state inspection). They are served by the simulator's
+    lightweight HTTP server on port 8081 and are NOT replaced by MQTT.
 
 servers:
   - url: http://localhost:8080/api/v1
@@ -55,9 +81,13 @@ tags:
   - name: Realtime
     description: Push updates to connected app sessions (3.2.3, 3.2.5, 3.2.9)
   - name: Internal
-    description: Simulator to backend ingestion (service-key authenticated)
+    description: >
+      Simulator → Backend MQTT messages (broker: mqtt://mosquitto:1883, QoS 1).
+      Topics follow the pattern `vehicle/{vehicleId}/<event>`. Payload schemas are defined in components/schemas.
   - name: Simulator
-    description: Vehicle simulator API - backend-to-simulator calls and operator scenario control (3.2.13, 3.2.14)
+    description: >
+      Backend → Simulator MQTT messages and operator HTTP control plane (port 8081).
+      MQTT topics follow `vehicle/{vehicleId}/<action>`. HTTP endpoints (/sim/*) are for scenario control only.
   - name: Operations
     description: Health, readiness and metrics (Section 4)
 
@@ -934,21 +964,37 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   # ======================================================================
-  # INTERNAL (SIMULATOR -> BACKEND)
+  # INTERNAL (SIMULATOR -> BACKEND) — MQTT
+  # These are documented as HTTP paths for schema reference only.
+  # Actual transport: MQTT broker at mqtt://mosquitto:1883
+  # Auth: MQTT username/password (env MQTT_USERNAME / MQTT_PASSWORD)
+  # QoS: 1 (at-least-once) for all topics below.
   # ======================================================================
+
+  # MQTT Topic: vehicle/{vehicleId}/telemetry
+  # Direction: Simulator → Backend (publish every ~1 s while DRIVING/CHARGING)
   /internal/telemetry:
     post:
       tags: [Internal]
       operationId: ingestTelemetry
-      summary: Simulator publishes a telemetry record
+      summary: "[MQTT] vehicle/{vehicleId}/telemetry — Simulator publishes a telemetry record"
       description: |
-        Backend validates: known `vehicleId`; parseable, non-absurd timestamp; battery 0-100; speed >= 0;
-        latitude -90..90; longitude -180..180; valid enums; consistent state (a vehicle cannot be `DRIVING` and
-        charging at once). Invalid payloads return `400` and are recorded for investigation. Valid telemetry updates
-        latest state, history, trip detection, event/notification evaluation, connectivity (restores Online) and
-        pushes updates to connected sessions.
+        **Transport:** MQTT topic `vehicle/{vehicleId}/telemetry` (QoS 1).
+        This path exists for schema documentation only — it is NOT an HTTP endpoint.
+
+        The backend subscribes to this topic via `aiomqtt`. On each message it:
+        - Validates: known `vehicleId`; parseable non-absurd timestamp; battery 0-100; speed >= 0;
+          latitude -90..90; longitude -180..180; valid enums; consistent state (a vehicle cannot be
+          `DRIVING` and charging at once).
+        - Updates latest state, history, trip detection, event/notification evaluation, connectivity
+          (restores ONLINE) and pushes updates to connected WebSocket sessions.
+        - Invalid payloads are dropped and logged; there is no MQTT PUBACK rejection.
+
+        **Broker:** `mqtt://mosquitto:1883`
+        **Auth:** `MQTT_USERNAME` / `MQTT_PASSWORD` environment variables (same value on both sides).
+        **Retained:** false. **QoS:** 1.
       security:
-        - ServiceKey: []
+        - MqttCredentials: []
       requestBody:
         required: true
         content:
@@ -956,25 +1002,29 @@ paths:
             schema: { $ref: '#/components/schemas/TelemetryIngest' }
       responses:
         '202':
-          description: Telemetry accepted.
+          description: (Schema reference) Telemetry accepted.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/IngestAckResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
 
+  # MQTT Topic: vehicle/{vehicleId}/events/charging
+  # Direction: Simulator → Backend
   /internal/events/charging:
     post:
       tags: [Internal]
       operationId: ingestChargingEvent
-      summary: Simulator reports a charging event
+      summary: "[MQTT] vehicle/{vehicleId}/events/charging — Simulator reports a charging event"
       description: |
-        Events: connected, started, progress, paused, interrupted, completed. The backend creates/updates/closes the
-        charging session and raises the corresponding notification (started / completed / interrupted).
+        **Transport:** MQTT topic `vehicle/{vehicleId}/events/charging` (QoS 1).
+        This path exists for schema documentation only — it is NOT an HTTP endpoint.
+
+        Events: `CONNECTED`, `STARTED`, `PROGRESS`, `PAUSED`, `INTERRUPTED`, `COMPLETED`, `DISCONNECTED`.
+        The backend creates/updates/closes the charging session and raises the corresponding
+        notification (started / completed / interrupted).
+
+        **Retained:** false. **QoS:** 1.
       security:
-        - ServiceKey: []
+        - MqttCredentials: []
       requestBody:
         required: true
         content:
@@ -982,23 +1032,28 @@ paths:
             schema: { $ref: '#/components/schemas/ChargingEventIngest' }
       responses:
         '202':
-          description: Event accepted.
+          description: (Schema reference) Event accepted.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/IngestAckResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
 
+  # MQTT Topic: vehicle/{vehicleId}/commands/{commandId}/result
+  # Direction: Simulator → Backend
   /internal/commands/{commandId}/result:
     post:
       tags: [Internal]
       operationId: ingestCommandResult
-      summary: Simulator reports the execution result of a command
-      description: A result arriving for a command already in a final status (e.g. `TIMED_OUT`) is acknowledged but must not change that status.
+      summary: "[MQTT] vehicle/{vehicleId}/commands/{commandId}/result — Simulator reports command execution result"
+      description: |
+        **Transport:** MQTT topic `vehicle/{vehicleId}/commands/{commandId}/result` (QoS 1).
+        This path exists for schema documentation only — it is NOT an HTTP endpoint.
+
+        A result arriving for a command already in a final status (e.g. `TIMED_OUT`) is acknowledged
+        but must not change that status.
+
+        **Retained:** false. **QoS:** 1.
       security:
-        - ServiceKey: []
+        - MqttCredentials: []
       parameters:
         - $ref: '#/components/parameters/CommandId'
       requestBody:
@@ -1008,29 +1063,35 @@ paths:
             schema: { $ref: '#/components/schemas/CommandResultIngest' }
       responses:
         '200':
-          description: Result recorded (or ignored for an already-final command).
+          description: (Schema reference) Result recorded.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/IngestAckResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
 
   # ======================================================================
   # SIMULATOR API
+  # MQTT: Backend → Simulator (commands + preferences)
+  # HTTP: Operator control plane only (port 8081, OperatorKey auth)
   # ======================================================================
+
+  # MQTT Topic: vehicle/{vehicleId}/commands
+  # Direction: Backend → Simulator
   /sim/commands:
     post:
       tags: [Simulator]
       operationId: simDeliverCommand
-      summary: Backend delivers a command to the simulator
-      description: The simulator evaluates the command against current vehicle state and later reports via `/internal/commands/{commandId}/result`.
-      servers:
-        - url: http://vehicle-simulator:8081
-          description: Vehicle simulator service
+      summary: "[MQTT] vehicle/{vehicleId}/commands — Backend delivers a command to the simulator"
+      description: |
+        **Transport:** MQTT topic `vehicle/{vehicleId}/commands` (QoS 1).
+        This path exists for schema documentation only — it is NOT an HTTP endpoint.
+
+        The simulator subscribes to this topic. On receipt it evaluates the command against current
+        vehicle state and later publishes the result to
+        `vehicle/{vehicleId}/commands/{commandId}/result`.
+
+        **Retained:** false. **QoS:** 1.
       security:
-        - ServiceKey: []
+        - MqttCredentials: []
       requestBody:
         required: true
         content:
@@ -1038,25 +1099,28 @@ paths:
             schema: { $ref: '#/components/schemas/SimCommandRequest' }
       responses:
         '202':
-          description: Command received by simulator.
+          description: (Schema reference) Command received by simulator.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/IngestAckResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
 
+  # MQTT Topic: vehicle/{vehicleId}/charging-preferences
+  # Direction: Backend → Simulator
   /sim/vehicles/{vehicleId}/charging-preferences:
     put:
       tags: [Simulator]
       operationId: simPushChargingPreferences
-      summary: Backend pushes charging target and schedule to the simulator
-      servers:
-        - url: http://vehicle-simulator:8081
-          description: Vehicle simulator service
+      summary: "[MQTT] vehicle/{vehicleId}/charging-preferences — Backend pushes charging target and schedule"
+      description: |
+        **Transport:** MQTT topic `vehicle/{vehicleId}/charging-preferences` (QoS 1, retained=true).
+        This path exists for schema documentation only — it is NOT an HTTP endpoint.
+
+        Published with `retained=true` so the simulator picks up the latest preferences immediately
+        on (re)connect.
+
+        **Retained:** true. **QoS:** 1.
       security:
-        - ServiceKey: []
+        - MqttCredentials: []
       parameters:
         - $ref: '#/components/parameters/VehicleId'
       requestBody:
@@ -1066,23 +1130,25 @@ paths:
             schema: { $ref: '#/components/schemas/ChargingPreferencesPush' }
       responses:
         '200':
-          description: Preferences applied by simulator.
+          description: (Schema reference) Preferences applied by simulator.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/IngestAckResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
 
+  # ======================================================================
+  # SIMULATOR OPERATOR HTTP CONTROL PLANE (real HTTP endpoints on port 8081)
+  # These are actual HTTP REST endpoints served by the simulator's own server.
+  # Auth: X-Operator-Key header. These are NOT replaced by MQTT.
+  # ======================================================================
   /sim/scenarios:
     get:
       tags: [Simulator]
       operationId: simListScenarios
-      summary: List supported demonstration scenarios (operator)
+      summary: "[HTTP] List supported demonstration scenarios (operator)"
+      description: Real HTTP endpoint served by the simulator at http://vehicle-simulator:8081.
       servers:
         - url: http://vehicle-simulator:8081
-          description: Vehicle simulator service
+          description: Vehicle simulator service (operator HTTP control plane)
       security:
         - OperatorKey: []
       responses:
@@ -1098,8 +1164,10 @@ paths:
     post:
       tags: [Simulator]
       operationId: simStartScenario
-      summary: Start a scenario with optional initial conditions (operator)
-      description: The simulator emits telemetry/events that flow through the normal backend workflows.
+      summary: "[HTTP] Start a scenario with optional initial conditions (operator)"
+      description: |
+        Real HTTP endpoint served by the simulator at http://vehicle-simulator:8081.
+        The simulator emits telemetry/events over MQTT that flow through the normal backend workflows.
       servers:
         - url: http://vehicle-simulator:8081
           description: Vehicle simulator service
@@ -1128,7 +1196,8 @@ paths:
     post:
       tags: [Simulator]
       operationId: simStopScenario
-      summary: Stop the running scenario (operator)
+      summary: "[HTTP] Stop the running scenario (operator)"
+      description: Real HTTP endpoint served by the simulator at http://vehicle-simulator:8081.
       servers:
         - url: http://vehicle-simulator:8081
           description: Vehicle simulator service
@@ -1150,8 +1219,10 @@ paths:
     post:
       tags: [Simulator]
       operationId: simResetScenario
-      summary: Reset the vehicle to its defined initial condition (operator)
-      description: A reset must not create false completed trips or charging sessions.
+      summary: "[HTTP] Reset the vehicle to its defined initial condition (operator)"
+      description: |
+        Real HTTP endpoint served by the simulator at http://vehicle-simulator:8081.
+        A reset must not create false completed trips or charging sessions.
       servers:
         - url: http://vehicle-simulator:8081
           description: Vehicle simulator service
@@ -1173,7 +1244,8 @@ paths:
     get:
       tags: [Simulator]
       operationId: simGetVehicleState
-      summary: Inspect the simulator's current internal vehicle state (operator)
+      summary: "[HTTP] Inspect the simulator's current internal vehicle state (operator)"
+      description: Real HTTP endpoint served by the simulator at http://vehicle-simulator:8081.
       servers:
         - url: http://vehicle-simulator:8081
           description: Vehicle simulator service
@@ -1248,17 +1320,20 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Access token from `/auth/login`.
-    ServiceKey:
-      type: apiKey
-      in: header
-      name: X-Service-Key
-      description: Shared service credential between backend and simulator [assumption].
+      description: Access token from `/auth/login`. Used by the Flutter app for all app-facing endpoints.
+    MqttCredentials:
+      type: http
+      scheme: basic
+      description: >
+        MQTT username/password credentials shared between the FastAPI backend and the vehicle simulator.
+        Values sourced from env-vars MQTT_USERNAME and MQTT_PASSWORD on both sides.
+        Broker: mqtt://mosquitto:1883 (Eclipse Mosquitto). NOT an HTTP Basic Auth header — documented
+        here as the closest OpenAPI 3 equivalent to represent the shared-secret nature of the credential.
     OperatorKey:
       type: apiKey
       in: header
       name: X-Operator-Key
-      description: Platform-operator credential for scenario control [assumption].
+      description: Platform-operator credential for simulator HTTP control-plane endpoints (port 8081). Scenario start/stop/reset/state only.
 
   # ----------------------------------------------------------------------
   parameters:
