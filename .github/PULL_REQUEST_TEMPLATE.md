@@ -1,50 +1,21 @@
-## Summary
-<!-- Brief description of what this PR does and why. -->
+## PR Title
+PR Title: [Descriptive title of the change]
 
-## Component
-- [ ] Frontend (`frontend/xev9s_app/`)
-- [ ] Backend (`backend/`)
-- [ ] Simulator (`simulator/`)
-- [ ] Infrastructure / DevOps (`.github/`, `infrastructure/`, `docker*`)
-- [ ] Documentation (`docs/`)
+## Changes
+[Brief description of what was changed]
 
-**PRD / Use Case reference:** <!-- e.g. UC-01, Workflow 2 CI -->
+## Reference
+Component: [Frontend / Backend / Simulator / DevOps / Docs]
+Type of Change: [Feature / Bug fix / Refactor / Tests / DevOps / Docs]
 
-## Type of Change
-- [ ] New feature
-- [ ] Bug fix
-- [ ] Refactor / clean-up
-- [ ] Tests
-- [ ] DevOps / CI/CD / Containerization
-- [ ] Documentation
+## Local Verification (Run before pushing to prevent CI failure)
+Local Checks (Frontend: flutter analyze & test | Backend: ruff check & pytest): [Passed / NA]
+Line Coverage: [e.g., 72% (minimum 70% required)]
+Manual Testing Done: [Describe manual testing performed]
 
----
-
-## Verification
-
-### Frontend (if changed)
-- [ ] `flutter analyze` — 0 errors / 0 warnings
-- [ ] `flutter test --coverage` — coverage >= 70%
-
-### Backend / Simulator (if changed)
-- [ ] `ruff check .` — 0 issues
-- [ ] No Python file exceeds 200 lines
-- [ ] `pytest --cov=app --cov-fail-under=70` — coverage >= 70%
-
-### Manual
-- [ ] Tested locally (mock server / local backend / Docker)
-- [ ] Screenshots or logs attached where relevant
-
----
-
-## Security
-- [ ] No secrets, tokens, or credentials committed
-- [ ] New dependencies are pinned and audited
-- [ ] Gitleaks, Semgrep, and Trivy criteria met
-
----
+## Security & Dependencies
+No secrets, tokens, or credentials committed: [Confirmed]
+New dependencies added to requirements.txt or pubspec.yaml: [None / List package names]
 
 ## Pre-Merge
-- [ ] Target branch is correct (`dev` for features, `main` for releases)
-- [ ] PR title follows Conventional Commits (`feat:`, `fix:`, `chore:`, `ci:`, `test:`)
-- [ ] All `Mandatory CI Gate` checks passed
+Target Branch: [dev / main]
