@@ -1,59 +1,50 @@
-<!-- ======================================================================= -->
-<!-- XEV 9S Companion Application - Pull Request Template                    -->
-<!-- Required under PRD Section 4.2 (Workflow 1: Repository & Branch Mgmt)   -->
-<!-- ======================================================================= -->
+## Summary
+<!-- Brief description of what this PR does and why. -->
 
-## 📋 Summary
-<!-- Provide a clear, concise overview of what this PR does and why it is needed. -->
+## Component
+- [ ] Frontend (`frontend/xev9s_app/`)
+- [ ] Backend (`backend/`)
+- [ ] Simulator (`simulator/`)
+- [ ] Infrastructure / DevOps (`.github/`, `infrastructure/`, `docker*`)
+- [ ] Documentation (`docs/`)
 
-## 🎯 PRD Reference & Scope
-- **Component(s) Modified:**
-  - [ ] Frontend (`frontend/xev9s_app/`)
-  - [ ] Backend (`backend/`)
-  - [ ] Simulator (`simulator/`)
-  - [ ] Infrastructure & DevOps (`.github/`, `infrastructure/`, `docker*`)
-  - [ ] Documentation (`docs/`)
-- **Use Case / Section Reference:** 
-  <!-- e.g., UC-01 Auth & Vehicle Association, UC-02 Dashboard, Workflow 2 CI, etc. -->
+**PRD / Use Case reference:** <!-- e.g. UC-01, Workflow 2 CI -->
 
-## 🏷️ Type of Change
-- [ ] 🚀 New Feature (non-breaking change adding functionality)
-- [ ] 🐛 Bug Fix (non-breaking fix to existing functionality)
-- [ ] ♻️ Refactoring / Clean-up (no behavior changes)
-- [ ] 🧪 Tests (adding or updating unit, integration, or widget tests)
-- [ ] ⚙️ DevOps / CI/CD / Containerization
-- [ ] 📝 Documentation
+## Type of Change
+- [ ] New feature
+- [ ] Bug fix
+- [ ] Refactor / clean-up
+- [ ] Tests
+- [ ] DevOps / CI/CD / Containerization
+- [ ] Documentation
 
 ---
 
-## 🧪 Local Quality & Test Verification
-> **All checks below must pass before requesting review / merging to `dev`.**
+## Verification
 
-### Flutter Frontend (if applicable)
-- [ ] `flutter analyze` completed with 0 errors / 0 warnings
-- [ ] `flutter test --coverage` executed
-- [ ] Line coverage meets or exceeds **70.0%** threshold
+### Frontend (if changed)
+- [ ] `flutter analyze` — 0 errors / 0 warnings
+- [ ] `flutter test --coverage` — coverage >= 70%
 
-### Python Backend / Simulator (if applicable)
-- [ ] `ruff check .` passed with 0 linting issues
-- [ ] Maximum 200 lines per Python file rule respected
-- [ ] `pytest tests --cov=app --cov-fail-under=70` executed
-- [ ] Test coverage meets or exceeds **70.0%** threshold
+### Backend / Simulator (if changed)
+- [ ] `ruff check .` — 0 issues
+- [ ] No Python file exceeds 200 lines
+- [ ] `pytest --cov=app --cov-fail-under=70` — coverage >= 70%
 
-### Integration & Manual Verification
-- [ ] Tested locally (e.g. against mock server / local backend / Docker environment)
-- [ ] Relevant screenshots, terminal outputs, or API responses attached (if applicable)
+### Manual
+- [ ] Tested locally (mock server / local backend / Docker)
+- [ ] Screenshots or logs attached where relevant
 
 ---
 
-## 🛡️ Security & DevSecOps Compliance
-- [ ] **No Secrets:** Verified that no tokens, credentials, API keys, or passwords are committed.
-- [ ] **Dependencies:** Any newly introduced dependencies are audited and pinned.
-- [ ] **Security Scans:** Changes adhere to Gitleaks, Semgrep SAST, and Trivy criteria.
+## Security
+- [ ] No secrets, tokens, or credentials committed
+- [ ] New dependencies are pinned and audited
+- [ ] Gitleaks, Semgrep, and Trivy criteria met
 
 ---
 
-## 🔍 Pre-Merge Checklist (Reviewer & Author)
-- [ ] Targeted branch is correct (`dev` for feature branches; `main` for release branches).
-- [ ] Pull Request title follows Conventional Commits format (e.g., `feat:`, `fix:`, `chore:`, `test:`).
-- [ ] All automated GitHub Actions status checks (**`Mandatory CI Gate`**) passed successfully.
+## Pre-Merge
+- [ ] Target branch is correct (`dev` for features, `main` for releases)
+- [ ] PR title follows Conventional Commits (`feat:`, `fix:`, `chore:`, `ci:`, `test:`)
+- [ ] All `Mandatory CI Gate` checks passed
