@@ -51,9 +51,9 @@ RUN flutter build web --release \
 # ==============================================================================
 # Stage 2: Serve compiled assets via non-root Nginx (Trivy DS-0002 compliant)
 # ==============================================================================
-# nginxinc/nginx-unprivileged is the official non-root variant of Nginx.
-# It runs as uid 101 (nginx) with no root access — satisfies Trivy DS-0002.
-# It listens on port 8080 internally (not 80, which requires root).
+# nginxinc/nginx-unprivileged runs as uid 101 (nginx) with no root access.
+# USER nginx is declared explicitly so Trivy's static DS-0002 check passes.
+# Listens on port 8080 (non-privileged, no root required).
 FROM nginxinc/nginx-unprivileged:1.27-alpine-slim AS runner
 
 # Copy compiled Flutter web assets from builder stage
@@ -61,6 +61,10 @@ COPY --from=builder /app/build/web /usr/share/nginx/html
 
 # Copy custom nginx configuration (handles SPA routing + healthcheck endpoint)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Explicitly declare non-root user so Trivy DS-0002 static check passes.
+# uid 101 (nginx) is pre-created in the nginx-unprivileged base image.
+USER nginx
 
 # Healthcheck for Docker and Kubernetes orchestrators
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
