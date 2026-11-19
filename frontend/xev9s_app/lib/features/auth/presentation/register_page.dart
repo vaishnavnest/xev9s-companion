@@ -88,6 +88,14 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
   Future<void> _submit() async {
     setState(() => _hasUserInteracted = true);
+
+    if (!_agreedToTerms) {
+      setState(() {
+        _generalError = 'Please agree to the Terms of Service & Privacy Policy.';
+      });
+      return;
+    }
+
     if (!_formKey.currentState!.validate() || _isLoading) return;
 
     setState(() {
@@ -98,8 +106,8 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
     try {
       await ref.read(authControllerProvider.notifier).register(
-            _nameController.text,
-            _emailController.text,
+            _nameController.text.trim(),
+            _emailController.text.trim(),
             _passwordController.text,
           );
     } on AppError catch (e) {
@@ -112,19 +120,11 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
           _fieldErrors = e.fieldErrors;
         }
       });
-      _isClearingPasswords = true;
-      _passwordController.clear();
-      _confirmPasswordController.clear();
-      _isClearingPasswords = false;
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _generalError = 'Something went wrong. Please try again.';
       });
-      _isClearingPasswords = true;
-      _passwordController.clear();
-      _confirmPasswordController.clear();
-      _isClearingPasswords = false;
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -704,7 +704,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                       height: 50,
                       child: FilledButton(
                         key: const Key('register-submit'),
-                        onPressed: (_isFormInputValid && !_isLoading) ? _submit : null,
+                        onPressed: _isLoading ? null : _submit,
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFF00BCD4),
                           foregroundColor: Colors.white,
@@ -715,7 +715,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),
-                          elevation: (_isFormInputValid && !_isLoading) ? 3 : 0,
+                          elevation: _isLoading ? 0 : 3,
                           shadowColor: const Color(0xFF00BCD4).withValues(alpha: 0.35),
                         ),
                         child: _isLoading

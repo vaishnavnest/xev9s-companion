@@ -552,7 +552,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       height: 52,
                       child: FilledButton(
                         key: const Key('login-submit'),
-                        onPressed: (_isFormInputValid && !_isLoading) ? _submit : null,
+                        onPressed: _isLoading ? null : _submit,
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFF005F73),
                           foregroundColor: Colors.white,
@@ -563,7 +563,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),
-                          elevation: (_isFormInputValid && !_isLoading) ? 3 : 0,
+                          elevation: _isLoading ? 0 : 3,
                           shadowColor: const Color(0xFF005F73).withValues(alpha: 0.35),
                         ),
                         child: _isLoading

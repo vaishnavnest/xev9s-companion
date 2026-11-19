@@ -14,7 +14,7 @@ class VehiclesController extends AsyncNotifier<List<VehicleSummary>> {
   FutureOr<List<VehicleSummary>> build() async {
     _repository = ref.watch(vehicleRepositoryProvider);
     final vehicles = await _repository.listVehicles();
-    _handleAutoSelection(vehicles);
+    Future.microtask(() => _handleAutoSelection(vehicles));
     return vehicles;
   }
 
@@ -25,7 +25,7 @@ class VehiclesController extends AsyncNotifier<List<VehicleSummary>> {
     state = const AsyncLoading<List<VehicleSummary>>().copyWithPrevious(state);
     state = await AsyncValue.guard(() async {
       final vehicles = await _repository.listVehicles();
-      _handleAutoSelection(vehicles);
+      Future.microtask(() => _handleAutoSelection(vehicles));
       return vehicles;
     });
   }

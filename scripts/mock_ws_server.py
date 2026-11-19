@@ -19,6 +19,7 @@ import socket
 import socketserver
 import threading
 import time
+import urllib.parse
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -27,6 +28,7 @@ CONTROL_PORT = 4012
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 clients = set()
+client_subscriptions = {}  # socket -> vehicle_id string
 clients_lock = threading.Lock()
 state = {
     "isOnline": True,
@@ -54,22 +56,47 @@ def make_frame(payload_str: str) -> bytes:
         header = bytes([0x81, 127]) + length.to_bytes(8, byteorder='big')
     return header + payload_bytes
 
-def broadcast(event_name: str, data: dict, vehicle_id: str = "veh_mock_9s_01"):
-    message = json.dumps({
-        "event": event_name,
-        "vehicleId": vehicle_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "data": data,
-    })
-    frame = make_frame(message)
+def broadcast(event_name: str, data_or_builder, vehicle_id: str = None):
+    """
+    Broadcast an event to connected clients.
+    If vehicle_id is provided, only clients subscribed to that vehicle_id receive it.
+    If vehicle_id is None, each client receives a payload addressed to its own subscribed vehicleId.
+    data_or_builder can be a dict, or a callable: fn(target_vid: str) -> dict.
+    """
     with clients_lock:
         to_remove = set()
-        for client in clients:
+        for client in list(clients):
+            client_vid = client_subscriptions.get(client, "veh_mock_9s_01")
+
+            # If a specific vehicle_id is targeted and doesn't match this client's subscription, skip
+            if vehicle_id is not None and vehicle_id != client_vid:
+                continue
+
+            target_vid = vehicle_id or client_vid
+
+            if callable(data_or_builder):
+                client_data = data_or_builder(target_vid)
+            else:
+                client_data = dict(data_or_builder)
+                if "vehicleId" in client_data:
+                    client_data["vehicleId"] = target_vid
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            message = json.dumps({
+                "event": event_name,
+                "vehicleId": target_vid,
+                "timestamp": now_iso,
+                "data": client_data,
+            })
+            frame = make_frame(message)
             try:
                 client.sendall(frame)
             except Exception:
                 to_remove.add(client)
-        clients.difference_update(to_remove)
+
+        for dead in to_remove:
+            clients.discard(dead)
+            client_subscriptions.pop(dead, None)
 
 class WebSocketHandler(socketserver.StreamRequestHandler):
     def handle(self):
@@ -77,6 +104,19 @@ class WebSocketHandler(socketserver.StreamRequestHandler):
         request_line = self.rfile.readline().decode('utf-8', errors='ignore')
         if not request_line or 'GET' not in request_line:
             return
+
+        # Extract vehicleId from query string (?token=...&vehicleId=...)
+        vehicle_id = "veh_mock_9s_01"
+        try:
+            req_parts = request_line.split()
+            if len(req_parts) >= 2:
+                req_path = req_parts[1]
+                parsed = urllib.parse.urlparse(req_path)
+                qs = urllib.parse.parse_qs(parsed.query)
+                if 'vehicleId' in qs and qs['vehicleId'] and qs['vehicleId'][0].strip():
+                    vehicle_id = qs['vehicleId'][0].strip()
+        except Exception:
+            pass
 
         headers = {}
         while True:
@@ -104,18 +144,20 @@ class WebSocketHandler(socketserver.StreamRequestHandler):
         self.wfile.write(response.encode('utf-8'))
         self.wfile.flush()
 
-        print(f"[MockWS] Client connected from {self.client_address}")
+        print(f"[MockWS] Client connected from {self.client_address} (subscribed to vehicleId={vehicle_id})")
         with clients_lock:
             clients.add(self.request)
+            client_subscriptions[self.request] = vehicle_id
 
-        # Send initial status frame immediately upon connect — read from live state
+        # Send initial status frame immediately upon connect — tailored to this client's vehicleId
         with state_lock:
             s = dict(state)
+        now_iso = datetime.now(timezone.utc).isoformat()
         self.request.sendall(make_frame(json.dumps({
             "event": "vehicle.status",
-            "vehicleId": "veh_mock_9s_01",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "data": _build_status_payload(s),
+            "vehicleId": vehicle_id,
+            "timestamp": now_iso,
+            "data": _build_status_payload(s, vehicle_id=vehicle_id),
         })))
 
         try:
@@ -142,6 +184,7 @@ class WebSocketHandler(socketserver.StreamRequestHandler):
         finally:
             with clients_lock:
                 clients.discard(self.request)
+                client_subscriptions.pop(self.request, None)
             print(f"[MockWS] Client disconnected from {self.client_address}")
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -180,19 +223,19 @@ def ticker():
 
         if just_went_offline:
             print("[MockWS] Battery reached 0.0%! Vehicle shut down and is now OFFLINE.")
-            broadcast("connectivity.changed", {
+            broadcast("connectivity.changed", lambda vid: {
                 "status": "OFFLINE",
                 "lastCommunicationAt": datetime.now(timezone.utc).isoformat(),
             })
 
-        # Full vehicle.status broadcast — all fields the Flutter app reads
-        broadcast("vehicle.status", _build_status_payload(s))
+        # Full vehicle.status broadcast — sent to each client using its subscribed vehicleId
+        broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid))
 
         # Charging update every 15s
         if status_counter % 5 == 0:
             with state_lock:
                 s = dict(state)
-            broadcast("charging.updated", {
+            broadcast("charging.updated", lambda vid: {
                 "state": s["chargingState"],
                 "powerKw": s["powerKw"],
                 "batteryPercent": s["batteryPercent"],
@@ -200,11 +243,11 @@ def ticker():
             })
 
 
-def _build_status_payload(s: dict) -> dict:
+def _build_status_payload(s: dict, vehicle_id: str = "veh_mock_9s_01") -> dict:
     """Build a full vehicle.status data payload from current state dict."""
     battery_pct = s["batteryPercent"]
     return {
-        "vehicleId": "veh_mock_9s_01",
+        "vehicleId": vehicle_id,
         "name": s.get("name", "My XEV 9S"),
         "model": s.get("model", "XEV 9S AWD Performance"),
         "vehicleState": s["vehicleState"],
@@ -258,10 +301,17 @@ class ControlHandler(BaseHTTPRequestHandler):
         payload = json.loads(self.rfile.read(length)) if length else {}
 
         event = payload.get("event", "vehicle.status")
+        target_vid = payload.get("vehicleId")
 
         with state_lock:
             if "battery"              in payload: state["batteryPercent"]      = float(payload["battery"])
-            if "speedKmh"             in payload: state["speed"]               = float(payload["speedKmh"])
+            if "speedKmh"             in payload:
+                state["speed"] = float(payload["speedKmh"])
+                if "vehicleState" not in payload:
+                    if state["speed"] > 0:
+                        state["vehicleState"] = "DRIVING"
+                    elif state["vehicleState"] == "DRIVING":
+                        state["vehicleState"] = "PARKED"
             if "isOnline"             in payload: state["isOnline"]            = bool(payload["isOnline"])
             if "vehicleState"         in payload: state["vehicleState"]        = payload["vehicleState"]
             if "chargingState"        in payload: state["chargingState"]       = payload["chargingState"]
@@ -269,27 +319,34 @@ class ControlHandler(BaseHTTPRequestHandler):
             if "lockState"            in payload: state["lockState"]           = payload["lockState"]
             if "preconditioningState" in payload: state["preconditioningState"]= payload["preconditioningState"]
             if "odometerKm"           in payload: state["odometerKm"]          = float(payload["odometerKm"])
+
+            # Harmonize charging state & vehicle state
+            if state.get("chargingState") == "CHARGING" and "vehicleState" not in payload:
+                state["vehicleState"] = "CHARGING"
+            elif state.get("vehicleState") == "CHARGING" and "chargingState" not in payload:
+                state["chargingState"] = "CHARGING"
+
             s = dict(state)
 
-        # Build and broadcast the right event
+        # Build and broadcast the right event immediately
         if event == "connectivity.changed":
-            broadcast("connectivity.changed", {
+            broadcast("connectivity.changed", lambda vid: {
                 "status": "ONLINE" if s["isOnline"] else "OFFLINE",
                 "lastCommunicationAt": datetime.now(timezone.utc).isoformat(),
-            })
-            # Also send a full vehicle.status so the app updates all fields
-            broadcast("vehicle.status", _build_status_payload(s))
+            }, vehicle_id=target_vid)
+            # Also send a full vehicle.status so the app updates all telemetry fields
+            broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid), vehicle_id=target_vid)
         elif event == "charging.updated":
-            broadcast("charging.updated", {
+            broadcast("charging.updated", lambda vid: {
                 "state": s["chargingState"],
                 "powerKw": s["powerKw"],
                 "batteryPercent": s["batteryPercent"],
                 "remainingMinutes": payload.get("remainingMinutes", 45) if s["chargingState"] == "CHARGING" else None,
-            })
+            }, vehicle_id=target_vid)
         else:  # default: vehicle.status — full payload with all telemetry fields
-            broadcast("vehicle.status", _build_status_payload(s))
+            broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid), vehicle_id=target_vid)
 
-        print(f"[ControlServer] Broadcast '{event}' → state: {s}")
+        print(f"[ControlServer] Broadcast '{event}' (target_vid={target_vid}) → state: {s}")
         import sys; sys.stdout.flush()
 
         resp = json.dumps({"ok": True, "event": event, "state": s}).encode()
