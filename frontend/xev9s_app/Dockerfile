@@ -49,12 +49,12 @@ RUN flutter build web --release \
     --dart-define=WS_BASE_URL=${WS_BASE_URL}
 
 # ==============================================================================
-# Stage 2: Serve compiled assets via lightweight Nginx
+# Stage 2: Serve compiled assets via non-root Nginx (Trivy DS-0002 compliant)
 # ==============================================================================
-FROM nginx:1.27-alpine-slim AS runner
-
-# Remove default nginx static assets
-RUN rm -rf /usr/share/nginx/html/*
+# nginxinc/nginx-unprivileged is the official non-root variant of Nginx.
+# It runs as uid 101 (nginx) with no root access — satisfies Trivy DS-0002.
+# It listens on port 8080 internally (not 80, which requires root).
+FROM nginxinc/nginx-unprivileged:1.27-alpine-slim AS runner
 
 # Copy compiled Flutter web assets from builder stage
 COPY --from=builder /app/build/web /usr/share/nginx/html
@@ -64,8 +64,9 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Healthcheck for Docker and Kubernetes orchestrators
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost/healthz || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/healthz || exit 1
 
-EXPOSE 80
+# nginx-unprivileged listens on 8080 (non-privileged port, no root needed)
+EXPOSE 8080
 
 CMD ["nginx", "-g", "daemon off;"]
