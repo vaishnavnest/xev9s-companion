@@ -32,7 +32,6 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
   String? _generalError;
   Map<String, String> _fieldErrors = {};
   bool _hasUserInteracted = false;
-  bool _isClearingPasswords = false;
 
   @override
   void initState() {
@@ -44,7 +43,6 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
   }
 
   void _onFieldChanged() {
-    if (_isClearingPasswords) return;
     setState(() {
       _generalError = null;
       _fieldErrors = {};
