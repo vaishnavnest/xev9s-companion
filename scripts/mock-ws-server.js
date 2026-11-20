@@ -21,6 +21,7 @@ const wss = new WebSocketServer({ noServer: true });
 
 let batteryPercent = 64.0;
 let isOffline = false;
+let isCharging = false;
 
 function broadcast(event) {
   const json = JSON.stringify(event);
@@ -44,7 +45,7 @@ function sendVehicleStatus(targetVehicleId) {
       vehicleId: targetVehicleId || 'veh_9S0001',
       name: 'Asha\'s XEV 9S',
       model: 'XEV 9S AWD Performance',
-      vehicleState: isOffline ? 'OFFLINE' : 'PARKED',
+      vehicleState: isOffline ? 'OFFLINE' : (isCharging ? 'CHARGING' : 'PARKED'),
       connectivity: isOffline ? 'OFFLINE' : 'ONLINE',
       battery: {
         percent: batteryPercent,
@@ -58,8 +59,8 @@ function sendVehicleStatus(targetVehicleId) {
       lockState: 'LOCKED',
       preconditioningState: 'INACTIVE',
       charging: {
-        state: 'NOT_CONNECTED',
-        powerKw: null,
+        state: isCharging ? 'CHARGING' : 'NOT_CONNECTED',
+        powerKw: isCharging ? 11.2 : null,
       },
       lastUpdatedAt: new Date().toISOString(),
       isStale: isOffline,
@@ -86,19 +87,20 @@ function sendConnectivity(status) {
 }
 
 function sendChargingUpdate() {
+  const stateStr = isCharging ? 'CHARGING' : 'NOT_CONNECTED';
   const event = {
     event: 'charging.updated',
     vehicleId: 'veh_9S0001',
     timestamp: new Date().toISOString(),
     data: {
-      state: 'CHARGING',
+      state: stateStr,
       batteryPercent: batteryPercent,
-      powerKw: 11.2,
+      powerKw: isCharging ? 11.2 : null,
       targetPercent: 80,
     },
   };
   broadcast(event);
-  console.log(`[MockWS] Broadcasted charging.updated`);
+  console.log(`[MockWS] Broadcasted charging.updated -> ${stateStr}`);
 }
 
 server.on('upgrade', (request, socket, head) => {
@@ -138,24 +140,9 @@ const statusInterval = setInterval(() => {
   }
 }, 3000);
 
-// Connectivity toggling every 20s (OFFLINE) and 10s later (ONLINE)
-let onlineTimeout;
-const connectivityInterval = setInterval(() => {
-  if (wss.clients.size > 0) {
-    sendConnectivity('OFFLINE');
-    clearTimeout(onlineTimeout);
-    onlineTimeout = setTimeout(() => {
-      sendConnectivity('ONLINE');
-    }, 10000);
-  }
-}, 30000);
-
-// Occasionally emit charging.updated every 15s
-const chargingInterval = setInterval(() => {
-  if (wss.clients.size > 0 && !isOffline) {
-    sendChargingUpdate();
-  }
-}, 15000);
+// Note: Automatic random charging and offline intervals have been disabled to
+// prevent unexpected state flapping during development.
+// Use interactive keyboard controls (o, n, c) or scripts/inject.py.
 
 // Interactive keyboard controls in terminal
 if (process.stdin.isTTY) {
@@ -170,10 +157,12 @@ if (process.stdin.isTTY) {
     } else if (key === 'n') {
       sendConnectivity('ONLINE');
     } else if (key === 'c') {
+      isCharging = !isCharging;
       sendChargingUpdate();
+      sendVehicleStatus('veh_9S0001');
     }
   });
-  console.log('Interactive controls: press "o" (offline), "n" (online), "c" (charging), Ctrl+C (stop)');
+  console.log('Interactive controls: press "o" (offline), "n" (online), "c" (toggle charging), Ctrl+C (stop)');
 }
 
 server.listen(PORT, () => {
