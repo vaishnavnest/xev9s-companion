@@ -38,15 +38,13 @@ RUN flutter pub get
 # Copy source code and assets
 COPY . .
 
-# Build arguments for API endpoint injection at compile time
-ARG API_BASE_URL=http://localhost:8000/api/v1
-ARG WS_BASE_URL=ws://localhost:8000/ws
+# Build argument for API endpoint injection at compile time
+ARG API_BASE_URL=http://localhost:8000
 
 # Compile Flutter web release bundle
 # Output is generated in /app/build/web/
 RUN flutter build web --release \
-    --dart-define=API_BASE_URL=${API_BASE_URL} \
-    --dart-define=WS_BASE_URL=${WS_BASE_URL}
+    --dart-define=API_BASE_URL=${API_BASE_URL}
 
 # ==============================================================================
 # Stage 2: Serve compiled assets via non-root Nginx (Trivy DS-0002 compliant)
@@ -57,18 +55,18 @@ RUN flutter build web --release \
 FROM nginxinc/nginx-unprivileged:1.27-alpine-slim AS runner
 
 # Copy compiled Flutter web assets from builder stage
-COPY --from=builder /app/build/web /usr/share/nginx/html
+COPY --from=builder --chown=nginx:nginx /app/build/web /usr/share/nginx/html
 
 # Copy custom nginx configuration (handles SPA routing + healthcheck endpoint)
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --chown=nginx:nginx nginx.conf /etc/nginx/conf.d/default.conf
 
 # Explicitly declare non-root user so Trivy DS-0002 static check passes.
 # uid 101 (nginx) is pre-created in the nginx-unprivileged base image.
 USER nginx
 
-# Healthcheck for Docker and Kubernetes orchestrators
+# Healthcheck for Docker and Kubernetes orchestrators (Alpine BusyBox wget compliant)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/healthz || exit 1
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1
 
 # nginx-unprivileged listens on 8080 (non-privileged port, no root needed)
 EXPOSE 8080
