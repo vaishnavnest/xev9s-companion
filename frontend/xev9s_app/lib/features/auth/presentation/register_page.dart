@@ -337,6 +337,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                       key: const Key('register-email'),
                       controller: _emailController,
                       focusNode: _emailFocusNode,
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
                       style: const TextStyle(
@@ -349,6 +350,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                           color: Color(0xFF94A3B8),
                           fontSize: 14,
                         ),
+                        errorMaxLines: 2,
                         filled: true,
                         fillColor: Colors.white,
                         prefixIcon: const Icon(

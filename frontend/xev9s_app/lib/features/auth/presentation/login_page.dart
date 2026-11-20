@@ -326,6 +326,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     TextFormField(
                       key: const Key('login-identifier'),
                       controller: _identifierController,
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
                       style: const TextStyle(
@@ -338,6 +339,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                           color: Color(0xFF94A3B8),
                           fontSize: 14,
                         ),
+                        errorMaxLines: 2,
                         filled: true,
                         fillColor: Colors.white,
                         prefixIcon: const Icon(
