@@ -36,11 +36,10 @@ class AppConfig {
 
   /// Base URL for WebSocket connections.
   /// Injected at compile time via `--dart-define=WS_BASE_URL=...`.
-  /// Default points to the local mock server (note: Prism does not support
-  /// WebSocket, so this is a placeholder for future use).
+  /// Default points to the local mock WebSocket server on port 4011.
   static const wsBaseUrl = String.fromEnvironment(
     'WS_BASE_URL',
-    defaultValue: 'ws://localhost:4010',
+    defaultValue: 'ws://localhost:4011',
   );
 
   /// Raw realtime communication mode: 'ws' (WebSocket) or 'polling'.

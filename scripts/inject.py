@@ -120,6 +120,7 @@ def main():
     parser.add_argument("--lock",     type=str,    help="Lock state: LOCKED | UNLOCKED")
     parser.add_argument("--climate",  type=str,    help="Preconditioning: INACTIVE | ACTIVE")
     parser.add_argument("--odometer", type=float,  help="Odometer reading in km")
+    parser.add_argument("--vehicle",  type=str,    help="Target vehicle ID (default: broadcast to currently subscribed vehicle)")
 
     # Connectivity shortcuts
     parser.add_argument("--offline",  action="store_true", help="Set vehicle offline")
@@ -146,13 +147,17 @@ def main():
     payload: dict = {}
 
     if args.battery  is not None: payload["battery"]               = args.battery
-    if args.speed    is not None: payload["speedKmh"]              = args.speed
+    if args.speed    is not None:
+        payload["speedKmh"] = args.speed
+        if args.state is None:
+            payload["vehicleState"] = "DRIVING" if args.speed > 0 else "PARKED"
     if args.state    is not None: payload["vehicleState"]          = args.state.upper()
     if args.charging is not None: payload["chargingState"]         = args.charging.upper()
     if args.power    is not None: payload["powerKw"]               = args.power
     if args.lock     is not None: payload["lockState"]             = args.lock.upper()
     if args.climate  is not None: payload["preconditioningState"]  = args.climate.upper()
     if args.odometer is not None: payload["odometerKm"]            = args.odometer
+    if args.vehicle  is not None: payload["vehicleId"]             = args.vehicle.strip()
 
     # Connectivity shortcuts
     if args.offline:

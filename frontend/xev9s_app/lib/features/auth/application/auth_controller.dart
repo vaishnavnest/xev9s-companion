@@ -124,8 +124,9 @@ class AuthController extends Notifier<AuthState> {
   Future<void> register(String name, String email, String password) async {
     try {
       final session = await _authRepository.register(name, email, password);
-      ref.invalidate(vehiclesControllerProvider);
+      await ref.read(selectedVehicleProvider.notifier).clear();
       state = AuthAuthenticated(session.user);
+      ref.invalidate(vehiclesControllerProvider);
     } on AppError {
       rethrow;
     }

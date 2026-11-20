@@ -33,6 +33,33 @@ state = {
     "powerKw":              None,
 }
 
+DEFAULT_TOKEN = "mock_jwt_access_token_123456789"
+# Map of token -> list of associated vehicles
+# Default demo user token has 1 pre-associated vehicle.
+# Newly registered users start with an empty vehicle list.
+user_vehicles = {
+    DEFAULT_TOKEN: [
+        {
+            "vehicleId": "veh_mock_9s_01",
+            "name": "My XEV 9S",
+            "model": "XEV 9S",
+            "identifier": "VIN9S2026MOCK01",
+            "associationStatus": "ASSOCIATED",
+            "connectivity": "ONLINE",
+        }
+    ]
+}
+user_profiles = {
+    DEFAULT_TOKEN: {
+        "userId": "usr_mock_001",
+        "name": "Jane Doe",
+        "email": "jane@example.com",
+    }
+}
+user_passwords = {
+    "jane@example.com": "password123",
+}
+
 class MockApiHandler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -64,6 +91,12 @@ class MockApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _get_auth_token(self):
+        auth = self.headers.get('Authorization', '')
+        if auth.startswith('Bearer '):
+            return auth[7:].strip()
+        return auth.strip()
+
     def _read_body_json(self):
         content_length = int(self.headers.get('Content-Length', 0))
         if content_length > 0:
@@ -76,27 +109,29 @@ class MockApiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split('?')[0]
+        token = self._get_auth_token()
 
         if path in ('/users/me', '/api/v1/users/me'):
+            profile = user_profiles.get(token, user_profiles.get(DEFAULT_TOKEN))
             self._send_json(200, data={
-                "userId": "usr_mock_001",
-                "name": "Jane Doe",
-                "email": "jane@example.com",
+                "userId": profile["userId"],
+                "name": profile["name"],
+                "email": profile["email"],
                 "createdAt": "2026-01-01T00:00:00Z"
             })
         elif path in ('/vehicles', '/api/v1/vehicles'):
             with _state_lock:
+                if token and token in user_vehicles:
+                    veh_list = [dict(v) for v in user_vehicles[token]]
+                elif not token:
+                    veh_list = [dict(v) for v in user_vehicles.get(DEFAULT_TOKEN, [])]
+                else:
+                    veh_list = []
+
                 connectivity = "ONLINE" if state["isOnline"] else "OFFLINE"
-            self._send_json(200, data=[
-                {
-                    "vehicleId": "veh_mock_9s_01",
-                    "name": "My XEV 9S",
-                    "model": "XEV 9S",
-                    "identifier": "VIN9S2026MOCK01",
-                    "associationStatus": "ASSOCIATED",
-                    "connectivity": connectivity,
-                }
-            ])
+                for v in veh_list:
+                    v["connectivity"] = connectivity
+            self._send_json(200, data=veh_list)
         elif '/status' in path:
             vehicle_id = path.split('/vehicles/')[1].split('/status')[0] if '/vehicles/' in path else 'veh_mock_9s_01'
             with _state_lock:
@@ -165,31 +200,73 @@ class MockApiHandler(BaseHTTPRequestHandler):
             return
         # ─────────────────────────────────────────────────────────────────────
 
+        token = self._get_auth_token()
+
         if path in ('/auth/register', '/api/v1/auth/register'):
             name = body.get('name', 'Jane Doe')
             email = body.get('email', 'jane@example.com')
+            password = body.get('password', '')
+            user_id = f"usr_{abs(hash(email)) % 1000000:06d}"
+            user_token = f"mock_jwt_token_{abs(hash(email)) % 1000000:06d}"
+
+            with _state_lock:
+                user_profiles[user_token] = {
+                    "userId": user_id,
+                    "name": name,
+                    "email": email,
+                }
+                user_passwords[email] = password
+                # A brand new user starts with 0 vehicles!
+                user_vehicles[user_token] = []
+
             self._send_json(201, data={
-                "accessToken": "mock_jwt_access_token_123456789",
-                "refreshToken": "mock_jwt_refresh_token_123456789",
+                "accessToken": user_token,
+                "refreshToken": f"mock_refresh_{user_token}",
                 "tokenType": "Bearer",
                 "expiresIn": 900,
                 "user": {
-                    "userId": "usr_mock_001",
+                    "userId": user_id,
                     "name": name,
                     "email": email
                 }
             })
         elif path in ('/auth/login', '/api/v1/auth/login'):
-            identifier = body.get('identifier', 'jane@example.com')
+            identifier = body.get('identifier', '').strip()
+            password = body.get('password', '')
+
+            # Validate credentials
+            with _state_lock:
+                expected_password = user_passwords.get(identifier)
+
+            # If user does not exist or password does not match -> 401 INVALID_CREDENTIALS
+            if expected_password is None or expected_password != password:
+                self._send_json(401, error={
+                    "code": "INVALID_CREDENTIALS",
+                    "message": "Incorrect email or password.",
+                    "details": None,
+                    "retryable": True
+                })
+                return
+
+            # Find matching token or generate one
+            matched_token = None
+            for tok, prof in user_profiles.items():
+                if prof.get("email") == identifier:
+                    matched_token = tok
+                    break
+            if not matched_token:
+                matched_token = DEFAULT_TOKEN
+
+            profile = user_profiles.get(matched_token, user_profiles[DEFAULT_TOKEN])
             self._send_json(200, data={
-                "accessToken": "mock_jwt_access_token_123456789",
-                "refreshToken": "mock_jwt_refresh_token_123456789",
+                "accessToken": matched_token,
+                "refreshToken": f"mock_refresh_{matched_token}",
                 "tokenType": "Bearer",
                 "expiresIn": 900,
                 "user": {
-                    "userId": "usr_mock_001",
-                    "name": "Jane Doe",
-                    "email": identifier
+                    "userId": profile["userId"],
+                    "name": profile["name"],
+                    "email": profile["email"]
                 }
             })
         elif path in ('/auth/refresh', '/api/v1/auth/refresh'):
@@ -207,16 +284,23 @@ class MockApiHandler(BaseHTTPRequestHandler):
         elif path in ('/auth/logout', '/api/v1/auth/logout'):
             self._send_json(200, data={"message": "Logged out successfully"})
         elif path in ('/vehicles', '/api/v1/vehicles'):
-            self._send_json(201, data=[
-                {
-                    "vehicleId": "veh_mock_9s_01",
+            target_token = token if token and token in user_vehicles else DEFAULT_TOKEN
+            with _state_lock:
+                if target_token not in user_vehicles:
+                    user_vehicles[target_token] = []
+
+                new_veh = {
+                    "vehicleId": f"veh_mock_{int(datetime.now().timestamp())}",
                     "name": body.get("name") or "My XEV 9S",
                     "model": "XEV 9S",
                     "identifier": body.get("vehicleIdentifier", "VIN9S2026MOCK01"),
                     "associationStatus": "ASSOCIATED",
-                    "connectivity": "ONLINE"
+                    "connectivity": "ONLINE" if state["isOnline"] else "OFFLINE"
                 }
-            ])
+                user_vehicles[target_token].append(new_veh)
+                current_list = [dict(v) for v in user_vehicles[target_token]]
+
+            self._send_json(201, data=current_list)
         else:
             self._send_json(200, data={})
 

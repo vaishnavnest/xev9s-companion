@@ -55,9 +55,9 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
           child: EmptyState(
             icon: Icons.directions_car_outlined,
             title: 'No vehicle selected',
-            message: 'Pair your XEV 9S or select one to view its live dashboard.',
-            actionLabel: 'Select Vehicle',
-            onAction: () => showVehicleSwitcher(context),
+            message: 'Pair your XEV 9S or add one to view its live dashboard.',
+            actionLabel: 'Add Vehicle',
+            onAction: () => context.push('/vehicles/add'),
           ),
         ),
       );
@@ -89,9 +89,9 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                 child: EmptyState(
                   icon: Icons.directions_car_outlined,
                   title: 'No vehicle selected',
-                  message: 'Pair your XEV 9S or select one to view its live dashboard.',
-                  actionLabel: 'Select Vehicle',
-                  onAction: () => showVehicleSwitcher(context),
+                  message: 'Pair your XEV 9S or add one to view its live dashboard.',
+                  actionLabel: 'Add Vehicle',
+                  onAction: () => context.push('/vehicles/add'),
                 ),
               );
             }
