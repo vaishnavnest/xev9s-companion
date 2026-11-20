@@ -704,7 +704,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                       height: 50,
                       child: FilledButton(
                         key: const Key('register-submit'),
-                        onPressed: _isLoading ? null : _submit,
+                        onPressed: (_isFormInputValid && !_isLoading) ? _submit : null,
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFF00BCD4),
                           foregroundColor: Colors.white,
