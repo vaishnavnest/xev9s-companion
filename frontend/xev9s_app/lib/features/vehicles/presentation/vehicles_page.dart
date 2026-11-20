@@ -85,7 +85,7 @@ class VehiclesPage extends ConsumerWidget {
           onRetry: () => ref.read(vehiclesControllerProvider.notifier).refresh(),
           empty: EmptyState(
             icon: Icons.directions_car_outlined,
-            title: 'No vehicles added',
+            title: 'No vehicles yet',
             message: 'Pair your XEV 9S to get started with remote commands and telemetry.',
             actionLabel: 'Add Vehicle',
             onAction: () => context.push('/vehicles/add'),
