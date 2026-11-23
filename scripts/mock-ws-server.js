@@ -24,9 +24,18 @@ let isOffline = false;
 let isCharging = false;
 let isDriving = false;
 
+// Charging simulation state
+let chargingState = 'NOT_CONNECTED';
+let chargingPowerKw = null;
+let chargingTargetPercent = 80;
+let chargingSessionDuration = null;
+let chargingSessionId = null;
+let interruptionReason = null;
+let chargingSimulationInterval = null;
+
 function getVehicleState() {
   if (isOffline) return 'OFFLINE';
-  if (isCharging) return 'CHARGING';
+  if (chargingState === 'CHARGING') return 'CHARGING';
   if (isDriving) return 'DRIVING';
   return 'PARKED';
 }
@@ -84,8 +93,8 @@ function sendVehicleStatus(targetVehicleId) {
       lockState: 'LOCKED',
       preconditioningState: 'INACTIVE',
       charging: {
-        state: isCharging ? 'CHARGING' : 'NOT_CONNECTED',
-        powerKw: isCharging ? 11.2 : null,
+        state: chargingState,
+        powerKw: chargingPowerKw,
       },
       lastUpdatedAt: new Date().toISOString(),
       isStale: isOffline,
@@ -168,21 +177,114 @@ function sendVehicleLocation(targetVehicleId, options = {}) {
   console.log(`[MockWS] Broadcasted vehicle.location -> (${lastKnownLocation.latitude}, ${lastKnownLocation.longitude}) isCurrent=${isCurrent} state=${vehicleState}`);
 }
 
-function sendChargingUpdate() {
-  const stateStr = isCharging ? 'CHARGING' : 'NOT_CONNECTED';
+function sendChargingUpdate(targetVehicleId) {
+  const vehicleId = targetVehicleId || 'veh_9S0001';
   const event = {
     event: 'charging.updated',
-    vehicleId: 'veh_9S0001',
+    vehicleId: vehicleId,
     timestamp: new Date().toISOString(),
     data: {
-      state: stateStr,
+      state: chargingState,
       batteryPercent: batteryPercent,
-      powerKw: isCharging ? 11.2 : null,
-      targetPercent: 80,
+      targetPercent: chargingTargetPercent,
+      powerKw: chargingPowerKw,
+      sessionDurationSeconds: chargingSessionDuration,
+      schedule: {
+        enabled: true,
+        startTime: '22:00',
+        endTime: '06:00',
+        daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+      },
+      currentSessionId: chargingSessionId,
     },
   };
   broadcast(event);
-  console.log(`[MockWS] Broadcasted charging.updated -> ${stateStr}`);
+  console.log(`[MockWS] Broadcasted charging.updated -> ${chargingState} (battery: ${batteryPercent}%, power: ${chargingPowerKw} kW, session: ${chargingSessionId})`);
+}
+
+function broadcastChargingAndStatus(targetVehicleId) {
+  const vehicleId = targetVehicleId || 'veh_9S0001';
+  sendChargingUpdate(vehicleId);
+  sendVehicleStatus(vehicleId);
+}
+
+function startChargingSimulation(targetVehicleId) {
+  const vehicleId = targetVehicleId || 'veh_9S0001';
+  if (chargingSimulationInterval) {
+    clearInterval(chargingSimulationInterval);
+    chargingSimulationInterval = null;
+  }
+
+  isDriving = false;
+  isOffline = false;
+  chargingState = 'CONNECTED';
+  chargingPowerKw = 0.0;
+  chargingSessionDuration = 0;
+  chargingSessionId = 'chs_' + Date.now().toString().slice(-4);
+  interruptionReason = null;
+
+  console.log(`[MockWS] Charging simulation initiated -> CONNECTED`);
+  broadcastChargingAndStatus(vehicleId);
+
+  setTimeout(() => {
+    chargingState = 'CHARGING';
+    chargingPowerKw = 11.2;
+    console.log(`[MockWS] Charging started -> CHARGING at 11.2 kW`);
+    broadcastChargingAndStatus(vehicleId);
+
+    chargingSimulationInterval = setInterval(() => {
+      chargingSessionDuration += 2;
+      batteryPercent = Math.min(chargingTargetPercent, +(batteryPercent + 2.0).toFixed(1));
+
+      if (batteryPercent >= chargingTargetPercent) {
+        clearInterval(chargingSimulationInterval);
+        chargingSimulationInterval = null;
+        chargingState = 'COMPLETED';
+        chargingPowerKw = 0.0;
+        console.log(`[MockWS] Charging completed -> Target ${chargingTargetPercent}% reached.`);
+      }
+      broadcastChargingAndStatus(vehicleId);
+    }, 2000);
+  }, 1000);
+}
+
+function interruptChargingSession(targetVehicleId) {
+  const vehicleId = targetVehicleId || 'veh_9S0001';
+  if (chargingSimulationInterval) {
+    clearInterval(chargingSimulationInterval);
+    chargingSimulationInterval = null;
+  }
+  chargingState = 'INTERRUPTED';
+  chargingPowerKw = null;
+  interruptionReason = 'Charging station power fault detected';
+  console.log(`[MockWS] Charging interrupted -> INTERRUPTED`);
+  broadcastChargingAndStatus(vehicleId);
+}
+
+function pauseChargingSession(targetVehicleId) {
+  const vehicleId = targetVehicleId || 'veh_9S0001';
+  if (chargingSimulationInterval) {
+    clearInterval(chargingSimulationInterval);
+    chargingSimulationInterval = null;
+  }
+  chargingState = 'PAUSED';
+  chargingPowerKw = 0.0;
+  console.log(`[MockWS] Charging paused -> PAUSED`);
+  broadcastChargingAndStatus(vehicleId);
+}
+
+function unplugVehicle(targetVehicleId) {
+  const vehicleId = targetVehicleId || 'veh_9S0001';
+  if (chargingSimulationInterval) {
+    clearInterval(chargingSimulationInterval);
+    chargingSimulationInterval = null;
+  }
+  chargingState = 'NOT_CONNECTED';
+  chargingPowerKw = null;
+  chargingSessionDuration = null;
+  chargingSessionId = null;
+  console.log(`[MockWS] Vehicle unplugged -> NOT_CONNECTED`);
+  broadcastChargingAndStatus(vehicleId);
 }
 
 server.on('upgrade', (request, socket, head) => {
@@ -253,16 +355,18 @@ if (process.stdin.isTTY) {
     } else if (key === 'n') {
       sendConnectivity('ONLINE');
     } else if (key === 'c') {
-      isCharging = !isCharging;
-      if (isCharging) isDriving = false;
-      sendChargingUpdate();
-      sendVehicleStatus('veh_9S0001');
-      sendVehicleLocation('veh_9S0001');
+      startChargingSimulation('veh_9S0001');
+    } else if (key === 'i') {
+      interruptChargingSession('veh_9S0001');
+    } else if (key === 'u') {
+      pauseChargingSession('veh_9S0001');
+    } else if (key === 'p') {
+      unplugVehicle('veh_9S0001');
     } else if (key === 'l') {
       sendVehicleLocation('veh_9S0001', { nullLocation: true });
     }
   });
-  console.log('Interactive controls: press "d" (toggle driving/parked), "c" (toggle charging), "o" (offline), "n" (online), "l" (null location), Ctrl+C (stop)');
+  console.log('Interactive controls: press "c" (simulate charging), "i" (interrupt), "u" (pause), "p" (unplug), "d" (driving), "o" (offline), "n" (online), "l" (null location), Ctrl+C (stop)');
 }
 
 server.listen(PORT, () => {

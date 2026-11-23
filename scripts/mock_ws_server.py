@@ -51,8 +51,17 @@ state = {
     "isOnline": True,
     "batteryPercent": 64.0,
     "speed": 0.0,
-    "chargingState": "NOT_CONNECTED",
-    "powerKw": None,
+    "chargingState": "CONNECTED",
+    "powerKw": 0.0,
+    "targetPercent": 80,
+    "sessionDurationSeconds": None,
+    "currentSessionId": None,
+    "schedule": {
+        "enabled": True,
+        "startTime": "22:00",
+        "endTime": "06:00",
+        "daysOfWeek": ["MON", "TUE", "WED", "THU", "FRI"],
+    },
     "vehicleState": "PARKED",
     "lockState": "LOCKED",
     "preconditioningState": "INACTIVE",
@@ -276,9 +285,12 @@ def ticker():
                 s = dict(state)
             broadcast("charging.updated", lambda vid: {
                 "state": s["chargingState"],
-                "powerKw": s["powerKw"],
                 "batteryPercent": s["batteryPercent"],
-                "remainingMinutes": 45 if s["chargingState"] == "CHARGING" else None,
+                "targetPercent": s.get("targetPercent", 80),
+                "powerKw": s["powerKw"],
+                "sessionDurationSeconds": s.get("sessionDurationSeconds"),
+                "schedule": s.get("schedule"),
+                "currentSessionId": s.get("currentSessionId"),
             })
 
 
@@ -378,9 +390,12 @@ class ControlHandler(BaseHTTPRequestHandler):
         elif event == "charging.updated":
             broadcast("charging.updated", lambda vid: {
                 "state": s["chargingState"],
-                "powerKw": s["powerKw"],
                 "batteryPercent": s["batteryPercent"],
-                "remainingMinutes": payload.get("remainingMinutes", 45) if s["chargingState"] == "CHARGING" else None,
+                "targetPercent": s.get("targetPercent", 80),
+                "powerKw": s["powerKw"],
+                "sessionDurationSeconds": s.get("sessionDurationSeconds"),
+                "schedule": s.get("schedule"),
+                "currentSessionId": s.get("currentSessionId"),
             }, vehicle_id=target_vid)
         elif event == "vehicle.location":
             if "nullLocation" in payload:

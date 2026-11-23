@@ -39,7 +39,7 @@ The backend broadcasts JSON text frames matching the `WsEvent` envelope defined 
 |------------|----------------|-----------------|
 | `vehicle.status` | `VehicleStatus` | Replaces active telemetry state if `lastUpdatedAt` is newer than current state. |
 | `vehicle.location` | `VehicleLocation` | Updates active vehicle location in `vehicleLocationProvider` if `reportedAt` is newer. |
-| `charging.updated` | `ChargingOverview` | Merges active charging state, power in kW, and battery percentage into `VehicleStatus`. |
+| `charging.updated` | `ChargingOverview` | Merges active charging state, power in kW, battery percentage, target percentage, schedule, and current session ID. Synchronizes with `vehicleStatusProvider` via `chargingViewProvider`. |
 | `command.updated` | `Command` | Parsed safely; ready for UC-03 Remote Controls feedback. |
 | `notification.created` | `Notification` | Parsed safely; ready for Push Alerts. |
 | `connectivity.changed` | `ConnectivityStatus` | Updates vehicle connectivity (`ONLINE` / `OFFLINE`), toggles `isStale`, and nulls live-only fields (speed, charging power). |
@@ -71,7 +71,38 @@ The `vehicle.location` event transmits geospatial coordinates and status updates
 - **Coordinate Validation:** Coordinates are only valid when `latitude` $\in [-90, 90]$ and `longitude` $\in [-180, 180]$. Out-of-range coordinates are rejected safely without crashing.
 - **Ordering & Filtering:** Events for mismatched vehicles or with timestamps older than the currently held `reportedAt` are discarded.
 
-### 2.2 Unknown & Forward-Compatible Events
+### 2.3 Charging Update Event (`charging.updated`)
+
+The `charging.updated` event transmits real-time telemetry updates for the active charging status (UC-04):
+
+```json
+{
+  "event": "charging.updated",
+  "vehicleId": "veh_9S0001",
+  "timestamp": "2026-11-23T04:00:00.000Z",
+  "data": {
+    "state": "CHARGING",
+    "batteryPercent": 65.0,
+    "targetPercent": 80,
+    "powerKw": 11.2,
+    "sessionDurationSeconds": 1420,
+    "schedule": {
+      "enabled": true,
+      "startTime": "22:00",
+      "endTime": "06:00",
+      "daysOfWeek": ["MON", "TUE", "WED", "THU", "FRI"]
+    },
+    "currentSessionId": "chs_mock_001"
+  }
+}
+```
+
+#### Rules & Constraints:
+- **Consistency Rule:** Dashboard (`vehicleStatusProvider`) and Charging screen (`chargingOverviewProvider`) share live telemetry (`state`, `batteryPercent`, `powerKw`) harmonized via `chargingViewProvider` using timestamp-based reconciliation (newer timestamp wins).
+- **Session Transition Invalidation:** When a session completes (`COMPLETED`) or gets interrupted (`INTERRUPTED`), or `currentSessionId` changes, `chargingSessionsProvider` is automatically invalidated so session history updates without user intervention.
+- **Null Handling:** Null fields are parsed gracefully without throwing exceptions and presented as "-" in the UI.
+
+### 2.4 Unknown & Forward-Compatible Events
 The client's JSON decoder is intentionally tolerant:
 - Unknown event types map to `RealtimeEventType.unknown` without throwing an exception or disconnecting the socket.
 - Malformed payloads are discarded cleanly and logged to debug output.

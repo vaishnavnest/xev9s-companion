@@ -29,9 +29,49 @@ state = {
     "odometerKm":           12874.3,
     "lockState":            "LOCKED",
     "preconditioningState": "INACTIVE",
-    "chargingState":        "NOT_CONNECTED",
-    "powerKw":              None,
+    "chargingState":        "CONNECTED",
+    "powerKw":              0.0,
+    "targetPercent":         80,
+    "sessionDurationSeconds": None,
+    "currentSessionId":      None,
+    "schedule": {
+        "enabled": True,
+        "startTime": "22:00",
+        "endTime": "06:00",
+        "daysOfWeek": ["MON", "TUE", "WED", "THU", "FRI"],
+    },
 }
+
+charging_sessions = [
+    {
+        "sessionId": "chs_mock_001",
+        "vehicleId": "veh_mock_9s_01",
+        "startedAt": "2026-11-23T08:00:00Z",
+        "endedAt": "2026-11-23T09:30:00Z",
+        "durationSeconds": 5400,
+        "startBatteryPercent": 30.0,
+        "endBatteryPercent": 80.0,
+        "targetPercent": 80,
+        "avgPowerKw": 11.2,
+        "maxPowerKw": 11.4,
+        "status": "COMPLETED",
+        "interruptionReason": None
+    },
+    {
+        "sessionId": "chs_mock_002",
+        "vehicleId": "veh_mock_9s_01",
+        "startedAt": "2026-11-22T14:00:00Z",
+        "endedAt": "2026-11-22T14:25:00Z",
+        "durationSeconds": 1500,
+        "startBatteryPercent": 45.0,
+        "endBatteryPercent": 55.0,
+        "targetPercent": 90,
+        "avgPowerKw": 9.5,
+        "maxPowerKw": 11.0,
+        "status": "INTERRUPTED",
+        "interruptionReason": "Connector unlatched during charge"
+    }
+]
 
 DEFAULT_TOKEN = "mock_jwt_access_token_123456789"
 # Map of token -> list of associated vehicles
@@ -161,6 +201,39 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 "lastUpdatedAt": datetime.now(timezone.utc).isoformat(),
                 "isStale": not s["isOnline"],
             })
+        elif '/charging/sessions/' in path:
+            session_id = path.split('/charging/sessions/')[1].split('?')[0]
+            with _state_lock:
+                for sess in charging_sessions:
+                    if sess["sessionId"] == session_id:
+                        self._send_json(200, data=sess)
+                        return
+            self._send_json(404, error={"code": "NOT_FOUND", "message": "Session not found", "retryable": False})
+            return
+        elif '/charging/sessions' in path:
+            with _state_lock:
+                items = list(charging_sessions)
+            self._send_json(200, data={
+                "items": items,
+                "page": 1,
+                "pageSize": 20,
+                "total": len(items),
+                "totalPages": 1
+            })
+            return
+        elif '/charging' in path:
+            with _state_lock:
+                s = dict(state)
+            self._send_json(200, data={
+                "state": s["chargingState"],
+                "batteryPercent": s["batteryPercent"],
+                "targetPercent": s.get("targetPercent", 80),
+                "powerKw": s["powerKw"],
+                "sessionDurationSeconds": s.get("sessionDurationSeconds"),
+                "schedule": s.get("schedule"),
+                "currentSessionId": s.get("currentSessionId")
+            })
+            return
         elif '/location' in path:
             vehicle_id = path.split('/vehicles/')[1].split('/location')[0] if '/vehicles/' in path else 'veh_mock_9s_01'
             with _state_lock:
@@ -321,6 +394,62 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 current_list = [dict(v) for v in user_vehicles[target_token]]
 
             self._send_json(201, data=current_list)
+        else:
+            self._send_json(200, data={})
+
+    def do_PUT(self):
+        path = self.path.split('?')[0]
+        body = self._read_body_json()
+        if '/charging/target' in path:
+            target = body.get('targetPercent')
+            with _state_lock:
+                state['targetPercent'] = target
+                s = dict(state)
+            self._send_json(200, data={
+                "state": s["chargingState"],
+                "batteryPercent": s["batteryPercent"],
+                "targetPercent": s.get("targetPercent", 80),
+                "powerKw": s["powerKw"],
+                "sessionDurationSeconds": s.get("sessionDurationSeconds"),
+                "schedule": s.get("schedule"),
+                "currentSessionId": s.get("currentSessionId")
+            })
+        elif '/charging/schedule' in path:
+            with _state_lock:
+                state['schedule'] = {
+                    "enabled": body.get("enabled", True),
+                    "startTime": body.get("startTime", "22:00"),
+                    "endTime": body.get("endTime", "06:00"),
+                    "daysOfWeek": body.get("daysOfWeek", ["MON", "TUE", "WED", "THU", "FRI"])
+                }
+                s = dict(state)
+            self._send_json(200, data={
+                "state": s["chargingState"],
+                "batteryPercent": s["batteryPercent"],
+                "targetPercent": s.get("targetPercent", 80),
+                "powerKw": s["powerKw"],
+                "sessionDurationSeconds": s.get("sessionDurationSeconds"),
+                "schedule": s.get("schedule"),
+                "currentSessionId": s.get("currentSessionId")
+            })
+        else:
+            self._send_json(200, data={})
+
+    def do_DELETE(self):
+        path = self.path.split('?')[0]
+        if '/charging/schedule' in path:
+            with _state_lock:
+                state['schedule'] = None
+                s = dict(state)
+            self._send_json(200, data={
+                "state": s["chargingState"],
+                "batteryPercent": s["batteryPercent"],
+                "targetPercent": s.get("targetPercent", 80),
+                "powerKw": s["powerKw"],
+                "sessionDurationSeconds": s.get("sessionDurationSeconds"),
+                "schedule": None,
+                "currentSessionId": s.get("currentSessionId")
+            })
         else:
             self._send_json(200, data={})
 

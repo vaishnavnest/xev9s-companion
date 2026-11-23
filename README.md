@@ -113,6 +113,13 @@ flowchart TB
     - Neutral empty state when coordinates are unavailable (never invents coordinates or plots at 0,0).
     - Responsive layout: collapsible bottom sheet panel on narrow viewports (<720px), split side-by-side on wide viewports (≥720px).
     - Full screen-reader Semantics support and pure Dart view-model formatting.
+  - Charging Management (UC-04, `ChargingPage`, route `/charging`):
+    - Real-time overview displaying live connection status, battery SoC with saved target marker, power in kW, and ticking session duration.
+    - Consistency engine (`chargingViewProvider`) reconciling live telemetry with the dashboard using timestamp arbitration.
+    - Charging target slider dialog/sheet (20–100%) with bidirectional numeric input sync and inline server error handling.
+    - Recurring schedule editor with 24h start/end time pickers, overnight span indicator (e.g. 22:00–06:00), day chips, quick shortcuts (Weekdays, Every day), and delete confirmation dialog.
+    - Paginated session history (`/charging/sessions`) with status filter chips (Charging, Completed, Interrupted), pull-to-refresh, and infinite scroll.
+    - Charging session detail view (`/charging/sessions/:sessionId`) displaying prominent active/interrupted banners, metrics breakdown, and 404 error recovery.
   - Dual Telemetry Transport: WebSocket (`ws://`) and Polling fallback (`http://`).
   - Automatic disconnection and stale telemetry detection (`StaleBanner`).
 
