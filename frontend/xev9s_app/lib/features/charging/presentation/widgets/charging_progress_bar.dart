@@ -37,7 +37,7 @@ class _ChargingProgressBarState extends State<ChargingProgressBar>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1800),
+      duration: const Duration(milliseconds: 1300),
     );
     if (widget.isCharging) {
       if (_isTestMode) {
@@ -111,7 +111,7 @@ class _ChargingProgressBarState extends State<ChargingProgressBar>
       animation: _controller,
       builder: (context, child) {
         final animValue = widget.isCharging ? _controller.value : 0.0;
-        final waveHead = animValue * (filledSegmentFraction + 1.2);
+        final waveHead = animValue * (filledSegmentFraction + 1.6);
         final breathPulse = 0.5 + 0.5 * math.sin(animValue * 2 * math.pi);
 
         return Column(
@@ -142,28 +142,29 @@ class _ChargingProgressBarState extends State<ChargingProgressBar>
                                   ? Color.lerp(
                                       capsuleBorder,
                                       const Color(0xFF2DD4BF)
-                                          .withValues(alpha: 0.5),
+                                          .withValues(alpha: 0.8),
                                       breathPulse,
                                     )!
                                   : Color.lerp(
                                       capsuleBorder,
                                       const Color(0xFF0D9488)
-                                          .withValues(alpha: 0.4),
+                                          .withValues(alpha: 0.7),
                                       breathPulse,
                                     )!)
                               : capsuleBorder,
-                          width: 1.5,
+                          width: widget.isCharging ? 2.0 : 1.5,
                         ),
                         boxShadow: [
                           BoxShadow(
                             color: widget.isCharging
                                 ? const Color(0xFF14B8A6).withValues(
-                                    alpha:
-                                        (isDark ? 0.25 : 0.15) * breathPulse,
+                                    alpha: (isDark ? 0.45 : 0.3) *
+                                        (0.7 + 0.3 * breathPulse),
                                   )
                                 : Colors.black
                                     .withValues(alpha: isDark ? 0.2 : 0.04),
-                            blurRadius: widget.isCharging ? 8 : 4,
+                            blurRadius: widget.isCharging ? 14 : 4,
+                            spreadRadius: widget.isCharging ? 1.0 : 0.0,
                             offset: const Offset(0, 2),
                           ),
                         ],
@@ -183,13 +184,13 @@ class _ChargingProgressBarState extends State<ChargingProgressBar>
                             }
                           }
 
+                          // Calculate distance to the light pulse wave with smooth cosine falloff
                           final waveDistance = (index - waveHead).abs();
                           final waveIntensity = (widget.isCharging &&
                                   fillRatio > 0.0 &&
-                                  waveDistance < 1.4)
-                              ? math
-                                  .pow(1.0 - (waveDistance / 1.4), 2)
-                                  .toDouble()
+                                  waveDistance < 1.8)
+                              ? math.cos(
+                                  (waveDistance / 1.8) * (math.pi / 2))
                               : 0.0;
 
                           final isCurrentCharging = widget.isCharging &&
@@ -338,22 +339,33 @@ class _Segment extends StatelessWidget {
         decoration: BoxDecoration(
           color: showChargingTeaser
               ? (isDark
-                  ? Color.lerp(emptyBg, const Color(0xFF134E4A),
-                      0.35 * breathPulse)
-                  : Color.lerp(emptyBg, const Color(0xFFCCFBF1),
-                      0.45 * breathPulse))
+                  ? Color.lerp(emptyBg, const Color(0xFF115E59),
+                      0.5 * breathPulse)
+                  : Color.lerp(emptyBg, const Color(0xFF99F6E4),
+                      0.55 * breathPulse))
               : emptyBg,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: showChargingTeaser
+            color: (isCharging && isCurrentCharging)
                 ? (isDark
-                    ? Color.lerp(emptyBorder, const Color(0xFF2DD4BF),
-                        0.6 * breathPulse)!
-                    : Color.lerp(emptyBorder, const Color(0xFF14B8A6),
-                        0.6 * breathPulse)!)
+                    ? Color.lerp(emptyBorder, const Color(0xFF22D3EE),
+                        0.9 * breathPulse)!
+                    : Color.lerp(emptyBorder, const Color(0xFF0D9488),
+                        0.9 * breathPulse)!)
                 : emptyBorder,
-            width: 1,
+            width: (isCharging && isCurrentCharging) ? 2.0 : 1.0,
           ),
+          boxShadow: (isCharging && isCurrentCharging)
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF22D3EE).withValues(
+                      alpha: (isDark ? 0.6 : 0.45) * breathPulse,
+                    ),
+                    blurRadius: 8 * breathPulse,
+                    spreadRadius: 1 * breathPulse,
+                  ),
+                ]
+              : null,
         ),
         child: fillRatio <= 0.0
             ? null
@@ -370,22 +382,26 @@ class _Segment extends StatelessWidget {
                           ? [
                               Color.lerp(
                                 const Color(0xFF26D0CE),
-                                const Color(0xFFA7F3D0),
-                                (waveIntensity * 0.7 +
+                                const Color(0xFFFFFFFF),
+                                (waveIntensity * 0.95 +
                                         (isCurrentCharging
-                                            ? 0.35 * breathPulse
+                                            ? 0.45 * breathPulse
                                             : 0.0))
                                     .clamp(0.0, 1.0),
                               )!,
                               Color.lerp(
                                 const Color(0xFF14B8A6),
-                                const Color(0xFF2DD4BF),
-                                (waveIntensity * 0.8).clamp(0.0, 1.0),
+                                const Color(0xFF67E8F9),
+                                (waveIntensity * 0.95 +
+                                        (isCurrentCharging
+                                            ? 0.3 * breathPulse
+                                            : 0.0))
+                                    .clamp(0.0, 1.0),
                               )!,
                               Color.lerp(
                                 const Color(0xFF0F766E),
-                                const Color(0xFF14B8A6),
-                                (waveIntensity * 0.5).clamp(0.0, 1.0),
+                                const Color(0xFF22D3EE),
+                                (waveIntensity * 0.85).clamp(0.0, 1.0),
                               )!,
                             ]
                           : const [
@@ -400,14 +416,14 @@ class _Segment extends StatelessWidget {
                         color: isCharging
                             ? Color.lerp(
                                 const Color(0xFF14B8A6).withValues(
-                                  alpha: isDark ? 0.5 : 0.35,
+                                  alpha: isDark ? 0.6 : 0.45,
                                 ),
-                                const Color(0xFF2DD4BF).withValues(
-                                  alpha: isDark ? 0.95 : 0.75,
+                                const Color(0xFF22D3EE).withValues(
+                                  alpha: isDark ? 1.0 : 0.95,
                                 ),
-                                (waveIntensity +
+                                (waveIntensity * 1.4 +
                                         (isCurrentCharging
-                                            ? 0.5 * breathPulse
+                                            ? 0.6 * breathPulse
                                             : 0.0))
                                     .clamp(0.0, 1.0),
                               )!
@@ -415,17 +431,52 @@ class _Segment extends StatelessWidget {
                                 alpha: isDark ? 0.5 : 0.35,
                               ),
                         blurRadius: isCharging
-                            ? 3.0 +
-                                4.0 *
-                                    (waveIntensity +
-                                        (isCurrentCharging
-                                            ? 0.4 * breathPulse
-                                            : 0.0))
+                            ? 4.0 +
+                                10.0 * waveIntensity +
+                                (isCurrentCharging ? 6.0 * breathPulse : 0.0)
                             : 3.0,
+                        spreadRadius: isCharging
+                            ? (1.5 * waveIntensity +
+                                (isCurrentCharging ? 1.0 * breathPulse : 0.0))
+                            : 0.0,
                         offset: const Offset(0, 1),
                       ),
                     ],
                   ),
+                  child: isCharging && (waveIntensity > 0.05 || isCurrentCharging)
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment(
+                                          -1.8 + 3.6 * waveIntensity, -1.0),
+                                      end: Alignment(
+                                          -0.2 + 3.6 * waveIntensity, 1.0),
+                                      colors: [
+                                        Colors.transparent,
+                                        Colors.white.withValues(
+                                          alpha: (0.35 + 0.55 * waveIntensity)
+                                              .clamp(0.0, 0.9),
+                                        ),
+                                        const Color(0xFFE0FFFF).withValues(
+                                          alpha: (0.45 + 0.55 * waveIntensity)
+                                              .clamp(0.0, 1.0),
+                                        ),
+                                        Colors.transparent,
+                                      ],
+                                      stops: const [0.0, 0.45, 0.55, 1.0],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : null,
                 ),
               ),
       ),

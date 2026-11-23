@@ -173,6 +173,86 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
     return content;
   }
 
+  _StatusChipTheme _getStatusChipTheme(
+    ChargingState state,
+    bool isDark,
+    ThemeData theme,
+  ) {
+    switch (state) {
+      case ChargingState.charging:
+        return _StatusChipTheme(
+          bg: isDark
+              ? const Color(0xFF064E3B).withValues(alpha: 0.6)
+              : const Color(0xFFE6FDF4),
+          fg: isDark ? const Color(0xFF34D399) : const Color(0xFF047857),
+          border: isDark
+              ? const Color(0xFF059669).withValues(alpha: 0.6)
+              : const Color(0xFFA7F3D0),
+          dotColor: isDark ? const Color(0xFF34D399) : const Color(0xFF10B981),
+        );
+      case ChargingState.completed:
+        return _StatusChipTheme(
+          bg: isDark
+              ? const Color(0xFF064E3B).withValues(alpha: 0.8)
+              : const Color(0xFFD1FAE5),
+          fg: isDark ? const Color(0xFF6EE7B7) : const Color(0xFF065F46),
+          border: isDark
+              ? const Color(0xFF10B981).withValues(alpha: 0.7)
+              : const Color(0xFF6EE7B7),
+          dotColor: isDark ? const Color(0xFF6EE7B7) : const Color(0xFF059669),
+        );
+      case ChargingState.connected:
+        return _StatusChipTheme(
+          bg: isDark
+              ? const Color(0xFF1E3A5F).withValues(alpha: 0.6)
+              : const Color(0xFFEFF6FF),
+          fg: isDark ? const Color(0xFF60A5FA) : const Color(0xFF2563EB),
+          border: isDark
+              ? const Color(0xFF2563EB).withValues(alpha: 0.5)
+              : const Color(0xFFBFDBFE),
+          dotColor: isDark ? const Color(0xFF60A5FA) : const Color(0xFF3B82F6),
+        );
+      case ChargingState.paused:
+        return _StatusChipTheme(
+          bg: isDark
+              ? const Color(0xFF451A03).withValues(alpha: 0.6)
+              : const Color(0xFFFFFBEB),
+          fg: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
+          border: isDark
+              ? const Color(0xFFD97706).withValues(alpha: 0.5)
+              : const Color(0xFFFDE68A),
+          dotColor: isDark ? const Color(0xFFFBBF24) : const Color(0xFFF59E0B),
+        );
+      case ChargingState.interrupted:
+        return _StatusChipTheme(
+          bg: isDark
+              ? const Color(0xFF450A0A).withValues(alpha: 0.6)
+              : const Color(0xFFFEF2F2),
+          fg: isDark ? const Color(0xFFF87171) : const Color(0xFFDC2626),
+          border: isDark
+              ? const Color(0xFFDC2626).withValues(alpha: 0.5)
+              : const Color(0xFFFECACA),
+          dotColor: isDark ? const Color(0xFFF87171) : const Color(0xFFEF4444),
+        );
+      case ChargingState.notConnected:
+      case ChargingState.unknown:
+        return _StatusChipTheme(
+          bg: isDark
+              ? theme.colorScheme.surfaceContainerHighest
+              : const Color(0xFFF1F5F9),
+          fg: isDark
+              ? theme.colorScheme.onSurfaceVariant
+              : const Color(0xFF475569),
+          border: isDark
+              ? theme.colorScheme.outlineVariant.withValues(alpha: 0.4)
+              : const Color(0xFFE2E8F0),
+          dotColor: isDark
+              ? theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7)
+              : const Color(0xFF94A3B8),
+        );
+    }
+  }
+
   Widget _buildStatusAndBatteryCard(
     ThemeData theme,
     ChargingViewState data,
@@ -191,13 +271,7 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
           )
         : const BorderSide(color: Color(0xFFE4EFEB), width: 1);
 
-    final statusChipBg = isDark
-        ? theme.colorScheme.surfaceContainerHighest
-        : const Color(0xFFE5EDED);
-
-    final statusChipFg = isDark
-        ? theme.colorScheme.onSurfaceVariant
-        : const Color(0xFF334155);
+    final statusStyle = _getStatusChipTheme(data.state, isDark, theme);
 
     final primaryText = isDark
         ? theme.colorScheme.onSurface
@@ -239,18 +313,39 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
                   Container(
                     key: const Key('charging_status_chip'),
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
-                      color: statusChipBg,
+                      color: statusStyle.bg,
                       borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Text(
-                      ChargingDisplayHelpers.stateLabel(data.state),
-                      style: TextStyle(
-                        color: statusChipFg,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                      border: Border.all(
+                        color: statusStyle.border,
+                        width: 1,
                       ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: statusStyle.dotColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            ChargingDisplayHelpers.stateLabel(data.state),
+                            style: TextStyle(
+                              color: statusStyle.fg,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   if (data.currentSessionId != null)
@@ -761,4 +856,18 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
       ),
     );
   }
+}
+
+class _StatusChipTheme {
+  const _StatusChipTheme({
+    required this.bg,
+    required this.fg,
+    required this.border,
+    required this.dotColor,
+  });
+
+  final Color bg;
+  final Color fg;
+  final Color border;
+  final Color dotColor;
 }
