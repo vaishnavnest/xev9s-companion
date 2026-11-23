@@ -38,7 +38,7 @@ void main() {
 
       // Verify typography matching reference image
       expect(find.text('XEV 9S'), findsOneWidget);
-      expect(find.text('Pure Electric Luxury Architecture'), findsOneWidget);
+      expect(find.text('Explore the Impossible'), findsOneWidget);
       expect(find.text('CONNECTED MOBILITY'), findsOneWidget);
 
       // Verify initial frame

@@ -186,14 +186,14 @@ class _SplashContentState extends State<_SplashContent>
 
             const SizedBox(height: 12),
 
-            // Subtitle: Pure Electric Luxury Architecture
+            // Subtitle: Mahindra Automotive Tagline
             const Text(
-              'Pure Electric Luxury Architecture',
+              'Explore the Impossible',
               style: TextStyle(
                 color: Color(0xFF64748B),
                 fontSize: 14,
                 fontWeight: FontWeight.w400,
-                letterSpacing: 0.6,
+                letterSpacing: 0.8,
               ),
             ),
 
