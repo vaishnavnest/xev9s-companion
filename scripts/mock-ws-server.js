@@ -22,6 +22,31 @@ const wss = new WebSocketServer({ noServer: true });
 let batteryPercent = 64.0;
 let isOffline = false;
 let isCharging = false;
+let isDriving = false;
+
+function getVehicleState() {
+  if (isOffline) return 'OFFLINE';
+  if (isCharging) return 'CHARGING';
+  if (isDriving) return 'DRIVING';
+  return 'PARKED';
+}
+
+// Small test route near MG Road, Bengaluru for live location simulation
+const ROUTE_WAYPOINTS = [
+  { lat: 12.9716, lng: 77.5946, desc: 'MG Road, Bengaluru' },
+  { lat: 12.9724, lng: 77.5958, desc: 'Brigade Road Junction, Bengaluru' },
+  { lat: 12.9735, lng: 77.5975, desc: 'Residency Road, Bengaluru' },
+  { lat: 12.9748, lng: 77.5992, desc: 'Mayo Hall, MG Road, Bengaluru' },
+  { lat: 12.9759, lng: 77.6010, desc: 'Trinity Circle, Bengaluru' },
+  { lat: 12.9742, lng: 77.5985, desc: 'Webbs Ground, Bengaluru' },
+  { lat: 12.9729, lng: 77.5962, desc: 'Church Street, Bengaluru' },
+];
+let routeIndex = 0;
+let lastKnownLocation = {
+  latitude: 12.9716,
+  longitude: 77.5946,
+  description: 'MG Road, Bengaluru',
+};
 
 function broadcast(event) {
   const json = JSON.stringify(event);
@@ -45,7 +70,7 @@ function sendVehicleStatus(targetVehicleId) {
       vehicleId: targetVehicleId || 'veh_9S0001',
       name: 'Asha\'s XEV 9S',
       model: 'XEV 9S AWD Performance',
-      vehicleState: isOffline ? 'OFFLINE' : (isCharging ? 'CHARGING' : 'PARKED'),
+      vehicleState: getVehicleState(),
       connectivity: isOffline ? 'OFFLINE' : 'ONLINE',
       battery: {
         percent: batteryPercent,
@@ -55,7 +80,7 @@ function sendVehicleStatus(targetVehicleId) {
         estimatedKm: +(batteryPercent * 4.88).toFixed(1),
       },
       odometerKm: 12874.3,
-      speedKmh: isOffline ? null : 0.0,
+      speedKmh: isOffline ? null : (isDriving ? 42.0 : 0.0),
       lockState: 'LOCKED',
       preconditioningState: 'INACTIVE',
       charging: {
@@ -84,6 +109,63 @@ function sendConnectivity(status) {
   };
   broadcast(event);
   console.log(`[MockWS] Broadcasted connectivity.changed -> ${status}`);
+
+  // Emit vehicle.location reflecting the new online/offline state
+  sendVehicleLocation('veh_9S0001');
+}
+
+function sendVehicleLocation(targetVehicleId, options = {}) {
+  const vehicleId = targetVehicleId || 'veh_9S0001';
+
+  if (options.nullLocation) {
+    const event = {
+      event: 'vehicle.location',
+      vehicleId: vehicleId,
+      timestamp: new Date().toISOString(),
+      data: {
+        vehicleId: vehicleId,
+        latitude: null,
+        longitude: null,
+        description: null,
+        vehicleState: isOffline ? 'OFFLINE' : (isCharging ? 'CHARGING' : 'PARKED'),
+        reportedAt: new Date().toISOString(),
+        isCurrent: !isOffline,
+      },
+    };
+    broadcast(event);
+    console.log(`[MockWS] Broadcasted vehicle.location -> null coordinates (unavailable state)`);
+    return;
+  }
+
+  if (!isOffline && isDriving) {
+    const pt = ROUTE_WAYPOINTS[routeIndex];
+    routeIndex = (routeIndex + 1) % ROUTE_WAYPOINTS.length;
+    lastKnownLocation = {
+      latitude: pt.lat,
+      longitude: pt.lng,
+      description: pt.desc,
+    };
+  }
+
+  const isCurrent = !isOffline;
+  const vehicleState = getVehicleState();
+
+  const event = {
+    event: 'vehicle.location',
+    vehicleId: vehicleId,
+    timestamp: new Date().toISOString(),
+    data: {
+      vehicleId: vehicleId,
+      latitude: lastKnownLocation.latitude,
+      longitude: lastKnownLocation.longitude,
+      description: lastKnownLocation.description,
+      vehicleState: vehicleState,
+      reportedAt: new Date().toISOString(),
+      isCurrent: isCurrent,
+    },
+  };
+  broadcast(event);
+  console.log(`[MockWS] Broadcasted vehicle.location -> (${lastKnownLocation.latitude}, ${lastKnownLocation.longitude}) isCurrent=${isCurrent} state=${vehicleState}`);
 }
 
 function sendChargingUpdate() {
@@ -124,15 +206,16 @@ server.on('upgrade', (request, socket, head) => {
 wss.on('connection', (ws) => {
   console.log(`[MockWS] Client connected successfully (vehicleId: ${ws.vehicleId})`);
 
-  // Immediately send initial status to the client
+  // Immediately send initial status and location to the client
   sendVehicleStatus(ws.vehicleId);
+  sendVehicleLocation(ws.vehicleId);
 
   ws.on('close', (code, reason) => {
     console.log(`[MockWS] Client disconnected (code: ${code})`);
   });
 });
 
-// Periodic event emitter
+// Periodic event emitters
 // Every 3 seconds emit vehicle.status
 const statusInterval = setInterval(() => {
   if (wss.clients.size > 0) {
@@ -140,9 +223,16 @@ const statusInterval = setInterval(() => {
   }
 }, 3000);
 
+// Every 4 seconds emit vehicle.location for veh_9S0001
+const locationInterval = setInterval(() => {
+  if (wss.clients.size > 0 && !isOffline) {
+    sendVehicleLocation('veh_9S0001');
+  }
+}, 4000);
+
 // Note: Automatic random charging and offline intervals have been disabled to
 // prevent unexpected state flapping during development.
-// Use interactive keyboard controls (o, n, c) or scripts/inject.py.
+// Use interactive keyboard controls (o, n, c, l) or scripts/inject.py.
 
 // Interactive keyboard controls in terminal
 if (process.stdin.isTTY) {
@@ -152,17 +242,27 @@ if (process.stdin.isTTY) {
   process.stdin.on('data', (key) => {
     if (key === '\u0003') { // Ctrl+C
       process.exit();
+    } else if (key === 'd') {
+      isDriving = !isDriving;
+      if (isDriving) isCharging = false;
+      sendVehicleStatus('veh_9S0001');
+      sendVehicleLocation('veh_9S0001');
+      console.log(`[MockWS] Toggled driving -> ${isDriving ? 'DRIVING (speed: 42 km/h, moving route)' : 'PARKED (speed: 0 km/h, stationary)'}`);
     } else if (key === 'o') {
       sendConnectivity('OFFLINE');
     } else if (key === 'n') {
       sendConnectivity('ONLINE');
     } else if (key === 'c') {
       isCharging = !isCharging;
+      if (isCharging) isDriving = false;
       sendChargingUpdate();
       sendVehicleStatus('veh_9S0001');
+      sendVehicleLocation('veh_9S0001');
+    } else if (key === 'l') {
+      sendVehicleLocation('veh_9S0001', { nullLocation: true });
     }
   });
-  console.log('Interactive controls: press "o" (offline), "n" (online), "c" (toggle charging), Ctrl+C (stop)');
+  console.log('Interactive controls: press "d" (toggle driving/parked), "c" (toggle charging), "o" (offline), "n" (online), "l" (null location), Ctrl+C (stop)');
 }
 
 server.listen(PORT, () => {

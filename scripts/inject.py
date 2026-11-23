@@ -129,9 +129,10 @@ def main():
     # Event type
     parser.add_argument(
         "--event", type=str, default="vehicle.status",
-        choices=["vehicle.status", "charging.updated", "connectivity.changed"],
+        choices=["vehicle.status", "charging.updated", "connectivity.changed", "vehicle.location"],
         help="WS event type to broadcast (default: vehicle.status)",
     )
+    parser.add_argument("--null-location", action="store_true", help="Send null latitude/longitude for vehicle.location")
 
     # Server targeting
     parser.add_argument("--rest-only", action="store_true", help="Only update REST server (port 4010)")
@@ -169,7 +170,11 @@ def main():
         if args.event == "vehicle.status":
             args.event = "connectivity.changed"
 
-    payload["event"] = args.event
+    if args.null_location:
+        payload["nullLocation"] = True
+        payload["event"] = "vehicle.location"
+
+    payload["event"] = args.event if not args.null_location else "vehicle.location"
 
     # ── Print header ─────────────────────────────────────────────────────────
     display_payload = {k: v for k, v in payload.items() if k != "event"}
