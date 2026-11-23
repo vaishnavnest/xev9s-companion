@@ -12,6 +12,8 @@ import json
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import sys
 import threading
+import time
+import urllib.request
 from datetime import datetime, timezone
 
 PORT = 4010
@@ -79,6 +81,22 @@ vehicle_states = {
 }
 
 state = vehicle_states["veh_mock_9s_01"]
+
+def _sync_to_ws_server(payload: dict):
+    """Notify mock WebSocket servers (port 4012 for python, port 4011 for node) of state changes."""
+    data = json.dumps(payload).encode("utf-8")
+    for port in (4012, 4011):
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/control",
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=0.8) as _:
+                pass
+        except Exception:
+            pass
 
 def _get_vehicle_state(vehicle_id: str) -> dict:
     if vehicle_id in vehicle_states:
@@ -393,6 +411,7 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 current = dict(target_state)
             print(f"[MockServer] /control → state updated: {current}")
             sys.stdout.flush()
+            _sync_to_ws_server(dict(body))
             self._send_json(200, data={"message": "State updated", "state": current})
             return
         # ─────────────────────────────────────────────────────────────────────
@@ -511,6 +530,7 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 s = _get_vehicle_state(vehicle_id)
                 s['targetPercent'] = target
                 snap = dict(s)
+            _sync_to_ws_server({"vehicleId": vehicle_id, "targetPercent": target})
             self._send_json(200, data={
                 "state": snap["chargingState"],
                 "batteryPercent": snap["batteryPercent"],
@@ -530,6 +550,7 @@ class MockApiHandler(BaseHTTPRequestHandler):
                     "daysOfWeek": body.get("daysOfWeek", ["MON", "TUE", "WED", "THU", "FRI"])
                 }
                 snap = dict(s)
+            _sync_to_ws_server({"vehicleId": vehicle_id, "schedule": snap['schedule']})
             self._send_json(200, data={
                 "state": snap["chargingState"],
                 "batteryPercent": snap["batteryPercent"],
@@ -550,6 +571,7 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 s = _get_vehicle_state(vehicle_id)
                 s['schedule'] = None
                 snap = dict(s)
+            _sync_to_ws_server({"vehicleId": vehicle_id, "schedule": None})
             self._send_json(200, data={
                 "state": snap["chargingState"],
                 "batteryPercent": snap["batteryPercent"],

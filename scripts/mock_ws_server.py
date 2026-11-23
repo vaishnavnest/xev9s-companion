@@ -432,6 +432,8 @@ class ControlHandler(BaseHTTPRequestHandler):
             if "lockState"            in payload: s_target["lockState"]           = payload["lockState"]
             if "preconditioningState" in payload: s_target["preconditioningState"]= payload["preconditioningState"]
             if "odometerKm"           in payload: s_target["odometerKm"]          = float(payload["odometerKm"])
+            if "targetPercent"        in payload: s_target["targetPercent"]       = int(payload["targetPercent"]) if payload["targetPercent"] is not None else None
+            if "schedule"             in payload: s_target["schedule"]            = payload["schedule"]
 
             # Harmonize charging state & vehicle state
             if s_target.get("chargingState") == "CHARGING" and "vehicleState" not in payload:
@@ -449,7 +451,7 @@ class ControlHandler(BaseHTTPRequestHandler):
             }, vehicle_id=target_vid)
             # Also send a full vehicle.status so the app updates all telemetry fields
             broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid), vehicle_id=target_vid)
-        elif event == "charging.updated":
+        elif event == "charging.updated" or "targetPercent" in payload or "chargingState" in payload or "schedule" in payload:
             broadcast("charging.updated", lambda vid: {
                 "state": s["chargingState"],
                 "batteryPercent": s["batteryPercent"],
@@ -459,6 +461,8 @@ class ControlHandler(BaseHTTPRequestHandler):
                 "schedule": s.get("schedule"),
                 "currentSessionId": s.get("currentSessionId"),
             }, vehicle_id=target_vid)
+            if "chargingState" in payload or "battery" in payload:
+                broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid), vehicle_id=target_vid)
         elif event == "vehicle.location":
             if "nullLocation" in payload:
                 last_loc["nullLocation"] = bool(payload["nullLocation"])

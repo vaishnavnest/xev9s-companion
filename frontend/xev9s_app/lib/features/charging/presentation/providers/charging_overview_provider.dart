@@ -188,10 +188,21 @@ class ChargingOverviewNotifier extends AsyncNotifier<ChargingOverview?> {
           }
         }
 
+        // If an incoming event is older than the last locally confirmed update timestamp,
+        // preserve the user-confirmed targetPercent to avoid stale WebSocket frames reverting changes
+        final lastUpdated = ref.read(chargingOverviewLastUpdatedProvider);
+        ChargingOverview effective = incoming;
+        if (lastUpdated != null &&
+            event.timestamp.isBefore(lastUpdated) &&
+            previous?.targetPercent != null &&
+            incoming.targetPercent != previous?.targetPercent) {
+          effective = incoming.copyWith(targetPercent: previous!.targetPercent);
+        }
+
         ref
             .read(chargingOverviewLastUpdatedProvider.notifier)
             .setTimestamp(event.timestamp);
-        state = AsyncData(incoming);
+        state = AsyncData(effective);
       } catch (_) {
         // Parse failures are ignored per spec
       }
