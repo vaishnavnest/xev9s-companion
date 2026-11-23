@@ -1,11 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/error_view.dart';
 import '../application/auth_controller.dart';
 
 /// Splash page presented on initial application startup.
-/// Features the official Mahindra XEV 9S Companion brand mark with an
-/// ambient breathing animation, free of redundant text labels.
+/// Features the official Mahindra XEV 9S Companion brand mark floating cleanly
+/// over an ambient background matching the app's electric teal theme,
+/// with a smooth breathing animation.
 class SplashPage extends ConsumerWidget {
   const SplashPage({super.key});
 
@@ -14,7 +16,7 @@ class SplashPage extends ConsumerWidget {
     final authState = ref.watch(authControllerProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF040609),
+      backgroundColor: const Color(0xFF010406),
       body: switch (authState) {
         AuthStartupFailed(:final error) => ErrorView(
             title: "Couldn't load your account",
@@ -69,14 +71,15 @@ class _SplashContentState extends State<_SplashContent>
       height: double.infinity,
       decoration: const BoxDecoration(
         gradient: RadialGradient(
-          center: Alignment.center,
-          radius: 1.1,
+          center: Alignment(0.0, -0.05),
+          radius: 1.25,
           colors: [
-            Color(0xFF141A24), // Subtle deep charcoal ambient glow in center
-            Color(0xFF090D14),
-            Color(0xFF040609), // Deep luxury black
+            Color(0xFF062A2B), // Deep electric teal glow from AppTheme brand palette
+            Color(0xFF04171A), // Deep oceanic midnight teal
+            Color(0xFF02090D), // Obsidian EV cockpit dark
+            Color(0xFF010406), // Deep luxury black
           ],
-          stops: [0.0, 0.55, 1.0],
+          stops: [0.0, 0.45, 0.8, 1.0],
         ),
       ),
       child: SafeArea(
@@ -86,36 +89,37 @@ class _SplashContentState extends State<_SplashContent>
             builder: (context, child) {
               final breathe = _breatheAnimation.value;
               final scale = 0.95 + (0.08 * breathe);
-              final redGlowOpacity = 0.14 + (0.18 * breathe);
-              final silverGlowOpacity = 0.10 + (0.16 * breathe);
-              final glowBlur = 28.0 + (26.0 * breathe);
+              final tealGlowOpacity = 0.16 + (0.18 * breathe);
+              final redGlowOpacity = 0.12 + (0.16 * breathe);
+              final glowBlur = 32.0 + (30.0 * breathe);
 
               return Transform.scale(
                 scale: scale,
                 child: Container(
-                  constraints: const BoxConstraints(maxWidth: 340),
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  constraints: const BoxConstraints(maxWidth: 320),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     boxShadow: [
-                      // Crimson red ambient aura reflecting the 9S red accent
+                      // Electric Teal halo directly from AppTheme.accentColor
+                      BoxShadow(
+                        color: AppTheme.accentColor
+                            .withValues(alpha: tealGlowOpacity),
+                        blurRadius: glowBlur * 1.3,
+                        spreadRadius: 2.0 + (4.0 * breathe),
+                      ),
+                      // Crimson red aura matching the "9S" red badge accent
                       BoxShadow(
                         color: const Color(0xFFE11D48)
                             .withValues(alpha: redGlowOpacity),
                         blurRadius: glowBlur,
-                        spreadRadius: 2.0 + (4.0 * breathe),
-                      ),
-                      // Platinum / Cyan soft halo
-                      BoxShadow(
-                        color: const Color(0xFF38BDF8)
-                            .withValues(alpha: silverGlowOpacity),
-                        blurRadius: glowBlur * 1.4,
+                        offset: const Offset(30, 0),
                         spreadRadius: 1.0 + (3.0 * breathe),
                       ),
                     ],
                   ),
                   child: Image.asset(
-                    'assets/images/xev9s_logo_clean.png',
+                    'assets/images/xev_logo.png',
                     fit: BoxFit.contain,
                     errorBuilder: (context, error, stackTrace) =>
                         const XevEmblemVector(size: 80),
