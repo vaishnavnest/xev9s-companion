@@ -63,6 +63,16 @@ class AppConfig {
     'POLL_INTERVAL_SECONDS',
     defaultValue: 10,
   );
+
+  /// OpenStreetMap tile URL template.
+  /// Injected via `--dart-define=MAP_TILE_URL=...`.
+  static const String mapTileUrl = String.fromEnvironment(
+    'MAP_TILE_URL',
+    defaultValue: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  );
+
+  /// User-Agent package name identifier for OpenStreetMap tile requests.
+  static const String mapUserAgentPackageName = 'com.xev9s.companion';
 }
 
 /// Operational modes for vehicle status and telemetry synchronization.
