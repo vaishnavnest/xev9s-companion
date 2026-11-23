@@ -363,8 +363,19 @@ class ControlHandler(BaseHTTPRequestHandler):
                         state["vehicleState"] = "DRIVING"
                     elif state["vehicleState"] == "DRIVING":
                         state["vehicleState"] = "PARKED"
+                if state["speed"] > 0 and "chargingState" not in payload:
+                    state["chargingState"] = "NOT_CONNECTED"
+                    state["powerKw"] = None
+                    state["sessionDurationSeconds"] = None
+                    state["currentSessionId"] = None
             if "isOnline"             in payload: state["isOnline"]            = bool(payload["isOnline"])
-            if "vehicleState"         in payload: state["vehicleState"]        = payload["vehicleState"]
+            if "vehicleState"         in payload:
+                state["vehicleState"]        = payload["vehicleState"]
+                if state["vehicleState"] == "DRIVING" and "chargingState" not in payload:
+                    state["chargingState"] = "NOT_CONNECTED"
+                    state["powerKw"] = None
+                    state["sessionDurationSeconds"] = None
+                    state["currentSessionId"] = None
             if "chargingState"        in payload: state["chargingState"]       = payload["chargingState"]
             if "powerKw"              in payload: state["powerKw"]             = payload["powerKw"]
             if "lockState"            in payload: state["lockState"]           = payload["lockState"]
@@ -411,6 +422,16 @@ class ControlHandler(BaseHTTPRequestHandler):
             }, vehicle_id=target_vid)
         else:  # default: vehicle.status — full payload with all telemetry fields
             broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid), vehicle_id=target_vid)
+            if s["vehicleState"] == "DRIVING":
+                broadcast("charging.updated", lambda vid: {
+                    "state": "NOT_CONNECTED",
+                    "batteryPercent": s["batteryPercent"],
+                    "targetPercent": s.get("targetPercent", 80),
+                    "powerKw": None,
+                    "sessionDurationSeconds": None,
+                    "schedule": s.get("schedule"),
+                    "currentSessionId": None,
+                }, vehicle_id=target_vid)
 
         print(f"[ControlServer] Broadcast '{event}' (target_vid={target_vid}) → state: {s}")
         import sys; sys.stdout.flush()

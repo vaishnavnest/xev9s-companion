@@ -71,17 +71,29 @@ final chargingViewProvider = Provider<AsyncValue<ChargingViewState?>>((ref) {
   // If vehicle status has a strictly newer timestamp, use its live telemetry
   final useStatusLive = status != null && statusTime.isAfter(overviewTime);
 
-  final liveState = useStatusLive
-      ? (status.charging?.state ?? overview.state)
-      : overview.state;
+  // Physical domain rule: an actively driving vehicle is disconnected from chargers
+  final isDriving = status?.vehicleState == VehicleState.driving;
 
-  final livePower = useStatusLive
-      ? (status.charging?.powerKw ?? overview.powerKw)
-      : overview.powerKw;
+  final liveState = isDriving
+      ? ChargingState.notConnected
+      : (useStatusLive
+          ? (status.charging?.state ?? overview.state)
+          : overview.state);
+
+  final livePower = isDriving
+      ? null
+      : (useStatusLive
+          ? (status.charging?.powerKw ?? overview.powerKw)
+          : overview.powerKw);
 
   final liveBattery = useStatusLive
       ? (status.battery?.percent ?? overview.batteryPercent)
       : overview.batteryPercent;
+
+  final liveDuration =
+      isDriving ? null : overview.sessionDurationSeconds;
+  final liveSessionId =
+      isDriving ? null : overview.currentSessionId;
 
   final isOffline = status?.isOffline ?? false;
 
@@ -91,9 +103,9 @@ final chargingViewProvider = Provider<AsyncValue<ChargingViewState?>>((ref) {
       batteryPercent: liveBattery,
       powerKw: livePower,
       targetPercent: overview.targetPercent,
-      sessionDurationSeconds: overview.sessionDurationSeconds,
+      sessionDurationSeconds: liveDuration,
       schedule: overview.schedule,
-      currentSessionId: overview.currentSessionId,
+      currentSessionId: liveSessionId,
       isOffline: isOffline,
       lastUpdatedAt: useStatusLive ? statusTime : overviewTime,
     ),

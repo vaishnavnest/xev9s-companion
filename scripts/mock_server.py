@@ -268,12 +268,23 @@ class MockApiHandler(BaseHTTPRequestHandler):
                     state['vehicleState'] = body['vehicleState']
                     if state['vehicleState'] == 'PARKED':
                         state['speedKmh'] = 0.0
-                    elif state['vehicleState'] == 'DRIVING' and state.get('speedKmh', 0.0) == 0.0:
-                        state['speedKmh'] = 42.0
+                    elif state['vehicleState'] == 'DRIVING':
+                        if state.get('speedKmh', 0.0) == 0.0:
+                            state['speedKmh'] = 42.0
+                        if 'chargingState' not in body:
+                            state['chargingState'] = 'NOT_CONNECTED'
+                            state['powerKw'] = None
+                            state['sessionDurationSeconds'] = None
+                            state['currentSessionId'] = None
                 if 'speedKmh' in body:
                     state['speedKmh'] = float(body['speedKmh'])
                     if 'vehicleState' not in body:
                         state['vehicleState'] = 'DRIVING' if state['speedKmh'] > 0 else 'PARKED'
+                    if state['speedKmh'] > 0 and 'chargingState' not in body:
+                        state['chargingState'] = 'NOT_CONNECTED'
+                        state['powerKw'] = None
+                        state['sessionDurationSeconds'] = None
+                        state['currentSessionId'] = None
                 if 'isOnline' in body:
                     state['isOnline'] = bool(body['isOnline'])
                 if 'lockState' in body:

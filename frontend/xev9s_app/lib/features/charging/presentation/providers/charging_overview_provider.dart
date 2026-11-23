@@ -163,34 +163,65 @@ class ChargingOverviewNotifier extends AsyncNotifier<ChargingOverview?> {
   }
 
   void _handleRealtimeEvent(RealtimeEvent event) {
-    if (event.type != RealtimeEventType.chargingUpdated) return;
-    if (event.rawData == null) return;
+    if (event.type == RealtimeEventType.chargingUpdated) {
+      if (event.rawData == null) return;
 
-    try {
-      final incoming = ChargingOverview.fromJson(event.rawData!);
-      final previous = state.hasValue ? state.value : null;
+      try {
+        final incoming = ChargingOverview.fromJson(event.rawData!);
+        final previous = state.hasValue ? state.value : null;
 
-      // When a charging session finishes or currentSessionId changes, invalidate sessions list
-      if (previous != null) {
-        final sessionFinished = (previous.state == ChargingState.charging ||
-                previous.state == ChargingState.paused ||
-                previous.state == ChargingState.connected) &&
-            (incoming.state == ChargingState.completed ||
-                incoming.state == ChargingState.interrupted);
+        // When a charging session finishes or currentSessionId changes, invalidate sessions list
+        if (previous != null) {
+          final sessionFinished = (previous.state == ChargingState.charging ||
+                  previous.state == ChargingState.paused ||
+                  previous.state == ChargingState.connected) &&
+              (incoming.state == ChargingState.completed ||
+                  incoming.state == ChargingState.interrupted ||
+                  incoming.state == ChargingState.notConnected);
 
-        final sessionChanged = incoming.currentSessionId != null &&
-            previous.currentSessionId != null &&
-            incoming.currentSessionId != previous.currentSessionId;
+          final sessionChanged = incoming.currentSessionId != null &&
+              previous.currentSessionId != null &&
+              incoming.currentSessionId != previous.currentSessionId;
 
-        if (sessionFinished || sessionChanged) {
-          ref.invalidate(chargingSessionsProvider);
+          if (sessionFinished || sessionChanged) {
+            ref.invalidate(chargingSessionsProvider);
+          }
         }
-      }
 
-      ref.read(chargingOverviewLastUpdatedProvider.notifier).setTimestamp(event.timestamp);
-      state = AsyncData(incoming);
-    } catch (_) {
-      // Parse failures are ignored per spec
+        ref
+            .read(chargingOverviewLastUpdatedProvider.notifier)
+            .setTimestamp(event.timestamp);
+        state = AsyncData(incoming);
+      } catch (_) {
+        // Parse failures are ignored per spec
+      }
+    } else if (event.type == RealtimeEventType.vehicleStatus) {
+      if (event.rawData == null) return;
+      try {
+        final status = event.asVehicleStatus();
+        if (status != null && status.vehicleState == VehicleState.driving) {
+          final previous = state.hasValue ? state.value : null;
+          if (previous != null &&
+              (previous.state == ChargingState.charging ||
+                  previous.state == ChargingState.paused ||
+                  previous.state == ChargingState.connected)) {
+            ref.invalidate(chargingSessionsProvider);
+            state = AsyncData(
+              previous.copyWith(
+                state: ChargingState.notConnected,
+                powerKw: null,
+                sessionDurationSeconds: null,
+                currentSessionId: null,
+              ),
+            );
+            ref
+                .read(chargingOverviewLastUpdatedProvider.notifier)
+                .setTimestamp(event.timestamp);
+          }
+        }
+      } catch (_) {
+        // Ignored
+      }
     }
   }
 }

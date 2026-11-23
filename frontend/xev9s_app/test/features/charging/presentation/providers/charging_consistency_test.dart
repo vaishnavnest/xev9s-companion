@@ -117,6 +117,30 @@ void main() {
     expect(dashboardStatus.battery?.percent, 52.0);
     expect(chargingView.batteryPercent, 52.0);
     expect(dashboardStatus.battery?.percent, equals(chargingView.batteryPercent));
+
+    // When status changes to DRIVING, charging state MUST automatically transition to notConnected and power must be null
+    final drivingTime = eventTime.add(const Duration(seconds: 2));
+    final drivingEvent = RealtimeEvent(
+      type: RealtimeEventType.vehicleStatus,
+      vehicleId: 'veh_9S0001',
+      timestamp: drivingTime,
+      rawData: {
+        'vehicleId': 'veh_9S0001',
+        'vehicleState': 'DRIVING',
+        'connectivity': 'ONLINE',
+        'speedKmh': 45.0,
+        'battery': {'percent': 52.0, 'level': 'NORMAL'},
+        'lastUpdatedAt': drivingTime.toUtc().toIso8601String(),
+      },
+    );
+    eventController.add(drivingEvent);
+    await pumpEventQueue();
+
+    final drivingChargingView = container.read(chargingViewProvider).value;
+    expect(drivingChargingView, isNotNull);
+    expect(drivingChargingView!.state, ChargingState.notConnected);
+    expect(drivingChargingView.powerKw, isNull);
+    expect(drivingChargingView.sessionDurationSeconds, isNull);
   });
 }
 
