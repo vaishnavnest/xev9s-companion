@@ -8,6 +8,8 @@ import '../features/auth/presentation/login_page.dart';
 import '../features/auth/presentation/register_page.dart';
 import '../features/auth/presentation/splash_page.dart';
 import '../features/charging/presentation/charging_page.dart';
+import '../features/charging/presentation/charging_sessions_page.dart';
+import '../features/charging/presentation/charging_session_detail_page.dart';
 import '../features/controls/presentation/controls_page.dart';
 import '../features/dashboard/presentation/dashboard_page.dart';
 import '../features/location/presentation/location_page.dart';
@@ -134,6 +136,22 @@ GoRouter createAppRouter({
               GoRoute(
                 path: '/charging',
                 builder: (context, state) => const ChargingPage(),
+                routes: [
+                  GoRoute(
+                    path: 'sessions',
+                    builder: (context, state) => const ChargingSessionsPage(),
+                    routes: [
+                      GoRoute(
+                        path: ':sessionId',
+                        builder: (context, state) {
+                          final sessionId =
+                              state.pathParameters['sessionId'] ?? '';
+                          return ChargingSessionDetailPage(sessionId: sessionId);
+                        },
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ],
           ),
