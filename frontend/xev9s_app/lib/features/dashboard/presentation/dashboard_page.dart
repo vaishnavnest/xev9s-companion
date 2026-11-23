@@ -12,7 +12,6 @@ import '../../../shared/widgets/stale_banner.dart';
 import '../../../shared/widgets/status_chip.dart';
 import '../../vehicles/application/vehicle_status_provider.dart';
 import '../../vehicles/domain/vehicle_status.dart';
-import '../../vehicles/presentation/vehicle_switcher_sheet.dart';
 import '../../vehicles/selected_vehicle_provider.dart';
 import 'dashboard_view_model.dart';
 
@@ -50,7 +49,6 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
 
     if (selectedVehicleId == null || selectedVehicleId.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Dashboard')),
         body: Center(
           child: EmptyState(
             icon: Icons.directions_car_outlined,
@@ -68,16 +66,6 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
     final connectionStateAsync = ref.watch(realtimeConnectionStateProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Dashboard'),
-        actions: [
-          IconButton(
-            tooltip: 'Switch vehicle',
-            icon: const Icon(Icons.swap_horiz_rounded),
-            onPressed: () => showVehicleSwitcher(context),
-          ),
-        ],
-      ),
       body: RefreshIndicator(
         onRefresh: () => ref.read(vehicleStatusProvider.notifier).refresh(),
         child: AsyncValueView<VehicleStatus?>(

@@ -30,7 +30,6 @@ class ProfilePage extends ConsumerWidget {
     final user = authState is AuthAuthenticated ? authState.user : null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 480),
