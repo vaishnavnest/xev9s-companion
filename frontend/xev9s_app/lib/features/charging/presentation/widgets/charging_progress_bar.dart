@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 /// Segmented capsule battery progress bar matching the custom design specification.
 /// Displays 10 distinct rounded segments inside a recessed capsule, with a glossy
 /// turquoise/teal gradient, partial segment filling, target marker, and percentage ticks.
+/// Fully adaptive to both Light and Dark themes.
 class ChargingProgressBar extends StatelessWidget {
   const ChargingProgressBar({
     super.key,
@@ -17,6 +18,9 @@ class ChargingProgressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     final clampedBattery =
         batteryPercent != null ? batteryPercent!.clamp(0.0, 100.0) : 0.0;
     final targetFraction =
@@ -24,6 +28,24 @@ class ChargingProgressBar extends StatelessWidget {
 
     const segmentCount = 10;
     const segmentGap = 5.0;
+
+    final capsuleBg = isDark
+        ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6)
+        : const Color(0xFFE9F1F0);
+    final capsuleBorder = isDark
+        ? theme.colorScheme.outlineVariant.withValues(alpha: 0.35)
+        : const Color(0xFFD4E2E0);
+
+    final targetMarkerColor = isDark
+        ? const Color(0xFF2DD4BF)
+        : const Color(0xFF0F766E);
+
+    final tickColor = isDark
+        ? theme.colorScheme.onSurfaceVariant
+        : const Color(0xFF64748B);
+    final centerTickColor = isDark
+        ? const Color(0xFF2DD4BF)
+        : const Color(0xFF0D9488);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -45,15 +67,15 @@ class ChargingProgressBar extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 7.0, vertical: 6.0),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE9F1F0),
+                    color: capsuleBg,
                     borderRadius: BorderRadius.circular(22),
                     border: Border.all(
-                      color: const Color(0xFFD4E2E0),
+                      color: capsuleBorder,
                       width: 1.5,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.04),
+                        color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
                         blurRadius: 4,
                         offset: const Offset(0, 2),
                       ),
@@ -78,7 +100,11 @@ class ChargingProgressBar extends StatelessWidget {
                           padding: EdgeInsets.only(
                             right: index < segmentCount - 1 ? segmentGap : 0.0,
                           ),
-                          child: _Segment(fillRatio: fillRatio),
+                          child: _Segment(
+                            fillRatio: fillRatio,
+                            isDark: isDark,
+                            theme: theme,
+                          ),
                         ),
                       );
                     }),
@@ -94,11 +120,11 @@ class ChargingProgressBar extends StatelessWidget {
                       width: 5,
                       height: height + 8,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0F766E),
+                        color: targetMarkerColor,
                         borderRadius: BorderRadius.circular(2.5),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.3),
+                            color: Colors.black.withValues(alpha: isDark ? 0.5 : 0.3),
                             blurRadius: 3,
                             offset: const Offset(0, 1),
                           ),
@@ -116,13 +142,13 @@ class ChargingProgressBar extends StatelessWidget {
         // 0%, 25%, 50% (highlighted bold teal), 75%, 100%
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: const [
+          children: [
             Text(
               '0%',
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF64748B),
+                color: tickColor,
               ),
             ),
             Text(
@@ -130,7 +156,7 @@ class ChargingProgressBar extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF64748B),
+                color: tickColor,
               ),
             ),
             Text(
@@ -138,7 +164,7 @@ class ChargingProgressBar extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF0D9488),
+                color: centerTickColor,
               ),
             ),
             Text(
@@ -146,7 +172,7 @@ class ChargingProgressBar extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF64748B),
+                color: tickColor,
               ),
             ),
             Text(
@@ -154,7 +180,7 @@ class ChargingProgressBar extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF64748B),
+                color: tickColor,
               ),
             ),
           ],
@@ -165,20 +191,33 @@ class ChargingProgressBar extends StatelessWidget {
 }
 
 class _Segment extends StatelessWidget {
-  const _Segment({required this.fillRatio});
+  const _Segment({
+    required this.fillRatio,
+    required this.isDark,
+    required this.theme,
+  });
 
   final double fillRatio;
+  final bool isDark;
+  final ThemeData theme;
 
   @override
   Widget build(BuildContext context) {
+    final emptyBg = isDark
+        ? const Color(0xFF1E293B)
+        : const Color(0xFFEFF5F4);
+    final emptyBorder = isDark
+        ? const Color(0xFF334155)
+        : const Color(0xFFDCE6E4);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Container(
         height: double.infinity,
         decoration: BoxDecoration(
-          color: const Color(0xFFEFF5F4),
+          color: emptyBg,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFDCE6E4), width: 1),
+          border: Border.all(color: emptyBorder, width: 1),
         ),
         child: fillRatio <= 0.0
             ? null
@@ -200,7 +239,9 @@ class _Segment extends StatelessWidget {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF14B8A6).withValues(alpha: 0.35),
+                        color: const Color(0xFF14B8A6).withValues(
+                          alpha: isDark ? 0.5 : 0.35,
+                        ),
                         blurRadius: 3,
                         offset: const Offset(0, 1),
                       ),

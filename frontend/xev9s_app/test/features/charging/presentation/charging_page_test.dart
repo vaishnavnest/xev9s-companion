@@ -123,6 +123,32 @@ void main() {
 
       expect(find.text('1m'), findsOneWidget);
     });
+
+    testWidgets('adapts gracefully to dark theme without errors', (tester) async {
+      const state = ChargingViewState(
+        state: ChargingState.connected,
+        batteryPercent: 45.0,
+        targetPercent: null,
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            chargingViewProvider.overrideWithValue(const AsyncData(state)),
+          ],
+          child: MaterialApp(
+            theme: ThemeData.dark(),
+            home: const ChargingPage(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('charging_status_chip')), findsOneWidget);
+      expect(find.text('Plugged in - not charging'), findsOneWidget);
+      expect(find.text('45%'), findsOneWidget);
+      expect(find.text('-'), findsNWidgets(3));
+    });
   });
 }
 

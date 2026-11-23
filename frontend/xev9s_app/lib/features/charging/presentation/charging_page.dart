@@ -14,6 +14,7 @@ import 'widgets/target_slider_sheet.dart';
 
 /// Charging overview screen (UC-04) customized to match the design specifications
 /// with a 10-segment capsule battery indicator, rounded mint cards, and teal pill buttons.
+/// Fully adaptive to both Light and Dark theme modes.
 class ChargingPage extends ConsumerStatefulWidget {
   const ChargingPage({super.key});
 
@@ -66,13 +67,19 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final viewAsync = ref.watch(chargingViewProvider);
 
     // Sync local ticker with server data
     viewAsync.whenData(_syncDurationTimer);
 
+    final scaffoldBg = isDark
+        ? theme.scaffoldBackgroundColor
+        : const Color(0xFFEEF5F4);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFEEF5F4),
+      backgroundColor: scaffoldBg,
       body: AsyncValueView<ChargingViewState?>(
         value: viewAsync,
         onRetry: () => ref.read(chargingOverviewProvider.notifier).refresh(),
@@ -171,12 +178,49 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
     ChargingViewState data,
     int? displayDuration,
   ) {
+    final isDark = theme.brightness == Brightness.dark;
+
+    final cardBg = isDark
+        ? theme.colorScheme.surfaceContainer
+        : const Color(0xFFF4F9F8);
+
+    final cardBorder = isDark
+        ? BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+            width: 1,
+          )
+        : const BorderSide(color: Color(0xFFE4EFEB), width: 1);
+
+    final statusChipBg = isDark
+        ? theme.colorScheme.surfaceContainerHighest
+        : const Color(0xFFE5EDED);
+
+    final statusChipFg = isDark
+        ? theme.colorScheme.onSurfaceVariant
+        : const Color(0xFF334155);
+
+    final primaryText = isDark
+        ? theme.colorScheme.onSurface
+        : const Color(0xFF0A2540);
+
+    final secondaryText = isDark
+        ? theme.colorScheme.onSurfaceVariant
+        : const Color(0xFF64748B);
+
+    final accentTeal = isDark
+        ? const Color(0xFF2DD4BF)
+        : const Color(0xFF0D9488);
+
+    final dividerColor = isDark
+        ? theme.colorScheme.outlineVariant.withValues(alpha: 0.35)
+        : const Color(0xFFE2EBE9);
+
     return Card(
       elevation: 0,
-      color: const Color(0xFFF4F9F8),
+      color: cardBg,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: const BorderSide(color: Color(0xFFE4EFEB), width: 1),
+        side: cardBorder,
       ),
       child: Padding(
         padding: const EdgeInsets.all(22.0),
@@ -197,13 +241,13 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE5EDED),
+                      color: statusChipBg,
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Text(
                       ChargingDisplayHelpers.stateLabel(data.state),
-                      style: const TextStyle(
-                        color: Color(0xFF334155),
+                      style: TextStyle(
+                        color: statusChipFg,
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -212,15 +256,15 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
                   if (data.currentSessionId != null)
                     TextButton.icon(
                       key: const Key('current_session_link'),
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.open_in_new,
                         size: 14,
-                        color: Color(0xFF0D9488),
+                        color: accentTeal,
                       ),
-                      label: const Text(
+                      label: Text(
                         'Current session',
                         style: TextStyle(
-                          color: Color(0xFF0D9488),
+                          color: accentTeal,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -242,22 +286,22 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Battery',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
-                          color: Color(0xFF64748B),
+                          color: secondaryText,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         ChargingDisplayHelpers.formatBattery(data.batteryPercent),
                         key: const Key('battery_percent_text'),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 38,
                           fontWeight: FontWeight.w900,
-                          color: Color(0xFF0A2540),
+                          color: primaryText,
                           letterSpacing: -0.5,
                         ),
                       ),
@@ -266,12 +310,12 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      const Text(
+                      Text(
                         'Target',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
-                          color: Color(0xFF64748B),
+                          color: secondaryText,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -283,7 +327,7 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
                         style: TextStyle(
                           fontSize: data.targetPercent != null ? 32 : 28,
                           fontWeight: FontWeight.w900,
-                          color: const Color(0xFF0A2540),
+                          color: primaryText,
                         ),
                       ),
                     ],
@@ -300,7 +344,7 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
               const SizedBox(height: 20),
 
               // Horizontal Divider
-              const Divider(color: Color(0xFFE2EBE9), height: 1, thickness: 1),
+              Divider(color: dividerColor, height: 1, thickness: 1),
               const SizedBox(height: 18),
 
               // Charging Power & Session Duration Row
@@ -309,22 +353,22 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
                   Expanded(
                     child: Column(
                       children: [
-                        const Text(
+                        Text(
                           'Charging Power',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
-                            color: Color(0xFF64748B),
+                            color: secondaryText,
                           ),
                         ),
                         const SizedBox(height: 6),
                         Text(
                           ChargingDisplayHelpers.formatPower(data.powerKw),
                           key: const Key('charging_power_text'),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFF0A2540),
+                            color: primaryText,
                           ),
                         ),
                       ],
@@ -333,27 +377,27 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
                   Container(
                     height: 36,
                     width: 1,
-                    color: const Color(0xFFE2EBE9),
+                    color: dividerColor,
                   ),
                   Expanded(
                     child: Column(
                       children: [
-                        const Text(
+                        Text(
                           'Session Duration',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
-                            color: Color(0xFF64748B),
+                            color: secondaryText,
                           ),
                         ),
                         const SizedBox(height: 6),
                         Text(
                           ChargingDisplayHelpers.formatDuration(displayDuration),
                           key: const Key('charging_duration_text'),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFF0A2540),
+                            color: primaryText,
                           ),
                         ),
                       ],
@@ -373,12 +417,45 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
     ThemeData theme,
     ChargingViewState data,
   ) {
+    final isDark = theme.brightness == Brightness.dark;
+
+    final cardBg = isDark
+        ? theme.colorScheme.surfaceContainer
+        : const Color(0xFFF4F9F8);
+
+    final cardBorder = isDark
+        ? BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+            width: 1,
+          )
+        : const BorderSide(color: Color(0xFFE4EFEB), width: 1);
+
+    final primaryText = isDark
+        ? theme.colorScheme.onSurface
+        : const Color(0xFF0A2540);
+
+    final secondaryText = isDark
+        ? theme.colorScheme.onSurfaceVariant
+        : const Color(0xFF64748B);
+
+    final accentTeal = isDark
+        ? const Color(0xFF2DD4BF)
+        : const Color(0xFF0D9488);
+
+    final buttonBg = isDark
+        ? const Color(0xFF134E4A)
+        : const Color(0xFFCEEFEA);
+
+    final buttonFg = isDark
+        ? const Color(0xFF5EEAD4)
+        : const Color(0xFF004D40);
+
     return Card(
       elevation: 0,
-      color: const Color(0xFFF4F9F8),
+      color: cardBg,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: const BorderSide(color: Color(0xFFE4EFEB), width: 1),
+        side: cardBorder,
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
@@ -389,18 +466,18 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
             Expanded(
               child: Row(
                 children: [
-                  const Icon(Icons.tune, color: Color(0xFF0D9488), size: 24),
+                  Icon(Icons.tune, color: accentTeal, size: 24),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Charging Target',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF0A2540),
+                            color: primaryText,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -408,9 +485,9 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
                           data.targetPercent != null
                               ? 'Target set to ${data.targetPercent}%.'
                               : 'No charge limit set.',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13,
-                            color: Color(0xFF64748B),
+                            color: secondaryText,
                           ),
                         ),
                       ],
@@ -423,8 +500,8 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
             FilledButton(
               key: const Key('edit_target_button'),
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFCEEFEA),
-                foregroundColor: const Color(0xFF004D40),
+                backgroundColor: buttonBg,
+                foregroundColor: buttonFg,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
@@ -440,12 +517,12 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
                   isVehicleOffline: data.isOffline,
                 );
               },
-              child: const Text(
+              child: Text(
                 'Edit target',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF004D40),
+                  color: buttonFg,
                 ),
               ),
             ),
@@ -460,16 +537,49 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
     ThemeData theme,
     ChargingViewState data,
   ) {
+    final isDark = theme.brightness == Brightness.dark;
+
+    final cardBg = isDark
+        ? theme.colorScheme.surfaceContainer
+        : const Color(0xFFF4F9F8);
+
+    final cardBorder = isDark
+        ? BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+            width: 1,
+          )
+        : const BorderSide(color: Color(0xFFE4EFEB), width: 1);
+
+    final primaryText = isDark
+        ? theme.colorScheme.onSurface
+        : const Color(0xFF0A2540);
+
+    final secondaryText = isDark
+        ? theme.colorScheme.onSurfaceVariant
+        : const Color(0xFF64748B);
+
+    final accentTeal = isDark
+        ? const Color(0xFF2DD4BF)
+        : const Color(0xFF0D9488);
+
+    final buttonBg = isDark
+        ? const Color(0xFF134E4A)
+        : const Color(0xFFCEEFEA);
+
+    final buttonFg = isDark
+        ? const Color(0xFF5EEAD4)
+        : const Color(0xFF004D40);
+
     final schedule = data.schedule;
     final hasSchedule = schedule != null && schedule.enabled;
     final summary = ChargingDisplayHelpers.formatScheduleSummary(schedule);
 
     return Card(
       elevation: 0,
-      color: const Color(0xFFF4F9F8),
+      color: cardBg,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: const BorderSide(color: Color(0xFFE4EFEB), width: 1),
+        side: cardBorder,
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
@@ -480,9 +590,9 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
             Expanded(
               child: Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.access_time,
-                    color: Color(0xFF0D9488),
+                    color: accentTeal,
                     size: 24,
                   ),
                   const SizedBox(width: 14),
@@ -490,12 +600,12 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Scheduled Charging',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF0A2540),
+                            color: primaryText,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -505,8 +615,8 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
                           style: TextStyle(
                             fontSize: 13,
                             color: hasSchedule
-                                ? const Color(0xFF0A2540)
-                                : const Color(0xFF64748B),
+                                ? primaryText
+                                : secondaryText,
                           ),
                         ),
                       ],
@@ -519,8 +629,8 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
             FilledButton(
               key: const Key('edit_schedule_button'),
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFCEEFEA),
-                foregroundColor: const Color(0xFF004D40),
+                backgroundColor: buttonBg,
+                foregroundColor: buttonFg,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
@@ -537,10 +647,10 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
               },
               child: Text(
                 hasSchedule ? 'Edit schedule' : 'Set schedule',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF004D40),
+                  color: buttonFg,
                 ),
               ),
             ),
@@ -555,12 +665,41 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
     ThemeData theme,
     ChargingViewState data,
   ) {
+    final isDark = theme.brightness == Brightness.dark;
+
+    final cardBg = isDark
+        ? theme.colorScheme.surfaceContainer
+        : const Color(0xFFF4F9F8);
+
+    final cardBorder = isDark
+        ? BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+            width: 1,
+          )
+        : const BorderSide(color: Color(0xFFE4EFEB), width: 1);
+
+    final primaryText = isDark
+        ? theme.colorScheme.onSurface
+        : const Color(0xFF0A2540);
+
+    final secondaryText = isDark
+        ? theme.colorScheme.onSurfaceVariant
+        : const Color(0xFF64748B);
+
+    final buttonBg = isDark
+        ? const Color(0xFF134E4A)
+        : const Color(0xFFCEEFEA);
+
+    final buttonFg = isDark
+        ? const Color(0xFF5EEAD4)
+        : const Color(0xFF004D40);
+
     return Card(
       elevation: 0,
-      color: const Color(0xFFF4F9F8),
+      color: cardBg,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: const BorderSide(color: Color(0xFFE4EFEB), width: 1),
+        side: cardBorder,
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
@@ -571,21 +710,21 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
+                children: [
                   Text(
                     'Charging History',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF0A2540),
+                      color: primaryText,
                     ),
                   ),
-                  SizedBox(height: 4),
+                  const SizedBox(height: 4),
                   Text(
                     'Review previous charge logs and power telemetry',
                     style: TextStyle(
                       fontSize: 13,
-                      color: Color(0xFF64748B),
+                      color: secondaryText,
                     ),
                   ),
                 ],
@@ -595,8 +734,8 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
             FilledButton(
               key: const Key('view_history_button'),
               style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFCEEFEA),
-                foregroundColor: const Color(0xFF004D40),
+                backgroundColor: buttonBg,
+                foregroundColor: buttonFg,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
@@ -607,12 +746,12 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
               onPressed: () {
                 context.go('/charging/sessions');
               },
-              child: const Text(
+              child: Text(
                 'View history',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF004D40),
+                  color: buttonFg,
                 ),
               ),
             ),
