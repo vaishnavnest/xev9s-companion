@@ -1,12 +1,85 @@
 import 'dart:math' as math;
 import 'package:material_ui/material_ui.dart';
 
+/// Color palette configuration for the charging progress bar based on battery percentage.
+class BatteryColorPalette {
+  const BatteryColorPalette({
+    required this.gradientColors,
+    required this.glowColor,
+    required this.centerTickColor,
+    required this.activeTipGlow,
+  });
+
+  final List<Color> gradientColors;
+  final Color glowColor;
+  final Color centerTickColor;
+  final Color activeTipGlow;
+
+  /// Resolves the color palette according to the battery percentage:
+  /// - <= 20%: Red warning
+  /// - 21% - 40%: Amber / Orange caution
+  /// - 41% - 75%: Signature Turquoise / Teal healthy
+  /// - > 75%: Vibrant Emerald Green high / optimal
+  static BatteryColorPalette forPercentage(double batteryPercent, bool isDark) {
+    if (batteryPercent <= 20.0) {
+      return BatteryColorPalette(
+        gradientColors: const [
+          Color(0xFFF87171),
+          Color(0xFFEF4444),
+          Color(0xFFB91C1C),
+        ],
+        glowColor: const Color(0xFFEF4444),
+        centerTickColor:
+            isDark ? const Color(0xFFF87171) : const Color(0xFFDC2626),
+        activeTipGlow: const Color(0xFFFCA5A5),
+      );
+    } else if (batteryPercent <= 40.0) {
+      return BatteryColorPalette(
+        gradientColors: const [
+          Color(0xFFFBBF24),
+          Color(0xFFF59E0B),
+          Color(0xFFD97706),
+        ],
+        glowColor: const Color(0xFFF59E0B),
+        centerTickColor:
+            isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
+        activeTipGlow: const Color(0xFFFDE68A),
+      );
+    } else if (batteryPercent <= 75.0) {
+      return BatteryColorPalette(
+        gradientColors: const [
+          Color(0xFF26D0CE),
+          Color(0xFF14B8A6),
+          Color(0xFF0F766E),
+        ],
+        glowColor: const Color(0xFF14B8A6),
+        centerTickColor:
+            isDark ? const Color(0xFF2DD4BF) : const Color(0xFF0D9488),
+        activeTipGlow: const Color(0xFF5EEAD4),
+      );
+    } else {
+      return BatteryColorPalette(
+        gradientColors: const [
+          Color(0xFF34D399),
+          Color(0xFF10B981),
+          Color(0xFF047857),
+        ],
+        glowColor: const Color(0xFF10B981),
+        centerTickColor:
+            isDark ? const Color(0xFF34D399) : const Color(0xFF059669),
+        activeTipGlow: const Color(0xFFA7F3D0),
+      );
+    }
+  }
+}
+
 /// Segmented capsule battery progress bar matching the custom design specification.
-/// Displays 10 distinct rounded segments inside a recessed capsule, with a glossy
-/// turquoise/teal gradient, partial segment filling, target marker, and percentage ticks.
+/// Displays 10 distinct rounded segments inside a recessed capsule, with dynamic
+/// percentage-based color tiers (Red <=20%, Amber 21-40%, Teal 41-75%, Green >75%),
+/// partial segment filling, target marker, and percentage ticks.
 /// Fully adaptive to both Light and Dark themes.
-/// When [isCharging] is true, renders an energetic mobile-like charging animation
-/// with a sweeping luminous pulse wave and breathing active charge indicator.
+/// When [isCharging] is true, renders an organic sequential power surge animation
+/// where energy cascades through the active segments with a pulsating charging tip.
 class ChargingProgressBar extends StatefulWidget {
   const ChargingProgressBar({
     super.key,
@@ -37,7 +110,7 @@ class _ChargingProgressBarState extends State<ChargingProgressBar>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1300),
+      duration: const Duration(milliseconds: 1400),
     );
     if (widget.isCharging) {
       if (_isTestMode) {
@@ -83,6 +156,8 @@ class _ChargingProgressBarState extends State<ChargingProgressBar>
         ? (widget.targetPercent!.clamp(0, 100) / 100.0)
         : null;
 
+    final palette = BatteryColorPalette.forPercentage(clampedBattery, isDark);
+
     const segmentCount = 10;
     const segmentGap = 5.0;
 
@@ -100,9 +175,6 @@ class _ChargingProgressBarState extends State<ChargingProgressBar>
     final tickColor = isDark
         ? theme.colorScheme.onSurfaceVariant
         : const Color(0xFF64748B);
-    final centerTickColor = isDark
-        ? const Color(0xFF2DD4BF)
-        : const Color(0xFF0D9488);
 
     final currentChargingIndex = (clampedBattery / 10.0).floor().clamp(0, 9);
     final filledSegmentFraction = (clampedBattery / 10.0).clamp(0.0, 10.0);
@@ -111,7 +183,9 @@ class _ChargingProgressBarState extends State<ChargingProgressBar>
       animation: _controller,
       builder: (context, child) {
         final animValue = widget.isCharging ? _controller.value : 0.0;
-        final waveHead = animValue * (filledSegmentFraction + 1.6);
+        // Sequential surge position flowing across filled segments
+        final surgeHead = animValue * (filledSegmentFraction + 1.2);
+        // Organic breathing heartbeat pulse for the charging tip & container
         final breathPulse = 0.5 + 0.5 * math.sin(animValue * 2 * math.pi);
 
         return Column(
@@ -138,32 +212,26 @@ class _ChargingProgressBarState extends State<ChargingProgressBar>
                         borderRadius: BorderRadius.circular(22),
                         border: Border.all(
                           color: widget.isCharging
-                              ? (isDark
-                                  ? Color.lerp(
-                                      capsuleBorder,
-                                      const Color(0xFF2DD4BF)
-                                          .withValues(alpha: 0.8),
-                                      breathPulse,
-                                    )!
-                                  : Color.lerp(
-                                      capsuleBorder,
-                                      const Color(0xFF0D9488)
-                                          .withValues(alpha: 0.7),
-                                      breathPulse,
-                                    )!)
+                              ? Color.lerp(
+                                  capsuleBorder,
+                                  palette.activeTipGlow.withValues(
+                                    alpha: isDark ? 0.8 : 0.65,
+                                  ),
+                                  breathPulse,
+                                )!
                               : capsuleBorder,
                           width: widget.isCharging ? 2.0 : 1.5,
                         ),
                         boxShadow: [
                           BoxShadow(
                             color: widget.isCharging
-                                ? const Color(0xFF14B8A6).withValues(
-                                    alpha: (isDark ? 0.45 : 0.3) *
-                                        (0.7 + 0.3 * breathPulse),
+                                ? palette.glowColor.withValues(
+                                    alpha: (isDark ? 0.35 : 0.2) *
+                                        (0.6 + 0.4 * breathPulse),
                                   )
                                 : Colors.black
                                     .withValues(alpha: isDark ? 0.2 : 0.04),
-                            blurRadius: widget.isCharging ? 14 : 4,
+                            blurRadius: widget.isCharging ? 12 : 4,
                             spreadRadius: widget.isCharging ? 1.0 : 0.0,
                             offset: const Offset(0, 2),
                           ),
@@ -184,13 +252,13 @@ class _ChargingProgressBarState extends State<ChargingProgressBar>
                             }
                           }
 
-                          // Calculate distance to the light pulse wave with smooth cosine falloff
-                          final waveDistance = (index - waveHead).abs();
-                          final waveIntensity = (widget.isCharging &&
+                          // Smooth surge intensity as power travels through segment index
+                          final surgeDistance = (index - surgeHead).abs();
+                          final surgeIntensity = (widget.isCharging &&
                                   fillRatio > 0.0 &&
-                                  waveDistance < 1.8)
+                                  surgeDistance < 1.6)
                               ? math.cos(
-                                  (waveDistance / 1.8) * (math.pi / 2))
+                                  (surgeDistance / 1.6) * (math.pi / 2))
                               : 0.0;
 
                           final isCurrentCharging = widget.isCharging &&
@@ -208,9 +276,10 @@ class _ChargingProgressBarState extends State<ChargingProgressBar>
                                 fillRatio: fillRatio,
                                 isDark: isDark,
                                 theme: theme,
+                                palette: palette,
                                 isCharging: widget.isCharging,
                                 isCurrentCharging: isCurrentCharging,
-                                waveIntensity: waveIntensity,
+                                surgeIntensity: surgeIntensity,
                                 breathPulse: breathPulse,
                               ),
                             ),
@@ -248,7 +317,7 @@ class _ChargingProgressBarState extends State<ChargingProgressBar>
             const SizedBox(height: 8),
 
             // Percentage scale ticks matching the design:
-            // 0%, 25%, 50% (highlighted bold teal), 75%, 100%
+            // 0%, 25%, 50% (highlighted with tier palette color), 75%, 100%
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -273,7 +342,7 @@ class _ChargingProgressBarState extends State<ChargingProgressBar>
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
-                    color: centerTickColor,
+                    color: palette.centerTickColor,
                   ),
                 ),
                 Text(
@@ -306,18 +375,20 @@ class _Segment extends StatelessWidget {
     required this.fillRatio,
     required this.isDark,
     required this.theme,
+    required this.palette,
     this.isCharging = false,
     this.isCurrentCharging = false,
-    this.waveIntensity = 0.0,
+    this.surgeIntensity = 0.0,
     this.breathPulse = 0.0,
   });
 
   final double fillRatio;
   final bool isDark;
   final ThemeData theme;
+  final BatteryColorPalette palette;
   final bool isCharging;
   final bool isCurrentCharging;
-  final double waveIntensity;
+  final double surgeIntensity;
   final double breathPulse;
 
   @override
@@ -338,27 +409,27 @@ class _Segment extends StatelessWidget {
         height: double.infinity,
         decoration: BoxDecoration(
           color: showChargingTeaser
-              ? (isDark
-                  ? Color.lerp(emptyBg, const Color(0xFF115E59),
-                      0.5 * breathPulse)
-                  : Color.lerp(emptyBg, const Color(0xFF99F6E4),
-                      0.55 * breathPulse))
+              ? Color.lerp(
+                  emptyBg,
+                  palette.glowColor.withValues(alpha: isDark ? 0.35 : 0.25),
+                  0.55 * breathPulse,
+                )
               : emptyBg,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: (isCharging && isCurrentCharging)
-                ? (isDark
-                    ? Color.lerp(emptyBorder, const Color(0xFF22D3EE),
-                        0.9 * breathPulse)!
-                    : Color.lerp(emptyBorder, const Color(0xFF0D9488),
-                        0.9 * breathPulse)!)
+                ? Color.lerp(
+                    emptyBorder,
+                    palette.activeTipGlow,
+                    0.85 * breathPulse,
+                  )!
                 : emptyBorder,
             width: (isCharging && isCurrentCharging) ? 2.0 : 1.0,
           ),
           boxShadow: (isCharging && isCurrentCharging)
               ? [
                   BoxShadow(
-                    color: const Color(0xFF22D3EE).withValues(
+                    color: palette.activeTipGlow.withValues(
                       alpha: (isDark ? 0.6 : 0.45) * breathPulse,
                     ),
                     blurRadius: 8 * breathPulse,
@@ -381,102 +452,64 @@ class _Segment extends StatelessWidget {
                       colors: isCharging
                           ? [
                               Color.lerp(
-                                const Color(0xFF26D0CE),
-                                const Color(0xFFFFFFFF),
-                                (waveIntensity * 0.95 +
+                                palette.gradientColors[0],
+                                Colors.white,
+                                (surgeIntensity * 0.75 +
                                         (isCurrentCharging
-                                            ? 0.45 * breathPulse
+                                            ? 0.35 * breathPulse
                                             : 0.0))
                                     .clamp(0.0, 1.0),
                               )!,
                               Color.lerp(
-                                const Color(0xFF14B8A6),
-                                const Color(0xFF67E8F9),
-                                (waveIntensity * 0.95 +
+                                palette.gradientColors[1],
+                                palette.activeTipGlow,
+                                (surgeIntensity * 0.8 +
                                         (isCurrentCharging
-                                            ? 0.3 * breathPulse
+                                            ? 0.25 * breathPulse
                                             : 0.0))
                                     .clamp(0.0, 1.0),
                               )!,
                               Color.lerp(
-                                const Color(0xFF0F766E),
-                                const Color(0xFF22D3EE),
-                                (waveIntensity * 0.85).clamp(0.0, 1.0),
+                                palette.gradientColors[2],
+                                palette.gradientColors[1],
+                                (surgeIntensity * 0.6).clamp(0.0, 1.0),
                               )!,
                             ]
-                          : const [
-                              Color(0xFF26D0CE),
-                              Color(0xFF14B8A6),
-                              Color(0xFF0F766E),
-                            ],
+                          : palette.gradientColors,
                       stops: const [0.0, 0.45, 1.0],
                     ),
                     boxShadow: [
                       BoxShadow(
                         color: isCharging
                             ? Color.lerp(
-                                const Color(0xFF14B8A6).withValues(
-                                  alpha: isDark ? 0.6 : 0.45,
+                                palette.glowColor.withValues(
+                                  alpha: isDark ? 0.5 : 0.35,
                                 ),
-                                const Color(0xFF22D3EE).withValues(
-                                  alpha: isDark ? 1.0 : 0.95,
+                                palette.activeTipGlow.withValues(
+                                  alpha: isDark ? 0.95 : 0.85,
                                 ),
-                                (waveIntensity * 1.4 +
+                                (surgeIntensity * 1.3 +
                                         (isCurrentCharging
-                                            ? 0.6 * breathPulse
+                                            ? 0.5 * breathPulse
                                             : 0.0))
                                     .clamp(0.0, 1.0),
                               )!
-                            : const Color(0xFF14B8A6).withValues(
+                            : palette.glowColor.withValues(
                                 alpha: isDark ? 0.5 : 0.35,
                               ),
                         blurRadius: isCharging
-                            ? 4.0 +
-                                10.0 * waveIntensity +
-                                (isCurrentCharging ? 6.0 * breathPulse : 0.0)
+                            ? 3.0 +
+                                8.0 * surgeIntensity +
+                                (isCurrentCharging ? 5.0 * breathPulse : 0.0)
                             : 3.0,
                         spreadRadius: isCharging
-                            ? (1.5 * waveIntensity +
-                                (isCurrentCharging ? 1.0 * breathPulse : 0.0))
+                            ? (1.0 * surgeIntensity +
+                                (isCurrentCharging ? 0.8 * breathPulse : 0.0))
                             : 0.0,
                         offset: const Offset(0, 1),
                       ),
                     ],
                   ),
-                  child: isCharging && (waveIntensity > 0.05 || isCurrentCharging)
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Stack(
-                            children: [
-                              Positioned.fill(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment(
-                                          -1.8 + 3.6 * waveIntensity, -1.0),
-                                      end: Alignment(
-                                          -0.2 + 3.6 * waveIntensity, 1.0),
-                                      colors: [
-                                        Colors.transparent,
-                                        Colors.white.withValues(
-                                          alpha: (0.35 + 0.55 * waveIntensity)
-                                              .clamp(0.0, 0.9),
-                                        ),
-                                        const Color(0xFFE0FFFF).withValues(
-                                          alpha: (0.45 + 0.55 * waveIntensity)
-                                              .clamp(0.0, 1.0),
-                                        ),
-                                        Colors.transparent,
-                                      ],
-                                      stops: const [0.0, 0.45, 0.55, 1.0],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : null,
                 ),
               ),
       ),

@@ -94,5 +94,19 @@ void main() {
       expect(find.text('64%'), findsNothing); // label is outside progress bar
       expect(find.byKey(const Key('target_marker')), findsOneWidget);
     });
+
+    test('BatteryColorPalette resolves distinct warning tiers according to percentage', () {
+      final redPalette = BatteryColorPalette.forPercentage(15.0, false);
+      expect(redPalette.glowColor, const Color(0xFFEF4444));
+
+      final amberPalette = BatteryColorPalette.forPercentage(35.0, false);
+      expect(amberPalette.glowColor, const Color(0xFFF59E0B));
+
+      final tealPalette = BatteryColorPalette.forPercentage(60.0, false);
+      expect(tealPalette.glowColor, const Color(0xFF14B8A6));
+
+      final greenPalette = BatteryColorPalette.forPercentage(92.0, false);
+      expect(greenPalette.glowColor, const Color(0xFF10B981));
+    });
   });
 }
