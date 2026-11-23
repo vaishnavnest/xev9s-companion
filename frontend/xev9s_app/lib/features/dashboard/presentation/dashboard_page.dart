@@ -402,44 +402,21 @@ class _DashboardContent extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
 
-                // 3. Sub-row: Target Limit & Efficiency badge (Wrap for narrow layouts)
-                Wrap(
-                  alignment: WrapAlignment.spaceBetween,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 8,
-                  runSpacing: 6,
+                // 3. Sub-row: Target Limit
+                Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.schedule_rounded,
-                          size: 14,
-                          color: theme.colorScheme.primary,
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          'Target limit 80% (Daily)',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w500,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
+                    Icon(
+                      Icons.schedule_rounded,
+                      size: 14,
+                      color: theme.colorScheme.primary,
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        'Efficiency: 16.4 kWh/100km',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: theme.colorScheme.primary,
-                        ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Target limit 80% (Daily)',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w500,
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ],
