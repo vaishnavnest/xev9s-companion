@@ -66,6 +66,45 @@ class Validators {
     return null;
   }
 
+  /// Validates charging target percentage against allowed range.
+  static String? chargingTarget(int? value) {
+    if (value == null) {
+      return 'Charging target is required.';
+    }
+    if (value < AppConstants.chargingTargetMin ||
+        value > AppConstants.chargingTargetMax) {
+      return 'Target must be between ${AppConstants.chargingTargetMin}% and ${AppConstants.chargingTargetMax}%.';
+    }
+    return null;
+  }
+
+  /// Validates charging schedule start and end times.
+  /// Start and end times are required and must not be identical.
+  /// Overnight windows (e.g., 22:00 to 06:00) are valid.
+  static String? scheduleTimes(dynamic start, dynamic end) {
+    if (start == null || end == null) {
+      return 'Start time and end time are required.';
+    }
+    final startStr = start.toString().trim();
+    final endStr = end.toString().trim();
+    if (startStr.isEmpty || endStr.isEmpty) {
+      return 'Start time and end time are required.';
+    }
+    if (startStr == endStr) {
+      return 'Start time and end time cannot be the same.';
+    }
+    return null;
+  }
+
+  /// Validates charging schedule days selection.
+  /// When schedule is enabled, at least one day must be selected.
+  static String? scheduleDays(Iterable<dynamic>? days, bool enabled) {
+    if (enabled && (days == null || days.isEmpty)) {
+      return 'Please select at least one day for the schedule.';
+    }
+    return null;
+  }
+
   /// Validates that [value] has at least [min] characters.
   /// When [trim] is false (e.g. for passwords), leading/trailing whitespace is preserved.
   static String? minLength(
