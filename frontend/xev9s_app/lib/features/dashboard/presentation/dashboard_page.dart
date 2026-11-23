@@ -5,7 +5,6 @@ import 'package:material_ui/material_ui.dart' hide LockState;
 import '../../../core/config/app_config.dart';
 import '../../../core/realtime/realtime_providers.dart';
 import '../../../core/realtime/realtime_service.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/async_value_view.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/stale_banner.dart';
@@ -256,103 +255,253 @@ class _DashboardContent extends StatelessWidget {
 
   Widget _buildBatteryCard(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
-    final progressColor = switch (vm.effectiveBatteryLevel) {
-      BatteryLevel.normal => AppTheme.primaryColor,
-      BatteryLevel.warning => AppTheme.warningColor,
-      BatteryLevel.unavailable => Colors.grey.shade400,
-      BatteryLevel.unknown => AppTheme.primaryColor,
+    final (dotColor, chipTextColor, chipBg, chipBorder) = switch (vm.effectiveBatteryLevel) {
+      BatteryLevel.normal => (
+          const Color(0xFF10B981),
+          const Color(0xFF059669),
+          isDark ? const Color(0xFF064E3B).withValues(alpha: 0.35) : const Color(0xFFE8FDF5),
+          isDark ? const Color(0xFF059669).withValues(alpha: 0.5) : const Color(0xFFA7F3D0),
+        ),
+      BatteryLevel.warning => (
+          const Color(0xFFF59E0B),
+          const Color(0xFFD97706),
+          isDark ? const Color(0xFF78350F).withValues(alpha: 0.35) : const Color(0xFFFEF3C7),
+          isDark ? const Color(0xFFD97706).withValues(alpha: 0.5) : const Color(0xFFFDE68A),
+        ),
+      BatteryLevel.unavailable || BatteryLevel.unknown => (
+          const Color(0xFF94A3B8),
+          const Color(0xFF64748B),
+          isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+          isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
+        ),
     };
 
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Semantics(
-        label: vm.batterySemanticsLabel,
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    final cardBgGradient = isDark
+        ? const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF14202E), Color(0xFF0F172A)],
+          )
+        : const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFFF4FAFA), Color(0xFFFFFFFF), Color(0xFFF0F9F8)],
+          );
+
+    final cardBorderColor = isDark ? const Color(0xFF1E293B) : const Color(0xFFE2F0EC);
+
+    return Semantics(
+      label: vm.batterySemanticsLabel,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: cardBgGradient,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: cardBorderColor, width: 1.2),
+          boxShadow: [
+            BoxShadow(
+              color: isDark
+                  ? Colors.black.withValues(alpha: 0.3)
+                  : const Color(0xFF0F172A).withValues(alpha: 0.04),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(24),
+            onTap: () => context.go('/charging'),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.battery_charging_full_rounded,
-                          color: progressColor,
-                          size: 24,
-                        ),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            'Battery & Range',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  StatusChip(
-                    label: vm.batteryLevelLabel,
-                    type: switch (vm.effectiveBatteryLevel) {
-                      BatteryLevel.normal => ChipStatusType.success,
-                      BatteryLevel.warning => ChipStatusType.warning,
-                      _ => ChipStatusType.info,
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    vm.batteryPercentDisplay,
-                    style: theme.textTheme.displayMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: progressColor,
-                    ),
-                  ),
-                  const Spacer(),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                  // 1. Header Row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'Estimated Range',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? const Color(0xFF064E3B).withValues(alpha: 0.4)
+                                    : const Color(0xFFE6F7F2),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isDark
+                                      ? const Color(0xFF059669).withValues(alpha: 0.3)
+                                      : const Color(0xFFB9F1DE),
+                                  width: 1,
+                                ),
+                              ),
+                              child: const Center(
+                                child: Icon(
+                                  Icons.battery_charging_full_rounded,
+                                  size: 22,
+                                  color: Color(0xFF00897B),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Flexible(
+                              child: Text(
+                                'Battery & Range',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        vm.batteryRangeDisplay,
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: chipBg,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: chipBorder, width: 1.2),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: dotColor,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              vm.effectiveBatteryLevel == BatteryLevel.normal
+                                  ? 'NORMAL'
+                                  : vm.batteryLevelLabel,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                                color: chipTextColor,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
+                  const SizedBox(height: 16),
+
+                  // 2. Metrics Row: Percent (Big Teal) & Estimated Range (Right aligned)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        vm.batteryPercentDisplay,
+                        style: TextStyle(
+                          fontSize: 44,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -1.0,
+                          color: vm.isLiveValuesDimmed
+                              ? const Color(0xFF008B9E).withValues(alpha: 0.4)
+                              : const Color(0xFF008B9E),
+                        ),
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            'ESTIMATED RANGE',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.5,
+                              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            vm.batteryRangeDisplay,
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w800,
+                              color: vm.isLiveValuesDimmed
+                                  ? (isDark ? Colors.white : const Color(0xFF0F172A)).withValues(alpha: 0.4)
+                                  : (isDark ? Colors.white : const Color(0xFF0F172A)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // 3. Sub-row: Target Limit & Efficiency badge (Wrap for narrow layouts)
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.schedule_rounded,
+                            size: 14,
+                            color: Color(0xFF008B9E),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            'Target limit 80% (Daily)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? const Color(0xFF115E59).withValues(alpha: 0.25)
+                              : const Color(0xFFE8F7F4),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          'Efficiency: 16.4 kWh/100km',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF0D9488),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // 4. Progress bar with Thumb Bead & Scale underneath
+                  _BatteryRangeProgressBar(
+                    fraction: vm.isBatteryUnavailable ? 0.0 : vm.batteryProgressFraction,
+                    isDark: isDark,
+                  ),
                 ],
               ),
-              const SizedBox(height: 12),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: LinearProgressIndicator(
-                  value: vm.isBatteryUnavailable ? 0.0 : vm.batteryProgressFraction,
-                  minHeight: 10,
-                  backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                  valueColor: AlwaysStoppedAnimation<Color>(progressColor),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -745,4 +894,162 @@ class _ActionButton extends StatelessWidget {
       ),
     );
   }
+}
+
+class _BatteryRangeProgressBar extends StatelessWidget {
+  const _BatteryRangeProgressBar({
+    required this.fraction,
+    required this.isDark,
+  });
+
+  final double fraction;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    final clampedFraction = fraction.clamp(0.0, 1.0);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final totalWidth = constraints.maxWidth;
+        const barHeight = 14.0;
+        const thumbSize = 16.0;
+        final thumbLeft = (totalWidth * clampedFraction - thumbSize / 2)
+            .clamp(0.0, totalWidth - thumbSize);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Track + Gradient + Dotted overlay + Thumb
+            SizedBox(
+              height: thumbSize,
+              child: Stack(
+                alignment: Alignment.centerLeft,
+                children: [
+                  // Inset background track
+                  Container(
+                    height: barHeight,
+                    width: totalWidth,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? const Color(0xFF1E293B)
+                          : const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(barHeight / 2),
+                    ),
+                  ),
+
+                  // Gradient fill bar
+                  if (clampedFraction > 0.0)
+                    Container(
+                      height: barHeight,
+                      width: totalWidth * clampedFraction,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [
+                            Color(0xFF06B6D4),
+                            Color(0xFF14B8A6),
+                            Color(0xFF10B981),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(barHeight / 2),
+                      ),
+                      // Texture of tiny dots
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(barHeight / 2),
+                        child: CustomPaint(
+                          painter: _DottedPatternPainter(),
+                        ),
+                      ),
+                    ),
+
+                  // Thumb Indicator bead (white center + teal ring)
+                  if (clampedFraction > 0.0)
+                    Positioned(
+                      left: thumbLeft,
+                      child: Container(
+                        width: thumbSize,
+                        height: thumbSize,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isDark ? const Color(0xFF0F172A) : Colors.white,
+                          border: Border.all(
+                            color: const Color(0xFF14B8A6),
+                            width: 3.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF0D9488)
+                                  .withValues(alpha: 0.35),
+                              blurRadius: 4,
+                              spreadRadius: 0.5,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Scale marks: 0%, 20%, 40%, 60%, 80%, 100%
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [0, 20, 40, 60, 80, 100].map((val) {
+                final isAccent = val == 60;
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: isAccent ? 2.0 : 1.5,
+                      height: isAccent ? 6.0 : 4.0,
+                      decoration: BoxDecoration(
+                        color: isAccent
+                            ? const Color(0xFF0D9488)
+                            : (isDark
+                                ? const Color(0xFF475569)
+                                : const Color(0xFFCBD5E1)),
+                        borderRadius: BorderRadius.circular(1),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$val%',
+                      style: TextStyle(
+                        fontSize: isAccent ? 11 : 10,
+                        fontWeight: isAccent ? FontWeight.bold : FontWeight.w500,
+                        color: isAccent
+                            ? const Color(0xFF0D9488)
+                            : (isDark
+                                ? const Color(0xFF64748B)
+                                : const Color(0xFF94A3B8)),
+                      ),
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _DottedPatternPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.35)
+      ..style = PaintingStyle.fill;
+
+    const spacing = 8.0;
+    final cy = size.height / 2;
+    for (double x = 6.0; x < size.width - 4.0; x += spacing) {
+      canvas.drawCircle(Offset(x, cy), 1.2, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
