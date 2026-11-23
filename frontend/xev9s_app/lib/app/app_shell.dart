@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import '../features/vehicles/application/vehicles_controller.dart';
 import '../features/vehicles/presentation/vehicle_switcher_sheet.dart';
+import '../shared/widgets/car_theme_toggle_button.dart';
 
 class AppShell extends ConsumerWidget {
   const AppShell({
@@ -76,6 +77,8 @@ class AppShell extends ConsumerWidget {
     final appBar = AppBar(
       title: const Text('XEV 9S Companion'),
       actions: [
+        const CarThemeToggleButton(),
+        const SizedBox(width: 4),
         Padding(
           padding: const EdgeInsets.only(right: 12.0),
           child: ActionChip(
