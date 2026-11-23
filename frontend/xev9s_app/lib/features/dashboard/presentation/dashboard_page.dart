@@ -274,6 +274,30 @@ class _DashboardContent extends StatelessWidget {
         ),
     };
 
+    final slideColor = switch (vm.effectiveBatteryLevel) {
+      BatteryLevel.normal => theme.colorScheme.primary,
+      BatteryLevel.warning => (vm.status.battery?.percent != null && vm.status.battery!.percent! <= 10.0)
+          ? Colors.red.shade600
+          : Colors.amber.shade700,
+      BatteryLevel.unavailable => Colors.grey.shade400,
+      BatteryLevel.unknown => theme.colorScheme.primary,
+    };
+
+    final slideGradient = switch (vm.effectiveBatteryLevel) {
+      BatteryLevel.normal => [
+          theme.colorScheme.primary.withValues(alpha: 0.8),
+          theme.colorScheme.primary,
+        ],
+      BatteryLevel.warning => (vm.status.battery?.percent != null && vm.status.battery!.percent! <= 10.0)
+          ? [const Color(0xFFEF4444), const Color(0xFFB91C1C)]
+          : [const Color(0xFFFBBF24), const Color(0xFFD97706)],
+      BatteryLevel.unavailable => [Colors.grey.shade300, Colors.grey.shade500],
+      BatteryLevel.unknown => [
+          theme.colorScheme.primary.withValues(alpha: 0.8),
+          theme.colorScheme.primary,
+        ],
+    };
+
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -298,14 +322,14 @@ class _DashboardContent extends StatelessWidget {
                             width: 36,
                             height: 36,
                             decoration: BoxDecoration(
-                              color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                              color: slideColor.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Center(
                               child: Icon(
                                 Icons.battery_charging_full_rounded,
                                 size: 22,
-                                color: theme.colorScheme.primary,
+                                color: slideColor,
                               ),
                             ),
                           ),
@@ -359,7 +383,7 @@ class _DashboardContent extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
 
-                // 2. Metrics Row: Percent (Big Primary) & Estimated Range (Right aligned)
+                // 2. Metrics Row: Percent & Estimated Range (Right aligned)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -371,8 +395,8 @@ class _DashboardContent extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                         letterSpacing: -1.0,
                         color: vm.isLiveValuesDimmed
-                            ? theme.colorScheme.primary.withValues(alpha: 0.4)
-                            : theme.colorScheme.primary,
+                            ? slideColor.withValues(alpha: 0.4)
+                            : slideColor,
                       ),
                     ),
                     Column(
@@ -426,6 +450,8 @@ class _DashboardContent extends StatelessWidget {
                 // 4. Progress bar with Thumb Bead & Scale underneath
                 _BatteryRangeProgressBar(
                   fraction: vm.isBatteryUnavailable ? 0.0 : vm.batteryProgressFraction,
+                  slideColor: slideColor,
+                  gradientColors: slideGradient,
                 ),
               ],
             ),
@@ -826,9 +852,13 @@ class _ActionButton extends StatelessWidget {
 class _BatteryRangeProgressBar extends StatelessWidget {
   const _BatteryRangeProgressBar({
     required this.fraction,
+    required this.slideColor,
+    required this.gradientColors,
   });
 
   final double fraction;
+  final Color slideColor;
+  final List<Color> gradientColors;
 
   @override
   Widget build(BuildContext context) {
@@ -862,17 +892,14 @@ class _BatteryRangeProgressBar extends StatelessWidget {
                     ),
                   ),
 
-                  // Gradient fill bar matching theme primary
+                  // Gradient fill bar matching theme or warning
                   if (clampedFraction > 0.0)
                     Container(
                       height: barHeight,
                       width: totalWidth * clampedFraction,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [
-                            theme.colorScheme.primary.withValues(alpha: 0.8),
-                            theme.colorScheme.primary,
-                          ],
+                          colors: gradientColors,
                         ),
                         borderRadius: BorderRadius.circular(barHeight / 2),
                       ),
@@ -885,7 +912,7 @@ class _BatteryRangeProgressBar extends StatelessWidget {
                       ),
                     ),
 
-                  // Thumb Indicator bead matching theme surface & primary
+                  // Thumb Indicator bead matching slideColor
                   if (clampedFraction > 0.0)
                     Positioned(
                       left: thumbLeft,
@@ -896,13 +923,12 @@ class _BatteryRangeProgressBar extends StatelessWidget {
                           shape: BoxShape.circle,
                           color: theme.colorScheme.surface,
                           border: Border.all(
-                            color: theme.colorScheme.primary,
+                            color: slideColor,
                             width: 3.5,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: theme.colorScheme.primary
-                                  .withValues(alpha: 0.35),
+                              color: slideColor.withValues(alpha: 0.35),
                               blurRadius: 4,
                               spreadRadius: 0.5,
                             ),
@@ -928,7 +954,7 @@ class _BatteryRangeProgressBar extends StatelessWidget {
                       height: isAccent ? 6.0 : 4.0,
                       decoration: BoxDecoration(
                         color: isAccent
-                            ? theme.colorScheme.primary
+                            ? slideColor
                             : theme.colorScheme.onSurfaceVariant
                                 .withValues(alpha: 0.35),
                         borderRadius: BorderRadius.circular(1),
@@ -941,7 +967,7 @@ class _BatteryRangeProgressBar extends StatelessWidget {
                         fontSize: isAccent ? 11 : 10,
                         fontWeight: isAccent ? FontWeight.bold : FontWeight.w500,
                         color: isAccent
-                            ? theme.colorScheme.primary
+                            ? slideColor
                             : theme.colorScheme.onSurfaceVariant
                                 .withValues(alpha: 0.7),
                       ),
