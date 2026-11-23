@@ -4,7 +4,8 @@ import '../../../shared/widgets/error_view.dart';
 import '../application/auth_controller.dart';
 
 /// Splash page presented on initial application startup.
-/// Matches the luxury minimalist design of the XEV 9S intelligent companion.
+/// Features the official Mahindra XEV 9S Companion brand mark with an
+/// ambient breathing animation, free of redundant text labels.
 class SplashPage extends ConsumerWidget {
   const SplashPage({super.key});
 
@@ -13,6 +14,7 @@ class SplashPage extends ConsumerWidget {
     final authState = ref.watch(authControllerProvider);
 
     return Scaffold(
+      backgroundColor: const Color(0xFF040609),
       body: switch (authState) {
         AuthStartupFailed(:final error) => ErrorView(
             title: "Couldn't load your account",
@@ -66,276 +68,126 @@ class _SplashContentState extends State<_SplashContent>
       width: double.infinity,
       height: double.infinity,
       decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
+        gradient: RadialGradient(
+          center: Alignment.center,
+          radius: 1.1,
           colors: [
-            Color(0xFFE2E8F0), // Soft atmospheric vignette at top
-            Color(0xFFF8FAFD),
-            Color(0xFFFFFFFF),
-            Color(0xFFF3F7FA),
+            Color(0xFF141A24), // Subtle deep charcoal ambient glow in center
+            Color(0xFF090D14),
+            Color(0xFF040609), // Deep luxury black
           ],
-          stops: [0.0, 0.12, 0.55, 1.0],
+          stops: [0.0, 0.55, 1.0],
         ),
       ),
       child: SafeArea(
-        child: Column(
-          children: [
-            const Spacer(flex: 3),
+        child: Center(
+          child: AnimatedBuilder(
+            animation: _breatheAnimation,
+            builder: (context, child) {
+              final breathe = _breatheAnimation.value;
+              final scale = 0.95 + (0.08 * breathe);
+              final redGlowOpacity = 0.14 + (0.18 * breathe);
+              final silverGlowOpacity = 0.10 + (0.16 * breathe);
+              final glowBlur = 28.0 + (26.0 * breathe);
 
-            // Central Breathing Hero Card with Logo Emblem
-            AnimatedBuilder(
-              animation: _breatheAnimation,
-              builder: (context, child) {
-                final breathe = _breatheAnimation.value;
-                final scale = 0.96 + (0.08 * breathe);
-                final glowOpacity = 0.22 + (0.28 * breathe);
-                final glowBlur = 28.0 + (24.0 * breathe);
-                final glowSpread = 2.0 + (6.0 * breathe);
-
-                return Transform.scale(
-                  scale: scale,
-                  child: Container(
-                    width: 136,
-                    height: 136,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(34),
-                      boxShadow: [
-                        // Dynamic electric cyan breathing aura
-                        BoxShadow(
-                          color: const Color(0xFF00E5FF)
-                              .withValues(alpha: glowOpacity),
-                          blurRadius: glowBlur,
-                          spreadRadius: glowSpread,
-                        ),
-                        BoxShadow(
-                          color: const Color(0xFF38BDF8)
-                              .withValues(alpha: glowOpacity * 0.7),
-                          blurRadius: glowBlur * 1.5,
-                          spreadRadius: glowSpread * 0.5,
-                        ),
-                        // Soft structural drop shadow
-                        BoxShadow(
-                          color: const Color(0xFF0F172A).withValues(alpha: 0.05),
-                          blurRadius: 18,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
-                    ),
-                    child: Stack(
-                      children: [
-                        // Top-left cyan dot
-                        Positioned(
-                          top: 14,
-                          left: 14,
-                          child: Container(
-                            width: 5,
-                            height: 5,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF38BDF8),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-
-                        // Bottom-right cyan dot
-                        Positioned(
-                          bottom: 14,
-                          right: 14,
-                          child: Container(
-                            width: 5,
-                            height: 5,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF38BDF8),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-
-                        // Center Emblem Logo
-                        Center(
-                          child: Image.asset(
-                            'assets/images/xev_logo.png',
-                            width: 68,
-                            height: 60,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) =>
-                                const XevEmblemVector(size: 60),
-                          ),
-                        ),
-                      ],
-                    ),
+              return Transform.scale(
+                scale: scale,
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 340),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      // Crimson red ambient aura reflecting the 9S red accent
+                      BoxShadow(
+                        color: const Color(0xFFE11D48)
+                            .withValues(alpha: redGlowOpacity),
+                        blurRadius: glowBlur,
+                        spreadRadius: 2.0 + (4.0 * breathe),
+                      ),
+                      // Platinum / Cyan soft halo
+                      BoxShadow(
+                        color: const Color(0xFF38BDF8)
+                            .withValues(alpha: silverGlowOpacity),
+                        blurRadius: glowBlur * 1.4,
+                        spreadRadius: 1.0 + (3.0 * breathe),
+                      ),
+                    ],
                   ),
-                );
-              },
-            ),
-
-            const SizedBox(height: 38),
-
-            // Title: XEV 9S
-            const Text(
-              'XEV 9S',
-              style: TextStyle(
-                color: Color(0xFF0B192C),
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 6.0,
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            // Subtitle: Mahindra Automotive Tagline
-            const Text(
-              'Explore the Impossible',
-              style: TextStyle(
-                color: Color(0xFF64748B),
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-                letterSpacing: 0.8,
-              ),
-            ),
-
-            const Spacer(flex: 4),
-
-            // Bottom Brand Signet: Cyan Dot + CONNECTED MOBILITY
-            Padding(
-              padding: const EdgeInsets.only(bottom: 24),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF38BDF8),
-                      shape: BoxShape.circle,
-                    ),
+                  child: Image.asset(
+                    'assets/images/xev9s_logo_clean.png',
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) =>
+                        const XevEmblemVector(size: 80),
                   ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'CONNECTED MOBILITY',
-                    style: TextStyle(
-                      color: Color(0xFF64748B),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 3.2,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
   }
 }
 
-/// Fallback vector renderer for the XEV 9S crystalline stealth emblem.
+/// Fallback vector renderer for the XEV emblem.
 class XevEmblemVector extends StatelessWidget {
-  const XevEmblemVector({super.key, this.size = 60});
+  const XevEmblemVector({super.key, this.size = 80});
 
   final double size;
 
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      size: Size(size, size * 0.88),
-      painter: _XevEmblemPainter(),
+      size: Size(size, size * 0.75),
+      painter: _XevTwinPeaksPainter(),
     );
   }
 }
 
-class _XevEmblemPainter extends CustomPainter {
+class _XevTwinPeaksPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
 
-    // Top cap (Pale ice diamond)
-    final topCapPath = Path()
-      ..moveTo(w * 0.50, h * 0.12)
-      ..lineTo(w * 0.34, h * 0.32)
-      ..lineTo(w * 0.50, h * 0.44)
-      ..lineTo(w * 0.66, h * 0.32)
-      ..close();
-
-    final topCapPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0xFFE0F7FA), Color(0xFF80DEEA)],
-      ).createShader(Rect.fromLTWH(0, 0, w, h));
-    canvas.drawPath(topCapPath, topCapPaint);
-
-    // Left swept wing
-    final leftWingPath = Path()
-      ..moveTo(w * 0.50, h * 0.12)
-      ..lineTo(w * 0.12, h * 0.54)
-      ..lineTo(w * 0.36, h * 0.58)
-      ..lineTo(w * 0.46, h * 0.48)
-      ..lineTo(w * 0.50, h * 0.44)
-      ..lineTo(w * 0.34, h * 0.32)
-      ..close();
-
-    final leftWingPaint = Paint()
+    // Metallic silver paint for left wing
+    final leftPaint = Paint()
       ..shader = const LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [Color(0xFF00E5FF), Color(0xFF0097A7)],
-      ).createShader(Rect.fromLTWH(0, 0, w, h));
-    canvas.drawPath(leftWingPath, leftWingPaint);
+        colors: [Color(0xFFE2E8F0), Color(0xFF94A3B8), Color(0xFF475569)],
+      ).createShader(Rect.fromLTWH(0, 0, w, h))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 6.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
 
-    // Right swept wing
-    final rightWingPath = Path()
-      ..moveTo(w * 0.50, h * 0.12)
-      ..lineTo(w * 0.88, h * 0.54)
-      ..lineTo(w * 0.64, h * 0.58)
-      ..lineTo(w * 0.54, h * 0.48)
-      ..lineTo(w * 0.50, h * 0.44)
-      ..lineTo(w * 0.66, h * 0.32)
+    final leftPath = Path()
+      ..moveTo(w * 0.48, h * 0.85)
+      ..lineTo(w * 0.15, h * 0.25)
+      ..lineTo(w * 0.42, h * 0.50)
       ..close();
+    canvas.drawPath(leftPath, leftPaint);
 
-    final rightWingPaint = Paint()
+    // Crimson illuminated right wing
+    final rightPaint = Paint()
       ..shader = const LinearGradient(
         begin: Alignment.topRight,
         end: Alignment.bottomLeft,
-        colors: [Color(0xFF38BDF8), Color(0xFF0284C7)],
-      ).createShader(Rect.fromLTWH(0, 0, w, h));
-    canvas.drawPath(rightWingPath, rightWingPaint);
+        colors: [Color(0xFFFF4D6D), Color(0xFFE11D48), Color(0xFF94A3B8)],
+      ).createShader(Rect.fromLTWH(0, 0, w, h))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 6.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
 
-    // Center vertical dagger / needle spine
-    // Left half (Dark teal shadow)
-    final needleLeftPath = Path()
-      ..moveTo(w * 0.50, h * 0.12)
-      ..lineTo(w * 0.50, h * 0.90)
-      ..lineTo(w * 0.45, h * 0.52)
+    final rightPath = Path()
+      ..moveTo(w * 0.52, h * 0.85)
+      ..lineTo(w * 0.85, h * 0.25)
+      ..lineTo(w * 0.58, h * 0.50)
       ..close();
-
-    final needleLeftPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0xFF006064), Color(0xFF082633)],
-      ).createShader(Rect.fromLTWH(0, 0, w, h));
-    canvas.drawPath(needleLeftPath, needleLeftPaint);
-
-    // Right half (Rich sapphire/cyan highlight)
-    final needleRightPath = Path()
-      ..moveTo(w * 0.50, h * 0.12)
-      ..lineTo(w * 0.50, h * 0.90)
-      ..lineTo(w * 0.55, h * 0.52)
-      ..close();
-
-    final needleRightPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0xFF00838F), Color(0xFF0D47A1)],
-      ).createShader(Rect.fromLTWH(0, 0, w, h));
-    canvas.drawPath(needleRightPath, needleRightPaint);
+    canvas.drawPath(rightPath, rightPaint);
   }
 
   @override

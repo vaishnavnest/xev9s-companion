@@ -22,7 +22,7 @@ class FakeAuthController extends AuthController {
 
 void main() {
   group('SplashPage Tests', () {
-    testWidgets('renders minimalist luxury splash screen with brand typography', (tester) async {
+    testWidgets('renders brand logo with breathing animation and no redundant text labels', (tester) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -36,20 +36,24 @@ void main() {
         ),
       );
 
-      // Verify typography matching reference image
-      expect(find.text('XEV 9S'), findsOneWidget);
-      expect(find.text('Explore the Impossible'), findsOneWidget);
-      expect(find.text('CONNECTED MOBILITY'), findsOneWidget);
+      // Verify redundant text labels are NOT present (logo badge contains branding)
+      expect(find.text('XEV 9S'), findsNothing);
+      expect(find.text('Explore the Impossible'), findsNothing);
+      expect(find.text('Pure Electric Luxury Architecture'), findsNothing);
+      expect(find.text('CONNECTED MOBILITY'), findsNothing);
+
+      // Verify the image widget is present
+      expect(find.byType(Image), findsOneWidget);
 
       // Verify initial frame
       await tester.pump(const Duration(milliseconds: 100));
 
-      // Advance breathing animation
+      // Advance breathing animation smoothly across cycles
       await tester.pump(const Duration(milliseconds: 1200));
-      expect(find.text('XEV 9S'), findsOneWidget);
+      expect(find.byType(Image), findsOneWidget);
 
       await tester.pump(const Duration(milliseconds: 1200));
-      expect(find.text('XEV 9S'), findsOneWidget);
+      expect(find.byType(Image), findsOneWidget);
     });
 
     testWidgets('renders ErrorView when AuthStartupFailed occurs', (tester) async {
