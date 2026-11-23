@@ -4,7 +4,7 @@ import '../../../shared/widgets/error_view.dart';
 import '../application/auth_controller.dart';
 
 /// Splash page presented on initial application startup.
-/// Matches the high-fidelity XEV Motors intelligent companion avionics design.
+/// Matches the luxury minimalist design of the XEV 9S intelligent companion.
 class SplashPage extends ConsumerWidget {
   const SplashPage({super.key});
 
@@ -13,7 +13,6 @@ class SplashPage extends ConsumerWidget {
     final authState = ref.watch(authControllerProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
       body: switch (authState) {
         AuthStartupFailed(:final error) => ErrorView(
             title: "Couldn't load your account",
@@ -29,300 +28,316 @@ class SplashPage extends ConsumerWidget {
   }
 }
 
-class _SplashContent extends StatelessWidget {
+class _SplashContent extends StatefulWidget {
   const _SplashContent();
 
   @override
+  State<_SplashContent> createState() => _SplashContentState();
+}
+
+class _SplashContentState extends State<_SplashContent>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _breatheController;
+  late final Animation<double> _breatheAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _breatheController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    )..repeat(reverse: true);
+
+    _breatheAnimation = CurvedAnimation(
+      parent: _breatheController,
+      curve: Curves.easeInOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _breatheController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Top status bar
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: const [
-                        Icon(
-                          Icons.sensors,
-                          size: 14,
-                          color: Color(0xFF8E9BAE),
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'LINK 01',
-                          style: TextStyle(
-                            color: Color(0xFF8E9BAE),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF00BCD4),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color:
-                                const Color(0xFF00BCD4).withValues(alpha: 0.6),
-                            blurRadius: 8,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFFE2E8F0), // Soft atmospheric vignette at top
+            Color(0xFFF8FAFD),
+            Color(0xFFFFFFFF),
+            Color(0xFFF3F7FA),
+          ],
+          stops: [0.0, 0.12, 0.55, 1.0],
+        ),
+      ),
+      child: SafeArea(
+        child: Column(
+          children: [
+            const Spacer(flex: 3),
 
-                // System initializing pill badge
-                Center(
+            // Central Breathing Hero Card with Logo Emblem
+            AnimatedBuilder(
+              animation: _breatheAnimation,
+              builder: (context, child) {
+                final breathe = _breatheAnimation.value;
+                final scale = 0.96 + (0.08 * breathe);
+                final glowOpacity = 0.22 + (0.28 * breathe);
+                final glowBlur = 28.0 + (24.0 * breathe);
+                final glowSpread = 2.0 + (6.0 * breathe);
+
+                return Transform.scale(
+                  scale: scale,
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEEF3F8),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF00BCD4),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'SYSTEM INITIALIZING',
-                          style: TextStyle(
-                            color: Color(0xFF334155),
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const Spacer(flex: 3),
-
-                // Hero White Card with Lightning Icon
-                Center(
-                  child: Container(
-                    width: 112,
-                    height: 112,
+                    width: 136,
+                    height: 136,
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(26),
+                      borderRadius: BorderRadius.circular(34),
                       boxShadow: [
+                        // Dynamic electric cyan breathing aura
                         BoxShadow(
-                          color: const Color(0xFF0F172A).withValues(alpha: 0.07),
-                          blurRadius: 24,
-                          offset: const Offset(0, 10),
+                          color: const Color(0xFF00E5FF)
+                              .withValues(alpha: glowOpacity),
+                          blurRadius: glowBlur,
+                          spreadRadius: glowSpread,
                         ),
                         BoxShadow(
-                          color: const Color(0xFF00BCD4).withValues(alpha: 0.12),
-                          blurRadius: 32,
-                          spreadRadius: 2,
+                          color: const Color(0xFF38BDF8)
+                              .withValues(alpha: glowOpacity * 0.7),
+                          blurRadius: glowBlur * 1.5,
+                          spreadRadius: glowSpread * 0.5,
+                        ),
+                        // Soft structural drop shadow
+                        BoxShadow(
+                          color: const Color(0xFF0F172A).withValues(alpha: 0.05),
+                          blurRadius: 18,
+                          offset: const Offset(0, 8),
                         ),
                       ],
                     ),
                     child: Stack(
                       children: [
+                        // Top-left cyan dot
                         Positioned(
-                          top: 10,
-                          left: 10,
+                          top: 14,
+                          left: 14,
                           child: Container(
-                            width: 4,
-                            height: 4,
+                            width: 5,
+                            height: 5,
                             decoration: const BoxDecoration(
-                              color: Color(0xFF00BCD4),
+                              color: Color(0xFF38BDF8),
                               shape: BoxShape.circle,
                             ),
                           ),
                         ),
+
+                        // Bottom-right cyan dot
                         Positioned(
-                          bottom: 10,
-                          right: 10,
+                          bottom: 14,
+                          right: 14,
                           child: Container(
-                            width: 4,
-                            height: 4,
+                            width: 5,
+                            height: 5,
                             decoration: const BoxDecoration(
-                              color: Color(0xFF00BCD4),
+                              color: Color(0xFF38BDF8),
                               shape: BoxShape.circle,
                             ),
                           ),
                         ),
-                        const Center(
-                          child: Icon(
-                            Icons.bolt_rounded,
-                            color: Color(0xFF0097A7),
-                            size: 64,
+
+                        // Center Emblem Logo
+                        Center(
+                          child: Image.asset(
+                            'assets/images/xev_logo.png',
+                            width: 68,
+                            height: 60,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) =>
+                                const XevEmblemVector(size: 60),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 28),
+                );
+              },
+            ),
 
-                // XEV 9S Tag
-                const Center(
-                  child: Text(
-                    '— XEV 9S —',
-                    style: TextStyle(
-                      color: Color(0xFF0097A7),
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 2.0,
+            const SizedBox(height: 38),
+
+            // Title: XEV 9S
+            const Text(
+              'XEV 9S',
+              style: TextStyle(
+                color: Color(0xFF0B192C),
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 6.0,
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Subtitle: Pure Electric Luxury Architecture
+            const Text(
+              'Pure Electric Luxury Architecture',
+              style: TextStyle(
+                color: Color(0xFF64748B),
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                letterSpacing: 0.6,
+              ),
+            ),
+
+            const Spacer(flex: 4),
+
+            // Bottom Brand Signet: Cyan Dot + CONNECTED MOBILITY
+            Padding(
+              padding: const EdgeInsets.only(bottom: 24),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF38BDF8),
+                      shape: BoxShape.circle,
                     ),
                   ),
-                ),
-                const SizedBox(height: 10),
-
-                // XEV MOTORS Title
-                const Center(
-                  child: Text(
-                    'XEV MOTORS',
-                    style: TextStyle(
-                      color: Color(0xFF0B192C),
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                // Subtitle
-                const Center(
-                  child: Text(
-                    'Intelligent eSUV Companion',
-                    style: TextStyle(
-                      color: Color(0xFF475569),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ),
-
-                const Spacer(flex: 4),
-
-                // Bottom Progress Bar (84%)
-                Container(
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE2E8F0),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: FractionallySizedBox(
-                      widthFactor: 0.84,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF00BCD4),
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                // Securing digital key & 84% row
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: const [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.sync_rounded,
-                          size: 16,
-                          color: Color(0xFF00BCD4),
-                        ),
-                        SizedBox(width: 8),
-                        Text(
-                          'SECURING DIGITAL KEY...',
-                          style: TextStyle(
-                            color: Color(0xFF334155),
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.0,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      '84%',
-                      style: TextStyle(
-                        color: Color(0xFF0B192C),
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Version & Avionics info
-                const Center(
-                  child: Text(
-                    'Version 4.13 • Connected Platform',
+                  const SizedBox(width: 8),
+                  const Text(
+                    'CONNECTED MOBILITY',
                     style: TextStyle(
                       color: Color(0xFF64748B),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 3.2,
                     ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                const Center(
-                  child: Text(
-                    'ENCRYPTED AVIONICS ARCHITECTURE',
-                    style: TextStyle(
-                      color: Color(0xFF94A3B8),
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Home indicator
-                Center(
-                  child: Container(
-                    width: 120,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFCBD5E1),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
   }
+}
+
+/// Fallback vector renderer for the XEV 9S crystalline stealth emblem.
+class XevEmblemVector extends StatelessWidget {
+  const XevEmblemVector({super.key, this.size = 60});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size(size, size * 0.88),
+      painter: _XevEmblemPainter(),
+    );
+  }
+}
+
+class _XevEmblemPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // Top cap (Pale ice diamond)
+    final topCapPath = Path()
+      ..moveTo(w * 0.50, h * 0.12)
+      ..lineTo(w * 0.34, h * 0.32)
+      ..lineTo(w * 0.50, h * 0.44)
+      ..lineTo(w * 0.66, h * 0.32)
+      ..close();
+
+    final topCapPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFFE0F7FA), Color(0xFF80DEEA)],
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
+    canvas.drawPath(topCapPath, topCapPaint);
+
+    // Left swept wing
+    final leftWingPath = Path()
+      ..moveTo(w * 0.50, h * 0.12)
+      ..lineTo(w * 0.12, h * 0.54)
+      ..lineTo(w * 0.36, h * 0.58)
+      ..lineTo(w * 0.46, h * 0.48)
+      ..lineTo(w * 0.50, h * 0.44)
+      ..lineTo(w * 0.34, h * 0.32)
+      ..close();
+
+    final leftWingPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFF00E5FF), Color(0xFF0097A7)],
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
+    canvas.drawPath(leftWingPath, leftWingPaint);
+
+    // Right swept wing
+    final rightWingPath = Path()
+      ..moveTo(w * 0.50, h * 0.12)
+      ..lineTo(w * 0.88, h * 0.54)
+      ..lineTo(w * 0.64, h * 0.58)
+      ..lineTo(w * 0.54, h * 0.48)
+      ..lineTo(w * 0.50, h * 0.44)
+      ..lineTo(w * 0.66, h * 0.32)
+      ..close();
+
+    final rightWingPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topRight,
+        end: Alignment.bottomLeft,
+        colors: [Color(0xFF38BDF8), Color(0xFF0284C7)],
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
+    canvas.drawPath(rightWingPath, rightWingPaint);
+
+    // Center vertical dagger / needle spine
+    // Left half (Dark teal shadow)
+    final needleLeftPath = Path()
+      ..moveTo(w * 0.50, h * 0.12)
+      ..lineTo(w * 0.50, h * 0.90)
+      ..lineTo(w * 0.45, h * 0.52)
+      ..close();
+
+    final needleLeftPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFF006064), Color(0xFF082633)],
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
+    canvas.drawPath(needleLeftPath, needleLeftPaint);
+
+    // Right half (Rich sapphire/cyan highlight)
+    final needleRightPath = Path()
+      ..moveTo(w * 0.50, h * 0.12)
+      ..lineTo(w * 0.50, h * 0.90)
+      ..lineTo(w * 0.55, h * 0.52)
+      ..close();
+
+    final needleRightPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFF00838F), Color(0xFF0D47A1)],
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
+    canvas.drawPath(needleRightPath, needleRightPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
