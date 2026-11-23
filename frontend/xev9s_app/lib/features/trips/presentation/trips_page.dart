@@ -5,9 +5,8 @@ class TripsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Trips')),
-      body: const Center(
+    return const Scaffold(
+      body: Center(
         child: Text('Trips Page (Placeholder)'),
       ),
     );

@@ -5,9 +5,8 @@ class AnalyticsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Analytics')),
-      body: const Center(
+    return const Scaffold(
+      body: Center(
         child: Text('Analytics Page (Placeholder)'),
       ),
     );

@@ -54,7 +54,7 @@ void main() {
       expect(container.read(themeModeProvider), ThemeMode.light);
     });
 
-    testWidgets('CarThemeToggleButton renders Day mode and toggles to Night mode', (tester) async {
+    testWidgets('CarThemeToggleButton renders moon in light mode and toggles to dark mode', (tester) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -74,10 +74,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // In light mode, renders DAY label and car icon
-      expect(find.text('DAY'), findsOneWidget);
-      expect(find.byIcon(Icons.directions_car_rounded), findsOneWidget);
-      expect(find.byIcon(Icons.wb_sunny_rounded), findsOneWidget);
+      // In light mode, renders moon icon
+      expect(find.byIcon(Icons.nightlight_round), findsOneWidget);
 
       // Tap the toggle
       await tester.tap(find.byType(CarThemeToggleButton));
@@ -86,7 +84,7 @@ void main() {
       expect(prefs.getString('xev9s_theme_mode'), 'dark');
     });
 
-    testWidgets('CarThemeToggleButton renders Night mode with headlights beam in dark theme', (tester) async {
+    testWidgets('CarThemeToggleButton renders sun in dark mode and toggles to light mode', (tester) async {
       await prefs.setString('xev9s_theme_mode', 'dark');
 
       await tester.pumpWidget(
@@ -109,12 +107,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // In dark mode, renders NIGHT label and car headlamp high-beam icon
-      expect(find.text('NIGHT'), findsOneWidget);
-      expect(find.byIcon(Icons.highlight_rounded), findsOneWidget);
-      expect(find.byIcon(Icons.directions_car_rounded), findsOneWidget);
+      // In dark mode, renders sun icon
+      expect(find.byIcon(Icons.wb_sunny_rounded), findsOneWidget);
 
-      // Tap the toggle to switch back to Day Drive
+      // Tap the toggle to switch back to Light mode
       await tester.tap(find.byType(CarThemeToggleButton));
       await tester.pumpAndSettle();
 

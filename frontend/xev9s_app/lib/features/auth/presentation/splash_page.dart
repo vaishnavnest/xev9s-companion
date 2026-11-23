@@ -2,7 +2,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/error_view.dart';
+import '../../../shared/widgets/xev_logo.dart';
 import '../application/auth_controller.dart';
+
+export '../../../shared/widgets/xev_logo.dart' show XevEmblemVector, XevAppLogo;
 
 /// Splash page presented on initial application startup.
 /// Features the official Mahindra XEV 9S Companion brand mark floating cleanly
@@ -118,12 +121,7 @@ class _SplashContentState extends State<_SplashContent>
                       ),
                     ],
                   ),
-                  child: Image.asset(
-                    'assets/images/xev_logo.png',
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) =>
-                        const XevEmblemVector(size: 80),
-                  ),
+                  child: const XevAppLogo(height: 80),
                 ),
               );
             },
@@ -132,68 +130,4 @@ class _SplashContentState extends State<_SplashContent>
       ),
     );
   }
-}
-
-/// Fallback vector renderer for the XEV emblem.
-class XevEmblemVector extends StatelessWidget {
-  const XevEmblemVector({super.key, this.size = 80});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      size: Size(size, size * 0.75),
-      painter: _XevTwinPeaksPainter(),
-    );
-  }
-}
-
-class _XevTwinPeaksPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-
-    // Metallic silver paint for left wing
-    final leftPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [Color(0xFFE2E8F0), Color(0xFF94A3B8), Color(0xFF475569)],
-      ).createShader(Rect.fromLTWH(0, 0, w, h))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 6.0
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final leftPath = Path()
-      ..moveTo(w * 0.48, h * 0.85)
-      ..lineTo(w * 0.15, h * 0.25)
-      ..lineTo(w * 0.42, h * 0.50)
-      ..close();
-    canvas.drawPath(leftPath, leftPaint);
-
-    // Crimson illuminated right wing
-    final rightPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topRight,
-        end: Alignment.bottomLeft,
-        colors: [Color(0xFFFF4D6D), Color(0xFFE11D48), Color(0xFF94A3B8)],
-      ).createShader(Rect.fromLTWH(0, 0, w, h))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 6.0
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final rightPath = Path()
-      ..moveTo(w * 0.52, h * 0.85)
-      ..lineTo(w * 0.85, h * 0.25)
-      ..lineTo(w * 0.58, h * 0.50)
-      ..close();
-    canvas.drawPath(rightPath, rightPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

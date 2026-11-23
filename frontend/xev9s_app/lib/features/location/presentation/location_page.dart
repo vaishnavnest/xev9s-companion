@@ -174,6 +174,13 @@ class _LocationPageState extends ConsumerState<LocationPage> {
                   ),
                   if (vm.location.isCurrent)
                     _buildConnectionIndicator(context, connectionState),
+                  IconButton(
+                    icon: const Icon(Icons.refresh),
+                    tooltip: 'Refresh location',
+                    onPressed: () {
+                      ref.read(vehicleLocationProvider.notifier).refresh();
+                    },
+                  ),
                   if (!isWide)
                     IconButton(
                       icon: Icon(
@@ -276,9 +283,8 @@ class _LocationPageState extends ConsumerState<LocationPage> {
 
     // State E: No selected vehicle
     if (selectedVehicleId == null || selectedVehicleId.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Location')),
-        body: const Center(
+      return const Scaffold(
+        body: Center(
           child: EmptyState(
             icon: Icons.directions_car_outlined,
             title: 'Select a vehicle',
@@ -295,18 +301,6 @@ class _LocationPageState extends ConsumerState<LocationPage> {
         RealtimeConnectionState.disconnected;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Location'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh location',
-            onPressed: () {
-              ref.read(vehicleLocationProvider.notifier).refresh();
-            },
-          ),
-        ],
-      ),
       body: AsyncValueView<VehicleLocation?>(
         value: locationAsync,
         onRetry: () => ref.read(vehicleLocationProvider.notifier).refresh(),

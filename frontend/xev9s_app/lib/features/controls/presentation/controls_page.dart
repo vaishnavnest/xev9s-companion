@@ -5,9 +5,8 @@ class ControlsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Controls')),
-      body: const Center(
+    return const Scaffold(
+      body: Center(
         child: Text('Controls Page (Placeholder)'),
       ),
     );
