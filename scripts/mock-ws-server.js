@@ -67,41 +67,48 @@ function broadcast(event) {
 }
 
 function sendVehicleStatus(targetVehicleId) {
-  batteryPercent = +(batteryPercent + (Math.random() * 2 - 1)).toFixed(1);
-  if (batteryPercent > 98) batteryPercent = 60.0;
-  if (batteryPercent < 15) batteryPercent = 60.0;
+  const vid = targetVehicleId || 'veh_mock_9s_01';
+  const isSecondCar = vid === 'veh_mock_9s_02';
+
+  let currentBattery = isSecondCar ? 42.0 : batteryPercent;
+  if (!isSecondCar) {
+    batteryPercent = +(batteryPercent + (Math.random() * 2 - 1)).toFixed(1);
+    if (batteryPercent > 98) batteryPercent = 60.0;
+    if (batteryPercent < 15) batteryPercent = 60.0;
+    currentBattery = batteryPercent;
+  }
 
   const event = {
     event: 'vehicle.status',
-    vehicleId: targetVehicleId || 'veh_9S0001',
+    vehicleId: vid,
     timestamp: new Date().toISOString(),
     data: {
-      vehicleId: targetVehicleId || 'veh_9S0001',
-      name: 'Asha\'s XEV 9S',
-      model: 'XEV 9S AWD Performance',
-      vehicleState: getVehicleState(),
+      vehicleId: vid,
+      name: isSecondCar ? "Asha's City Cruiser" : "My XEV 9S",
+      model: isSecondCar ? "XEV 9S Long Range RWD" : "XEV 9S AWD Performance",
+      vehicleState: isSecondCar ? 'CHARGING' : getVehicleState(),
       connectivity: isOffline ? 'OFFLINE' : 'ONLINE',
       battery: {
-        percent: batteryPercent,
-        level: batteryPercent <= 20 ? 'WARNING' : 'NORMAL',
+        percent: currentBattery,
+        level: currentBattery <= 20 ? 'WARNING' : 'NORMAL',
       },
       range: {
-        estimatedKm: +(batteryPercent * 4.88).toFixed(1),
+        estimatedKm: +(currentBattery * 4.8).toFixed(1),
       },
-      odometerKm: 12874.3,
-      speedKmh: isOffline ? null : (isDriving ? 42.0 : 0.0),
+      odometerKm: isSecondCar ? 5420.8 : 12874.3,
+      speedKmh: isOffline ? null : (isSecondCar ? 0.0 : (isDriving ? 42.0 : 0.0)),
       lockState: 'LOCKED',
-      preconditioningState: 'INACTIVE',
+      preconditioningState: isSecondCar ? 'ACTIVE' : 'INACTIVE',
       charging: {
-        state: chargingState,
-        powerKw: chargingPowerKw,
+        state: isSecondCar ? 'CHARGING' : chargingState,
+        powerKw: isSecondCar ? 48.5 : chargingPowerKw,
       },
       lastUpdatedAt: new Date().toISOString(),
       isStale: isOffline,
     },
   };
   broadcast(event);
-  console.log(`[MockWS] Broadcasted vehicle.status (battery: ${batteryPercent}%, offline: ${isOffline})`);
+  console.log(`[MockWS] Broadcasted vehicle.status for ${vid} (battery: ${currentBattery}%, state: ${event.data.vehicleState})`);
 }
 
 function sendConnectivity(status) {
@@ -178,28 +185,37 @@ function sendVehicleLocation(targetVehicleId, options = {}) {
 }
 
 function sendChargingUpdate(targetVehicleId) {
-  const vehicleId = targetVehicleId || 'veh_9S0001';
+  const vehicleId = targetVehicleId || 'veh_mock_9s_01';
+  const isSecondCar = vehicleId === 'veh_mock_9s_02';
+
   const event = {
     event: 'charging.updated',
     vehicleId: vehicleId,
     timestamp: new Date().toISOString(),
     data: {
-      state: chargingState,
-      batteryPercent: batteryPercent,
-      targetPercent: chargingTargetPercent,
-      powerKw: chargingPowerKw,
-      sessionDurationSeconds: chargingSessionDuration,
-      schedule: {
-        enabled: true,
-        startTime: '22:00',
-        endTime: '06:00',
-        daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
-      },
-      currentSessionId: chargingSessionId,
+      state: isSecondCar ? 'CHARGING' : chargingState,
+      batteryPercent: isSecondCar ? 42.0 : batteryPercent,
+      targetPercent: isSecondCar ? 90 : chargingTargetPercent,
+      powerKw: isSecondCar ? 48.5 : chargingPowerKw,
+      sessionDurationSeconds: isSecondCar ? 1800 : chargingSessionDuration,
+      schedule: isSecondCar
+          ? {
+              enabled: false,
+              startTime: '00:00',
+              endTime: '06:00',
+              daysOfWeek: ['SAT', 'SUN'],
+            }
+          : {
+              enabled: true,
+              startTime: '22:00',
+              endTime: '06:00',
+              daysOfWeek: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+            },
+      currentSessionId: isSecondCar ? 'chs_mock_003' : chargingSessionId,
     },
   };
   broadcast(event);
-  console.log(`[MockWS] Broadcasted charging.updated -> ${chargingState} (battery: ${batteryPercent}%, power: ${chargingPowerKw} kW, session: ${chargingSessionId})`);
+  console.log(`[MockWS] Broadcasted charging.updated for ${vehicleId} -> ${event.data.state} (battery: ${event.data.batteryPercent}%, power: ${event.data.powerKw} kW, session: ${event.data.currentSessionId})`);
 }
 
 function broadcastChargingAndStatus(targetVehicleId) {
