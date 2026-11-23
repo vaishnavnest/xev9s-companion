@@ -567,6 +567,40 @@ class MockApiHandler(BaseHTTPRequestHandler):
         sys.stdout.flush()
 
 if __name__ == '__main__':
+    def _bg_ticker():
+        while True:
+            time.sleep(3)
+            with _state_lock:
+                for vid, v_state in vehicle_states.items():
+                    if not v_state.get("isOnline", True):
+                        continue
+                    if v_state.get("vehicleState") == "DRIVING":
+                        new_battery = round(v_state["batteryPercent"] - 0.1, 1)
+                        if new_battery <= 0.0:
+                            v_state["batteryPercent"] = 0.0
+                            v_state["speedKmh"] = 0.0
+                            v_state["vehicleState"] = "OFFLINE"
+                            v_state["isOnline"] = False
+                        else:
+                            v_state["batteryPercent"] = new_battery
+                    elif v_state.get("chargingState") == "CHARGING" or v_state.get("vehicleState") == "CHARGING":
+                        target = float(v_state.get("targetPercent") or 80)
+                        current_bat = float(v_state.get("batteryPercent", 50.0))
+                        if current_bat < target:
+                            v_state["batteryPercent"] = round(min(target, current_bat + 0.2), 1)
+                            if v_state.get("sessionDurationSeconds") is not None:
+                                v_state["sessionDurationSeconds"] += 3
+                            else:
+                                v_state["sessionDurationSeconds"] = 3
+                        elif current_bat >= target:
+                            v_state["chargingState"] = "COMPLETED"
+                            if v_state.get("vehicleState") == "CHARGING":
+                                v_state["vehicleState"] = "PARKED"
+                            v_state["powerKw"] = 0.0
+
+    ticker_thread = threading.Thread(target=_bg_ticker, daemon=True)
+    ticker_thread.start()
+
     server = ThreadingHTTPServer(('0.0.0.0', PORT), MockApiHandler)
     print(f"XEV 9S Mock Server running on http://127.0.0.1:{PORT} (and 0.0.0.0:{PORT})")
     print("Press Ctrl+C to stop.")

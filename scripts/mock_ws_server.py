@@ -263,22 +263,41 @@ def ticker():
 
         just_went_offline = False
         with state_lock:
-            if not state["isOnline"]:
-                continue
-            # Only drain battery when actively driving (realistic simulation)
-            if state["vehicleState"] == "DRIVING":
-                new_battery = round(state["batteryPercent"] - 0.1, 1)
-                if new_battery <= 0.0:
-                    state["batteryPercent"] = 0.0
-                    state["speed"] = 0.0
-                    state["vehicleState"] = "OFFLINE"
-                    state["isOnline"] = False
-                    just_went_offline = True
+            for vid, v_state in vehicle_states.items():
+                if not v_state.get("isOnline", True):
+                    continue
+                # Battery drain while driving
+                if v_state.get("vehicleState") == "DRIVING":
+                    new_battery = round(v_state["batteryPercent"] - 0.1, 1)
+                    if new_battery <= 0.0:
+                        v_state["batteryPercent"] = 0.0
+                        v_state["speed"] = 0.0
+                        v_state["vehicleState"] = "OFFLINE"
+                        v_state["isOnline"] = False
+                        if vid == "veh_mock_9s_01":
+                            just_went_offline = True
+                    else:
+                        v_state["batteryPercent"] = new_battery
+                        v_state["speed"] = v_state.get("speed", 42.0) or 42.0
+                # Battery charge increase while charging
+                elif v_state.get("chargingState") == "CHARGING" or v_state.get("vehicleState") == "CHARGING":
+                    target = float(v_state.get("targetPercent") or 80)
+                    current_bat = float(v_state.get("batteryPercent", 50.0))
+                    if current_bat < target:
+                        v_state["batteryPercent"] = round(min(target, current_bat + 0.2), 1)
+                        if v_state.get("powerKw") is None or v_state.get("powerKw", 0.0) == 0.0:
+                            v_state["powerKw"] = 48.5 if vid == "veh_mock_9s_02" else 11.2
+                        if v_state.get("sessionDurationSeconds") is not None:
+                            v_state["sessionDurationSeconds"] += 3
+                        else:
+                            v_state["sessionDurationSeconds"] = 3
+                    elif current_bat >= target:
+                        v_state["chargingState"] = "COMPLETED"
+                        if v_state.get("vehicleState") == "CHARGING":
+                            v_state["vehicleState"] = "PARKED"
+                        v_state["powerKw"] = 0.0
                 else:
-                    state["batteryPercent"] = new_battery
-                    state["speed"] = state.get("speed", 42.0) or 42.0
-            else:
-                state["speed"] = 0.0
+                    v_state["speed"] = 0.0
             s = dict(state)
 
         if just_went_offline:
@@ -313,17 +332,16 @@ def ticker():
             "isCurrent": _get_vehicle_state(vid)["isOnline"] and not last_loc.get("nullLocation"),
         })
 
-        # Charging update every 15s
-        if status_counter % 5 == 0:
-            broadcast("charging.updated", lambda vid: {
-                "state": _get_vehicle_state(vid)["chargingState"],
-                "batteryPercent": _get_vehicle_state(vid)["batteryPercent"],
-                "targetPercent": _get_vehicle_state(vid).get("targetPercent", 80),
-                "powerKw": _get_vehicle_state(vid)["powerKw"],
-                "sessionDurationSeconds": _get_vehicle_state(vid).get("sessionDurationSeconds"),
-                "schedule": _get_vehicle_state(vid).get("schedule"),
-                "currentSessionId": _get_vehicle_state(vid).get("currentSessionId"),
-            })
+        # Charging telemetry broadcast every tick (3s) for responsive live updates
+        broadcast("charging.updated", lambda vid: {
+            "state": _get_vehicle_state(vid)["chargingState"],
+            "batteryPercent": _get_vehicle_state(vid)["batteryPercent"],
+            "targetPercent": _get_vehicle_state(vid).get("targetPercent", 80),
+            "powerKw": _get_vehicle_state(vid)["powerKw"],
+            "sessionDurationSeconds": _get_vehicle_state(vid).get("sessionDurationSeconds"),
+            "schedule": _get_vehicle_state(vid).get("schedule"),
+            "currentSessionId": _get_vehicle_state(vid).get("currentSessionId"),
+        })
 
 
 def _build_status_payload(s: dict, vehicle_id: str = "veh_mock_9s_01") -> dict:

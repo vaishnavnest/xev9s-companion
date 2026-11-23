@@ -20,6 +20,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 
 let batteryPercent = 64.0;
+let secondCarBattery = 42.0;
 let isOffline = false;
 let isCharging = false;
 let isDriving = false;
@@ -70,13 +71,18 @@ function sendVehicleStatus(targetVehicleId) {
   const vid = targetVehicleId || 'veh_mock_9s_01';
   const isSecondCar = vid === 'veh_mock_9s_02';
 
-  let currentBattery = isSecondCar ? 42.0 : batteryPercent;
-  if (!isSecondCar) {
-    batteryPercent = +(batteryPercent + (Math.random() * 2 - 1)).toFixed(1);
-    if (batteryPercent > 98) batteryPercent = 60.0;
-    if (batteryPercent < 15) batteryPercent = 60.0;
-    currentBattery = batteryPercent;
+  if (isSecondCar) {
+    if (secondCarBattery < 90.0) {
+      secondCarBattery = +(secondCarBattery + 0.2).toFixed(1);
+    }
+  } else {
+    if (isDriving) {
+      batteryPercent = +(Math.max(0.0, batteryPercent - 0.1)).toFixed(1);
+    } else if (chargingState === 'CHARGING') {
+      batteryPercent = +(Math.min(chargingTargetPercent, batteryPercent + 0.2)).toFixed(1);
+    }
   }
+  let currentBattery = isSecondCar ? secondCarBattery : batteryPercent;
 
   const event = {
     event: 'vehicle.status',
@@ -194,7 +200,7 @@ function sendChargingUpdate(targetVehicleId) {
     timestamp: new Date().toISOString(),
     data: {
       state: isSecondCar ? 'CHARGING' : chargingState,
-      batteryPercent: isSecondCar ? 42.0 : batteryPercent,
+      batteryPercent: isSecondCar ? secondCarBattery : batteryPercent,
       targetPercent: isSecondCar ? 90 : chargingTargetPercent,
       powerKw: isSecondCar ? 48.5 : chargingPowerKw,
       sessionDurationSeconds: isSecondCar ? 1800 : chargingSessionDuration,

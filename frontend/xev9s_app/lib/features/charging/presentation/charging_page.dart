@@ -340,6 +340,7 @@ class _ChargingPageState extends ConsumerState<ChargingPage> {
               ChargingProgressBar(
                 batteryPercent: data.batteryPercent,
                 targetPercent: data.targetPercent,
+                isCharging: data.state == ChargingState.charging,
               ),
               const SizedBox(height: 20),
 
