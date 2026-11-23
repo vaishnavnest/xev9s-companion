@@ -106,8 +106,19 @@ flowchart TB
   - Garage Management & Pairing (`VehiclesPage`, `AddVehiclePage` via 6-digit PIN).
   - Modal Vehicle Switcher (`VehicleSwitcherSheet`).
   - Live Telemetry Dashboard (`DashboardPage` with battery SoC % hero ring, range, 4-wheel TPMS, temperatures, gear/speed, and remote control triggers).
+  - Vehicle Location Tracking (UC-03, `LocationPage`, route `/location`):
+    - Interactive map powered by `flutter_map` + `latlong2` with zoom +/- and recenter controls.
+    - Live location updates over WebSocket (`vehicle.location`) with smooth camera auto-follow (disables when user pans).
+    - Offline / last-known position detection with `StaleBanner` notice and muted marker styling.
+    - Neutral empty state when coordinates are unavailable (never invents coordinates or plots at 0,0).
+    - Responsive layout: collapsible bottom sheet panel on narrow viewports (<720px), split side-by-side on wide viewports (≥720px).
+    - Full screen-reader Semantics support and pure Dart view-model formatting.
   - Dual Telemetry Transport: WebSocket (`ws://`) and Polling fallback (`http://`).
   - Automatic disconnection and stale telemetry detection (`StaleBanner`).
+
+#### Mapping Technology & Tile Source
+- **Packages:** `flutter_map` (^8.3.2) and `latlong2` (^0.10.1) were chosen because they provide a lightweight, dependency-free mapping implementation across Web and Android without requiring proprietary third-party API keys (e.g. Google Maps or Mapbox keys) during local development and CI testing. The tile provider is injected via Riverpod (`mapTileProviderProvider`), enabling network-isolated widget tests.
+- **Tile Usage Disclaimer:** *Public OpenStreetMap (OSM) tile servers are utilized strictly for local development and demonstration. Agree a production tile source or commercial SLA with the team before production release, as required by the OSM Foundation Tile Usage Policy.*
 
 ### 2. Cloud Backend (`backend/`)
 - **Runtime:** Python 3.13, FastAPI, Uvicorn ASGI server.
@@ -350,15 +361,19 @@ Serves responses adhering strictly to `docs/openapi.yaml`:
 ```
 
 ### 2. WebSocket Telemetry Mock (Port 4011)
-Simulates vehicle telemetry streams and connection state transitions:
+Simulates vehicle telemetry streams, location coordinates along a route near Bengaluru (12.9716, 77.5946), and connection state transitions:
 ```powershell
 .\scripts\start-mock-ws.ps1  # PowerShell
 ./scripts/start-mock-ws.sh   # Bash
 ```
-*Interactive controls in terminal: Press `c` to toggle charging, `o` to simulate going offline, and `n` to return online.*
+*Interactive controls in terminal:*
+- `c`: Toggle charging on/off.
+- `o`: Simulate vehicle going offline (emits last-known location with `isCurrent: false`).
+- `n`: Return vehicle online.
+- `l`: Inject null coordinates to test the "Location unavailable" (State C) empty state.
 
 ### 3. Manual Telemetry Injector (`scripts/inject.py`)
-Push specific custom telemetry states to the mock servers on demand:
+Push specific custom telemetry states or location updates to the mock servers on demand:
 ```bash
 # Set battery to 42%, charging at 48.5 kW
 python scripts/inject.py --battery 42.0 --state CHARGING --charging CHARGING --power 48.5
@@ -368,6 +383,12 @@ python scripts/inject.py --battery 55.0 --speed 95.0 --state DRIVING --lock LOCK
 
 # Simulate low battery warning
 python scripts/inject.py --battery 12.0 --state PARKED
+
+# Broadcast live vehicle location update
+python scripts/inject.py --event vehicle.location
+
+# Broadcast null location (Location Unavailable state)
+python scripts/inject.py --event vehicle.location --null-location
 ```
 
 ---

@@ -38,11 +38,38 @@ The backend broadcasts JSON text frames matching the `WsEvent` envelope defined 
 | Event Name | Payload Schema | Client Behavior |
 |------------|----------------|-----------------|
 | `vehicle.status` | `VehicleStatus` | Replaces active telemetry state if `lastUpdatedAt` is newer than current state. |
-| `vehicle.location` | `VehicleLocation` | Parsed safely; ready for UC-04 Map view. |
+| `vehicle.location` | `VehicleLocation` | Updates active vehicle location in `vehicleLocationProvider` if `reportedAt` is newer. |
 | `charging.updated` | `ChargingOverview` | Merges active charging state, power in kW, and battery percentage into `VehicleStatus`. |
 | `command.updated` | `Command` | Parsed safely; ready for UC-03 Remote Controls feedback. |
 | `notification.created` | `Notification` | Parsed safely; ready for Push Alerts. |
 | `connectivity.changed` | `ConnectivityStatus` | Updates vehicle connectivity (`ONLINE` / `OFFLINE`), toggles `isStale`, and nulls live-only fields (speed, charging power). |
+
+### 2.2 Vehicle Location Event (`vehicle.location`)
+
+The `vehicle.location` event transmits geospatial coordinates and status updates for the vehicle location tracking feature (UC-03):
+
+```json
+{
+  "event": "vehicle.location",
+  "vehicleId": "veh_9S0001",
+  "timestamp": "2026-11-23T04:00:00.000Z",
+  "data": {
+    "vehicleId": "veh_9S0001",
+    "latitude": 12.9716,
+    "longitude": 77.5946,
+    "description": "MG Road, Bengaluru",
+    "vehicleState": "DRIVING",
+    "reportedAt": "2026-11-23T04:00:00.000Z",
+    "isCurrent": true
+  }
+}
+```
+
+#### Rules & Constraints:
+- **Offline / Last-Known Rule (`isCurrent = false`):** When the vehicle is offline, `isCurrent` MUST be `false` (indicating a last-known position). The client marks existing position as not current immediately when `vehicleStatusProvider` transitions to offline, displaying the stale banner and muted marker.
+- **Null Coordinates:** If the vehicle has never reported GPS coordinates, `latitude` and `longitude` are `null`. The client renders the neutral `EmptyState` ("Location unavailable") and never defaults null to `(0.0, 0.0)`.
+- **Coordinate Validation:** Coordinates are only valid when `latitude` $\in [-90, 90]$ and `longitude` $\in [-180, 180]$. Out-of-range coordinates are rejected safely without crashing.
+- **Ordering & Filtering:** Events for mismatched vehicles or with timestamps older than the currently held `reportedAt` are discarded.
 
 ### 2.2 Unknown & Forward-Compatible Events
 The client's JSON decoder is intentionally tolerant:
