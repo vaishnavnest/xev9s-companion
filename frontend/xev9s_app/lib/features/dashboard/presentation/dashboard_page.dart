@@ -424,30 +424,9 @@ class _DashboardContent extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
-
-                // 3. Sub-row: Target Limit
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.schedule_rounded,
-                      size: 14,
-                      color: theme.colorScheme.primary,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      'Target limit 80% (Daily)',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w500,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
                 const SizedBox(height: 16),
 
-                // 4. Progress bar with Thumb Bead & Scale underneath
+                // 3. Progress bar with Thumb Bead & Scale underneath
                 _BatteryRangeProgressBar(
                   fraction: vm.isBatteryUnavailable ? 0.0 : vm.batteryProgressFraction,
                   slideColor: slideColor,
