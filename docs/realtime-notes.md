@@ -101,6 +101,15 @@ The `charging.updated` event transmits real-time telemetry updates for the activ
 - **Consistency Rule:** Dashboard (`vehicleStatusProvider`) and Charging screen (`chargingOverviewProvider`) share live telemetry (`state`, `batteryPercent`, `powerKw`) harmonized via `chargingViewProvider` using timestamp-based reconciliation (newer timestamp wins).
 - **Session Transition Invalidation:** When a session completes (`COMPLETED`) or gets interrupted (`INTERRUPTED`), or `currentSessionId` changes, `chargingSessionsProvider` is automatically invalidated so session history updates without user intervention.
 - **Null Handling:** Null fields are parsed gracefully without throwing exceptions and presented as "-" in the UI.
+- **Battery Dynamics Simulation:**
+  - When a vehicle is actively driving (`DRIVING`), battery drains continuously (-0.1% per tick).
+  - When actively charging (`CHARGING`), battery percentage increments smoothly (+0.2% per tick) and `sessionDurationSeconds` increments until `targetPercent` is reached.
+  - Upon reaching `targetPercent`, the server transitions state to `COMPLETED`, stops charging power (`powerKw = 0.0`), and broadcasts both `charging.updated` and `vehicle.status`.
+- **Broadcast Cadence:** While charging is active, `charging.updated` broadcasts every 3 seconds (synchronized with `vehicle.status`) to provide responsive real-time feedback.
+- **UI Visual Synchronization:**
+  - **Dynamic Progress Bar Color Tiers:** The 10-segment capsule progress bar dynamically shifts its color palette based on battery percentage ($\le 20\%$ Red warning, $21-40\%$ Amber caution, $41-75\%$ Turquoise/Teal normal, $> 75\%$ Emerald green optimal).
+  - **Organic Power Surge Animation:** Active exclusively when `isCharging: true`, displaying an organic power surge flowing across the active segments with a pulsing charging tip.
+  - **State-Aware Status Chip:** The status chip label, background, border, and indicator dot adapt to match the exact charging state (`Charging`, `Charging complete`, `Plugged in - not charging`, `Paused`, `Interrupted`, `Not plugged in`).
 
 ### 2.4 Unknown & Forward-Compatible Events
 The client's JSON decoder is intentionally tolerant:
@@ -113,6 +122,11 @@ The client's JSON decoder is intentionally tolerant:
 
 - **Server-Side Filtering**: When the client connects with `?vehicleId={vehicleId}`, the backend message broker (e.g., Redis Pub/Sub, RabbitMQ, Kafka) should route only events scoped to that specific vehicle to the client socket.
 - **Client-Side Defense in Depth**: Even if the backend emits events for multiple user vehicles on a single multiplexed connection, `VehicleStatusNotifier` verifies `event.vehicleId == currentSelectedVehicleId` and discards mismatched events.
+- **Multi-Vehicle Support & Vehicle Switching**:
+  - The default authenticated user has multiple associated vehicles:
+    - `veh_mock_9s_01` ("My XEV 9S"): AWD Performance model, parked / connected.
+    - `veh_mock_9s_02` ("Asha's City Cruiser"): Long Range RWD model, actively fast-charging at 48.5 kW in Koramangala.
+  - When the user switches vehicles in the UI, `vehicleStatusProvider` and `realtimeServiceProvider` re-scope the connection to stream the selected vehicle's telemetry.
 
 ---
 
