@@ -12,41 +12,185 @@ import json
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import sys
 import threading
+import time
+import urllib.request
 from datetime import datetime, timezone
 
 PORT = 4010
 
 # ── Shared mutable state (updated via POST /control) ─────────────────────────
 _state_lock = threading.Lock()
-state = {
-    "vehicleId":            "veh_mock_9s_01",
-    "name":                 "My XEV 9S",
-    "model":                "XEV 9S AWD Performance",
-    "vehicleState":         "PARKED",
-    "isOnline":             True,
-    "batteryPercent":       64.0,
-    "speedKmh":             0.0,
-    "odometerKm":           12874.3,
-    "lockState":            "LOCKED",
-    "preconditioningState": "INACTIVE",
-    "chargingState":        "NOT_CONNECTED",
-    "powerKw":              None,
+
+vehicle_states = {
+    "veh_mock_9s_01": {
+        "vehicleId":            "veh_mock_9s_01",
+        "name":                 "My XEV 9S",
+        "model":                "XEV 9S AWD Performance",
+        "vehicleState":         "PARKED",
+        "isOnline":             True,
+        "batteryPercent":       64.0,
+        "speedKmh":             0.0,
+        "odometerKm":           12874.3,
+        "lockState":            "LOCKED",
+        "preconditioningState": "INACTIVE",
+        "chargingState":        "CONNECTED",
+        "powerKw":              0.0,
+        "targetPercent":        80,
+        "sessionDurationSeconds": None,
+        "currentSessionId":      None,
+        "schedule": {
+            "enabled": True,
+            "startTime": "22:00",
+            "endTime": "06:00",
+            "daysOfWeek": ["MON", "TUE", "WED", "THU", "FRI"],
+        },
+        "location": {
+            "latitude": 12.9716,
+            "longitude": 77.5946,
+            "description": "MG Road, Bengaluru",
+        },
+    },
+    "veh_mock_9s_02": {
+        "vehicleId":            "veh_mock_9s_02",
+        "name":                 "Asha's City Cruiser",
+        "model":                "XEV 9S Long Range RWD",
+        "vehicleState":         "CHARGING",
+        "isOnline":             True,
+        "batteryPercent":       42.0,
+        "speedKmh":             0.0,
+        "odometerKm":           5420.8,
+        "lockState":            "LOCKED",
+        "preconditioningState": "ACTIVE",
+        "chargingState":        "CHARGING",
+        "powerKw":              48.5,
+        "targetPercent":        90,
+        "sessionDurationSeconds": 1800,
+        "currentSessionId":      "chs_mock_003",
+        "schedule": {
+            "enabled": False,
+            "startTime": "00:00",
+            "endTime": "06:00",
+            "daysOfWeek": ["SAT", "SUN"],
+        },
+        "location": {
+            "latitude": 12.9352,
+            "longitude": 77.6245,
+            "description": "Koramangala 4th Block, Bengaluru",
+        },
+    },
 }
+
+state = vehicle_states["veh_mock_9s_01"]
+
+def _sync_to_ws_server(payload: dict):
+    """Notify mock WebSocket servers (port 4012 for python, port 4011 for node) of state changes."""
+    data = json.dumps(payload).encode("utf-8")
+    for port in (4012, 4011):
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/control",
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=0.8) as _:
+                pass
+        except Exception:
+            pass
+
+def _get_vehicle_state(vehicle_id: str) -> dict:
+    if vehicle_id in vehicle_states:
+        return vehicle_states[vehicle_id]
+    return vehicle_states["veh_mock_9s_01"]
+
+def _extract_vehicle_id(path: str) -> str:
+    if '/vehicles/' in path:
+        parts = path.split('/vehicles/')[1].split('/')
+        if parts and parts[0]:
+            return parts[0]
+    return 'veh_mock_9s_01'
+
+charging_sessions = [
+    {
+        "sessionId": "chs_mock_001",
+        "vehicleId": "veh_mock_9s_01",
+        "startedAt": "2026-11-23T08:00:00Z",
+        "endedAt": "2026-11-23T09:30:00Z",
+        "durationSeconds": 5400,
+        "startBatteryPercent": 30.0,
+        "endBatteryPercent": 80.0,
+        "targetPercent": 80,
+        "avgPowerKw": 11.2,
+        "maxPowerKw": 11.4,
+        "status": "COMPLETED",
+        "interruptionReason": None
+    },
+    {
+        "sessionId": "chs_mock_002",
+        "vehicleId": "veh_mock_9s_01",
+        "startedAt": "2026-11-22T14:00:00Z",
+        "endedAt": "2026-11-22T14:25:00Z",
+        "durationSeconds": 1500,
+        "startBatteryPercent": 45.0,
+        "endBatteryPercent": 55.0,
+        "targetPercent": 90,
+        "avgPowerKw": 9.5,
+        "maxPowerKw": 11.0,
+        "status": "INTERRUPTED",
+        "interruptionReason": "Connector unlatched during charge"
+    },
+    {
+        "sessionId": "chs_mock_003",
+        "vehicleId": "veh_mock_9s_02",
+        "startedAt": "2026-11-23T10:30:00Z",
+        "endedAt": None,
+        "durationSeconds": 1800,
+        "startBatteryPercent": 18.0,
+        "endBatteryPercent": 42.0,
+        "targetPercent": 90,
+        "avgPowerKw": 48.0,
+        "maxPowerKw": 50.2,
+        "status": "CHARGING",
+        "interruptionReason": None
+    },
+    {
+        "sessionId": "chs_mock_004",
+        "vehicleId": "veh_mock_9s_02",
+        "startedAt": "2026-11-21T18:00:00Z",
+        "endedAt": "2026-11-21T19:15:00Z",
+        "durationSeconds": 4500,
+        "startBatteryPercent": 25.0,
+        "endBatteryPercent": 85.0,
+        "targetPercent": 85,
+        "avgPowerKw": 22.4,
+        "maxPowerKw": 24.0,
+        "status": "COMPLETED",
+        "interruptionReason": None
+    }
+]
 
 DEFAULT_TOKEN = "mock_jwt_access_token_123456789"
 # Map of token -> list of associated vehicles
-# Default demo user token has 1 pre-associated vehicle.
+# Default demo user token has 2 pre-associated vehicles with distinct data.
 # Newly registered users start with an empty vehicle list.
 user_vehicles = {
     DEFAULT_TOKEN: [
         {
             "vehicleId": "veh_mock_9s_01",
             "name": "My XEV 9S",
-            "model": "XEV 9S",
+            "model": "XEV 9S AWD Performance",
             "identifier": "VIN9S2026MOCK01",
             "associationStatus": "ASSOCIATED",
             "connectivity": "ONLINE",
-        }
+        },
+        {
+            "vehicleId": "veh_mock_9s_02",
+            "name": "Asha's City Cruiser",
+            "model": "XEV 9S Long Range RWD",
+            "identifier": "VIN9S2026MOCK02",
+            "associationStatus": "ASSOCIATED",
+            "connectivity": "ONLINE",
+        },
     ]
 }
 user_profiles = {
@@ -128,14 +272,14 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 else:
                     veh_list = []
 
-                connectivity = "ONLINE" if state["isOnline"] else "OFFLINE"
                 for v in veh_list:
-                    v["connectivity"] = connectivity
+                    s = _get_vehicle_state(v.get("vehicleId"))
+                    v["connectivity"] = "ONLINE" if s["isOnline"] else "OFFLINE"
             self._send_json(200, data=veh_list)
         elif '/status' in path:
-            vehicle_id = path.split('/vehicles/')[1].split('/status')[0] if '/vehicles/' in path else 'veh_mock_9s_01'
+            vehicle_id = _extract_vehicle_id(path)
             with _state_lock:
-                s = dict(state)
+                s = dict(_get_vehicle_state(vehicle_id))
             battery_pct = s["batteryPercent"]
             self._send_json(200, data={
                 "vehicleId": vehicle_id,
@@ -161,16 +305,54 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 "lastUpdatedAt": datetime.now(timezone.utc).isoformat(),
                 "isStale": not s["isOnline"],
             })
-        elif '/location' in path:
-            vehicle_id = path.split('/vehicles/')[1].split('/location')[0] if '/vehicles/' in path else 'veh_mock_9s_01'
+        elif '/charging/sessions/' in path:
+            session_id = path.split('/charging/sessions/')[1].split('?')[0]
             with _state_lock:
-                s = dict(state)
+                for sess in charging_sessions:
+                    if sess["sessionId"] == session_id:
+                        self._send_json(200, data=sess)
+                        return
+            self._send_json(404, error={"code": "NOT_FOUND", "message": "Session not found", "retryable": False})
+            return
+        elif '/charging/sessions' in path:
+            vehicle_id = _extract_vehicle_id(path)
+            with _state_lock:
+                items = [sess for sess in charging_sessions if sess.get("vehicleId") == vehicle_id]
+                if not items and vehicle_id == "veh_mock_9s_01":
+                    items = list(charging_sessions)
+            self._send_json(200, data={
+                "items": items,
+                "page": 1,
+                "pageSize": 20,
+                "total": len(items),
+                "totalPages": 1
+            })
+            return
+        elif '/charging' in path:
+            vehicle_id = _extract_vehicle_id(path)
+            with _state_lock:
+                s = dict(_get_vehicle_state(vehicle_id))
+            self._send_json(200, data={
+                "state": s["chargingState"],
+                "batteryPercent": s["batteryPercent"],
+                "targetPercent": s.get("targetPercent", 80),
+                "powerKw": s["powerKw"],
+                "sessionDurationSeconds": s.get("sessionDurationSeconds"),
+                "schedule": s.get("schedule"),
+                "currentSessionId": s.get("currentSessionId")
+            })
+            return
+        elif '/location' in path:
+            vehicle_id = _extract_vehicle_id(path)
+            with _state_lock:
+                s = dict(_get_vehicle_state(vehicle_id))
             is_online = s.get("isOnline", True)
+            loc = s.get("location", {"latitude": 12.9716, "longitude": 77.5946, "description": "MG Road, Bengaluru"})
             self._send_json(200, data={
                 "vehicleId": vehicle_id,
-                "latitude": 12.9716,
-                "longitude": 77.5946,
-                "description": "MG Road, Bengaluru",
+                "latitude": loc["latitude"],
+                "longitude": loc["longitude"],
+                "description": loc["description"],
                 "vehicleState": s.get("vehicleState", "PARKED") if is_online else "OFFLINE",
                 "reportedAt": datetime.now(timezone.utc).isoformat(),
                 "isCurrent": is_online,
@@ -178,7 +360,7 @@ class MockApiHandler(BaseHTTPRequestHandler):
         elif path in ('/control/state', '/api/v1/control/state'):
             # Read-only view of current mock state
             with _state_lock:
-                self._send_json(200, data=dict(state))
+                self._send_json(200, data=dict(vehicle_states))
         else:
             self._send_json(200, data={})
 
@@ -188,34 +370,48 @@ class MockApiHandler(BaseHTTPRequestHandler):
 
         # ── Control endpoint: update live mock state ──────────────────────────
         if path in ('/control', '/api/v1/control'):
+            vid = body.get('vehicleId', 'veh_mock_9s_01')
             with _state_lock:
+                target_state = _get_vehicle_state(vid)
                 if 'battery' in body:
-                    state['batteryPercent'] = float(body['battery'])
+                    target_state['batteryPercent'] = float(body['battery'])
                 if 'vehicleState' in body:
-                    state['vehicleState'] = body['vehicleState']
-                    if state['vehicleState'] == 'PARKED':
-                        state['speedKmh'] = 0.0
-                    elif state['vehicleState'] == 'DRIVING' and state.get('speedKmh', 0.0) == 0.0:
-                        state['speedKmh'] = 42.0
+                    target_state['vehicleState'] = body['vehicleState']
+                    if target_state['vehicleState'] == 'PARKED':
+                        target_state['speedKmh'] = 0.0
+                    elif target_state['vehicleState'] == 'DRIVING':
+                        if target_state.get('speedKmh', 0.0) == 0.0:
+                            target_state['speedKmh'] = 42.0
+                        if 'chargingState' not in body:
+                            target_state['chargingState'] = 'NOT_CONNECTED'
+                            target_state['powerKw'] = None
+                            target_state['sessionDurationSeconds'] = None
+                            target_state['currentSessionId'] = None
                 if 'speedKmh' in body:
-                    state['speedKmh'] = float(body['speedKmh'])
+                    target_state['speedKmh'] = float(body['speedKmh'])
                     if 'vehicleState' not in body:
-                        state['vehicleState'] = 'DRIVING' if state['speedKmh'] > 0 else 'PARKED'
+                        target_state['vehicleState'] = 'DRIVING' if target_state['speedKmh'] > 0 else 'PARKED'
+                    if target_state['speedKmh'] > 0 and 'chargingState' not in body:
+                        target_state['chargingState'] = 'NOT_CONNECTED'
+                        target_state['powerKw'] = None
+                        target_state['sessionDurationSeconds'] = None
+                        target_state['currentSessionId'] = None
                 if 'isOnline' in body:
-                    state['isOnline'] = bool(body['isOnline'])
+                    target_state['isOnline'] = bool(body['isOnline'])
                 if 'lockState' in body:
-                    state['lockState'] = body['lockState']
+                    target_state['lockState'] = body['lockState']
                 if 'preconditioningState' in body:
-                    state['preconditioningState'] = body['preconditioningState']
+                    target_state['preconditioningState'] = body['preconditioningState']
                 if 'chargingState' in body:
-                    state['chargingState'] = body['chargingState']
+                    target_state['chargingState'] = body['chargingState']
                 if 'powerKw' in body:
-                    state['powerKw'] = body['powerKw']
+                    target_state['powerKw'] = body['powerKw']
                 if 'odometerKm' in body:
-                    state['odometerKm'] = float(body['odometerKm'])
-                current = dict(state)
+                    target_state['odometerKm'] = float(body['odometerKm'])
+                current = dict(target_state)
             print(f"[MockServer] /control → state updated: {current}")
             sys.stdout.flush()
+            _sync_to_ws_server(dict(body))
             self._send_json(200, data={"message": "State updated", "state": current})
             return
         # ─────────────────────────────────────────────────────────────────────
@@ -324,11 +520,109 @@ class MockApiHandler(BaseHTTPRequestHandler):
         else:
             self._send_json(200, data={})
 
+    def do_PUT(self):
+        path = self.path.split('?')[0]
+        body = self._read_body_json()
+        vehicle_id = _extract_vehicle_id(path)
+        if '/charging/target' in path:
+            target = body.get('targetPercent')
+            with _state_lock:
+                s = _get_vehicle_state(vehicle_id)
+                s['targetPercent'] = target
+                snap = dict(s)
+            _sync_to_ws_server({"vehicleId": vehicle_id, "targetPercent": target})
+            self._send_json(200, data={
+                "state": snap["chargingState"],
+                "batteryPercent": snap["batteryPercent"],
+                "targetPercent": snap.get("targetPercent", 80),
+                "powerKw": snap["powerKw"],
+                "sessionDurationSeconds": snap.get("sessionDurationSeconds"),
+                "schedule": snap.get("schedule"),
+                "currentSessionId": snap.get("currentSessionId")
+            })
+        elif '/charging/schedule' in path:
+            with _state_lock:
+                s = _get_vehicle_state(vehicle_id)
+                s['schedule'] = {
+                    "enabled": body.get("enabled", True),
+                    "startTime": body.get("startTime", "22:00"),
+                    "endTime": body.get("endTime", "06:00"),
+                    "daysOfWeek": body.get("daysOfWeek", ["MON", "TUE", "WED", "THU", "FRI"])
+                }
+                snap = dict(s)
+            _sync_to_ws_server({"vehicleId": vehicle_id, "schedule": snap['schedule']})
+            self._send_json(200, data={
+                "state": snap["chargingState"],
+                "batteryPercent": snap["batteryPercent"],
+                "targetPercent": snap.get("targetPercent", 80),
+                "powerKw": snap["powerKw"],
+                "sessionDurationSeconds": snap.get("sessionDurationSeconds"),
+                "schedule": snap.get("schedule"),
+                "currentSessionId": snap.get("currentSessionId")
+            })
+        else:
+            self._send_json(200, data={})
+
+    def do_DELETE(self):
+        path = self.path.split('?')[0]
+        vehicle_id = _extract_vehicle_id(path)
+        if '/charging/schedule' in path:
+            with _state_lock:
+                s = _get_vehicle_state(vehicle_id)
+                s['schedule'] = None
+                snap = dict(s)
+            _sync_to_ws_server({"vehicleId": vehicle_id, "schedule": None})
+            self._send_json(200, data={
+                "state": snap["chargingState"],
+                "batteryPercent": snap["batteryPercent"],
+                "targetPercent": snap.get("targetPercent", 80),
+                "powerKw": snap["powerKw"],
+                "sessionDurationSeconds": snap.get("sessionDurationSeconds"),
+                "schedule": None,
+                "currentSessionId": snap.get("currentSessionId")
+            })
+        else:
+            self._send_json(200, data={})
+
     def log_message(self, format, *args):
         sys.stdout.write(f"[MockServer] {self.address_string()} - {format % args}\n")
         sys.stdout.flush()
 
 if __name__ == '__main__':
+    def _bg_ticker():
+        while True:
+            time.sleep(3)
+            with _state_lock:
+                for vid, v_state in vehicle_states.items():
+                    if not v_state.get("isOnline", True):
+                        continue
+                    if v_state.get("vehicleState") == "DRIVING":
+                        new_battery = round(v_state["batteryPercent"] - 0.1, 1)
+                        if new_battery <= 0.0:
+                            v_state["batteryPercent"] = 0.0
+                            v_state["speedKmh"] = 0.0
+                            v_state["vehicleState"] = "OFFLINE"
+                            v_state["isOnline"] = False
+                        else:
+                            v_state["batteryPercent"] = new_battery
+                    elif v_state.get("chargingState") == "CHARGING" or v_state.get("vehicleState") == "CHARGING":
+                        target = float(v_state.get("targetPercent") or 80)
+                        current_bat = float(v_state.get("batteryPercent", 50.0))
+                        if current_bat < target:
+                            v_state["batteryPercent"] = round(min(target, current_bat + 0.2), 1)
+                            if v_state.get("sessionDurationSeconds") is not None:
+                                v_state["sessionDurationSeconds"] += 3
+                            else:
+                                v_state["sessionDurationSeconds"] = 3
+                        elif current_bat >= target:
+                            v_state["chargingState"] = "COMPLETED"
+                            if v_state.get("vehicleState") == "CHARGING":
+                                v_state["vehicleState"] = "PARKED"
+                            v_state["powerKw"] = 0.0
+
+    ticker_thread = threading.Thread(target=_bg_ticker, daemon=True)
+    ticker_thread.start()
+
     server = ThreadingHTTPServer(('0.0.0.0', PORT), MockApiHandler)
     print(f"XEV 9S Mock Server running on http://127.0.0.1:{PORT} (and 0.0.0.0:{PORT})")
     print("Press Ctrl+C to stop.")

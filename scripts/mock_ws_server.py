@@ -47,20 +47,63 @@ last_loc = {
 clients = set()
 client_subscriptions = {}  # socket -> vehicle_id string
 clients_lock = threading.Lock()
-state = {
-    "isOnline": True,
-    "batteryPercent": 64.0,
-    "speed": 0.0,
-    "chargingState": "NOT_CONNECTED",
-    "powerKw": None,
-    "vehicleState": "PARKED",
-    "lockState": "LOCKED",
-    "preconditioningState": "INACTIVE",
-    "odometerKm": 12874.3,
-    "name": "My XEV 9S",
-    "model": "XEV 9S AWD Performance",
+
+vehicle_states = {
+    "veh_mock_9s_01": {
+        "vehicleId": "veh_mock_9s_01",
+        "name": "My XEV 9S",
+        "model": "XEV 9S AWD Performance",
+        "vehicleState": "PARKED",
+        "isOnline": True,
+        "batteryPercent": 64.0,
+        "speed": 0.0,
+        "odometerKm": 12874.3,
+        "lockState": "LOCKED",
+        "preconditioningState": "INACTIVE",
+        "chargingState": "CONNECTED",
+        "powerKw": 0.0,
+        "targetPercent": 80,
+        "sessionDurationSeconds": None,
+        "currentSessionId": None,
+        "schedule": {
+            "enabled": True,
+            "startTime": "22:00",
+            "endTime": "06:00",
+            "daysOfWeek": ["MON", "TUE", "WED", "THU", "FRI"],
+        },
+    },
+    "veh_mock_9s_02": {
+        "vehicleId": "veh_mock_9s_02",
+        "name": "Asha's City Cruiser",
+        "model": "XEV 9S Long Range RWD",
+        "vehicleState": "CHARGING",
+        "isOnline": True,
+        "batteryPercent": 42.0,
+        "speed": 0.0,
+        "odometerKm": 5420.8,
+        "lockState": "LOCKED",
+        "preconditioningState": "ACTIVE",
+        "chargingState": "CHARGING",
+        "powerKw": 48.5,
+        "targetPercent": 90,
+        "sessionDurationSeconds": 1800,
+        "currentSessionId": "chs_mock_003",
+        "schedule": {
+            "enabled": False,
+            "startTime": "00:00",
+            "endTime": "06:00",
+            "daysOfWeek": ["SAT", "SUN"],
+        },
+    },
 }
+
+state = vehicle_states["veh_mock_9s_01"]
 state_lock = threading.Lock()
+
+def _get_vehicle_state(vid: str) -> dict:
+    if vid in vehicle_states:
+        return vehicle_states[vid]
+    return vehicle_states["veh_mock_9s_01"]
 
 def make_frame(payload_str: str) -> bytes:
     payload_bytes = payload_str.encode('utf-8')
@@ -168,7 +211,7 @@ class WebSocketHandler(socketserver.StreamRequestHandler):
 
         # Send initial status frame immediately upon connect — tailored to this client's vehicleId
         with state_lock:
-            s = dict(state)
+            s = dict(_get_vehicle_state(vehicle_id))
         now_iso = datetime.now(timezone.utc).isoformat()
         self.request.sendall(make_frame(json.dumps({
             "event": "vehicle.status",
@@ -220,22 +263,41 @@ def ticker():
 
         just_went_offline = False
         with state_lock:
-            if not state["isOnline"]:
-                continue
-            # Only drain battery when actively driving (realistic simulation)
-            if state["vehicleState"] == "DRIVING":
-                new_battery = round(state["batteryPercent"] - 0.1, 1)
-                if new_battery <= 0.0:
-                    state["batteryPercent"] = 0.0
-                    state["speed"] = 0.0
-                    state["vehicleState"] = "OFFLINE"
-                    state["isOnline"] = False
-                    just_went_offline = True
+            for vid, v_state in vehicle_states.items():
+                if not v_state.get("isOnline", True):
+                    continue
+                # Battery drain while driving
+                if v_state.get("vehicleState") == "DRIVING":
+                    new_battery = round(v_state["batteryPercent"] - 0.1, 1)
+                    if new_battery <= 0.0:
+                        v_state["batteryPercent"] = 0.0
+                        v_state["speed"] = 0.0
+                        v_state["vehicleState"] = "OFFLINE"
+                        v_state["isOnline"] = False
+                        if vid == "veh_mock_9s_01":
+                            just_went_offline = True
+                    else:
+                        v_state["batteryPercent"] = new_battery
+                        v_state["speed"] = v_state.get("speed", 42.0) or 42.0
+                # Battery charge increase while charging
+                elif v_state.get("chargingState") == "CHARGING" or v_state.get("vehicleState") == "CHARGING":
+                    target = float(v_state.get("targetPercent") or 80)
+                    current_bat = float(v_state.get("batteryPercent", 50.0))
+                    if current_bat < target:
+                        v_state["batteryPercent"] = round(min(target, current_bat + 0.2), 1)
+                        if v_state.get("powerKw") is None or v_state.get("powerKw", 0.0) == 0.0:
+                            v_state["powerKw"] = 48.5 if vid == "veh_mock_9s_02" else 11.2
+                        if v_state.get("sessionDurationSeconds") is not None:
+                            v_state["sessionDurationSeconds"] += 3
+                        else:
+                            v_state["sessionDurationSeconds"] = 3
+                    elif current_bat >= target:
+                        v_state["chargingState"] = "COMPLETED"
+                        if v_state.get("vehicleState") == "CHARGING":
+                            v_state["vehicleState"] = "PARKED"
+                        v_state["powerKw"] = 0.0
                 else:
-                    state["batteryPercent"] = new_battery
-                    state["speed"] = state.get("speed", 42.0) or 42.0
-            else:
-                state["speed"] = 0.0
+                    v_state["speed"] = 0.0
             s = dict(state)
 
         if just_went_offline:
@@ -246,7 +308,7 @@ def ticker():
             })
 
         # Full vehicle.status broadcast — sent to each client using its subscribed vehicleId
-        broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid))
+        broadcast("vehicle.status", lambda vid: _build_status_payload(dict(_get_vehicle_state(vid)), vehicle_id=vid))
 
         # Vehicle location update every 3-4s
         global route_idx
@@ -262,24 +324,24 @@ def ticker():
 
         broadcast("vehicle.location", lambda vid: {
             "vehicleId": vid,
-            "latitude": None if last_loc.get("nullLocation") else last_loc["latitude"],
-            "longitude": None if last_loc.get("nullLocation") else last_loc["longitude"],
-            "description": None if last_loc.get("nullLocation") else last_loc["description"],
-            "vehicleState": "OFFLINE" if not is_online else veh_state,
+            "latitude": None if last_loc.get("nullLocation") else (last_loc["latitude"] if vid == "veh_mock_9s_01" else 12.9352),
+            "longitude": None if last_loc.get("nullLocation") else (last_loc["longitude"] if vid == "veh_mock_9s_01" else 77.6245),
+            "description": None if last_loc.get("nullLocation") else (last_loc["description"] if vid == "veh_mock_9s_01" else "Koramangala 4th Block, Bengaluru"),
+            "vehicleState": "OFFLINE" if not _get_vehicle_state(vid)["isOnline"] else _get_vehicle_state(vid)["vehicleState"],
             "reportedAt": datetime.now(timezone.utc).isoformat(),
-            "isCurrent": is_online and not last_loc.get("nullLocation"),
+            "isCurrent": _get_vehicle_state(vid)["isOnline"] and not last_loc.get("nullLocation"),
         })
 
-        # Charging update every 15s
-        if status_counter % 5 == 0:
-            with state_lock:
-                s = dict(state)
-            broadcast("charging.updated", lambda vid: {
-                "state": s["chargingState"],
-                "powerKw": s["powerKw"],
-                "batteryPercent": s["batteryPercent"],
-                "remainingMinutes": 45 if s["chargingState"] == "CHARGING" else None,
-            })
+        # Charging telemetry broadcast every tick (3s) for responsive live updates
+        broadcast("charging.updated", lambda vid: {
+            "state": _get_vehicle_state(vid)["chargingState"],
+            "batteryPercent": _get_vehicle_state(vid)["batteryPercent"],
+            "targetPercent": _get_vehicle_state(vid).get("targetPercent", 80),
+            "powerKw": _get_vehicle_state(vid)["powerKw"],
+            "sessionDurationSeconds": _get_vehicle_state(vid).get("sessionDurationSeconds"),
+            "schedule": _get_vehicle_state(vid).get("schedule"),
+            "currentSessionId": _get_vehicle_state(vid).get("currentSessionId"),
+        })
 
 
 def _build_status_payload(s: dict, vehicle_id: str = "veh_mock_9s_01") -> dict:
@@ -340,32 +402,46 @@ class ControlHandler(BaseHTTPRequestHandler):
         payload = json.loads(self.rfile.read(length)) if length else {}
 
         event = payload.get("event", "vehicle.status")
-        target_vid = payload.get("vehicleId")
+        target_vid = payload.get("vehicleId") or "veh_mock_9s_01"
 
         with state_lock:
-            if "battery"              in payload: state["batteryPercent"]      = float(payload["battery"])
+            s_target = _get_vehicle_state(target_vid)
+            if "battery"              in payload: s_target["batteryPercent"]      = float(payload["battery"])
             if "speedKmh"             in payload:
-                state["speed"] = float(payload["speedKmh"])
+                s_target["speed"] = float(payload["speedKmh"])
                 if "vehicleState" not in payload:
-                    if state["speed"] > 0:
-                        state["vehicleState"] = "DRIVING"
-                    elif state["vehicleState"] == "DRIVING":
-                        state["vehicleState"] = "PARKED"
-            if "isOnline"             in payload: state["isOnline"]            = bool(payload["isOnline"])
-            if "vehicleState"         in payload: state["vehicleState"]        = payload["vehicleState"]
-            if "chargingState"        in payload: state["chargingState"]       = payload["chargingState"]
-            if "powerKw"              in payload: state["powerKw"]             = payload["powerKw"]
-            if "lockState"            in payload: state["lockState"]           = payload["lockState"]
-            if "preconditioningState" in payload: state["preconditioningState"]= payload["preconditioningState"]
-            if "odometerKm"           in payload: state["odometerKm"]          = float(payload["odometerKm"])
+                    if s_target["speed"] > 0:
+                        s_target["vehicleState"] = "DRIVING"
+                    elif s_target["vehicleState"] == "DRIVING":
+                        s_target["vehicleState"] = "PARKED"
+                if s_target["speed"] > 0 and "chargingState" not in payload:
+                    s_target["chargingState"] = "NOT_CONNECTED"
+                    s_target["powerKw"] = None
+                    s_target["sessionDurationSeconds"] = None
+                    s_target["currentSessionId"] = None
+            if "isOnline"             in payload: s_target["isOnline"]            = bool(payload["isOnline"])
+            if "vehicleState"         in payload:
+                s_target["vehicleState"]        = payload["vehicleState"]
+                if s_target["vehicleState"] == "DRIVING" and "chargingState" not in payload:
+                    s_target["chargingState"] = "NOT_CONNECTED"
+                    s_target["powerKw"] = None
+                    s_target["sessionDurationSeconds"] = None
+                    s_target["currentSessionId"] = None
+            if "chargingState"        in payload: s_target["chargingState"]       = payload["chargingState"]
+            if "powerKw"              in payload: s_target["powerKw"]             = payload["powerKw"]
+            if "lockState"            in payload: s_target["lockState"]           = payload["lockState"]
+            if "preconditioningState" in payload: s_target["preconditioningState"]= payload["preconditioningState"]
+            if "odometerKm"           in payload: s_target["odometerKm"]          = float(payload["odometerKm"])
+            if "targetPercent"        in payload: s_target["targetPercent"]       = int(payload["targetPercent"]) if payload["targetPercent"] is not None else None
+            if "schedule"             in payload: s_target["schedule"]            = payload["schedule"]
 
             # Harmonize charging state & vehicle state
-            if state.get("chargingState") == "CHARGING" and "vehicleState" not in payload:
-                state["vehicleState"] = "CHARGING"
-            elif state.get("vehicleState") == "CHARGING" and "chargingState" not in payload:
-                state["chargingState"] = "CHARGING"
+            if s_target.get("chargingState") == "CHARGING" and "vehicleState" not in payload:
+                s_target["vehicleState"] = "CHARGING"
+            elif s_target.get("vehicleState") == "CHARGING" and "chargingState" not in payload:
+                s_target["chargingState"] = "CHARGING"
 
-            s = dict(state)
+            s = dict(s_target)
 
         # Build and broadcast the right event immediately
         if event == "connectivity.changed":
@@ -375,13 +451,18 @@ class ControlHandler(BaseHTTPRequestHandler):
             }, vehicle_id=target_vid)
             # Also send a full vehicle.status so the app updates all telemetry fields
             broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid), vehicle_id=target_vid)
-        elif event == "charging.updated":
+        elif event == "charging.updated" or "targetPercent" in payload or "chargingState" in payload or "schedule" in payload:
             broadcast("charging.updated", lambda vid: {
                 "state": s["chargingState"],
-                "powerKw": s["powerKw"],
                 "batteryPercent": s["batteryPercent"],
-                "remainingMinutes": payload.get("remainingMinutes", 45) if s["chargingState"] == "CHARGING" else None,
+                "targetPercent": s.get("targetPercent", 80),
+                "powerKw": s["powerKw"],
+                "sessionDurationSeconds": s.get("sessionDurationSeconds"),
+                "schedule": s.get("schedule"),
+                "currentSessionId": s.get("currentSessionId"),
             }, vehicle_id=target_vid)
+            if "chargingState" in payload or "battery" in payload:
+                broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid), vehicle_id=target_vid)
         elif event == "vehicle.location":
             if "nullLocation" in payload:
                 last_loc["nullLocation"] = bool(payload["nullLocation"])
@@ -396,6 +477,16 @@ class ControlHandler(BaseHTTPRequestHandler):
             }, vehicle_id=target_vid)
         else:  # default: vehicle.status — full payload with all telemetry fields
             broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid), vehicle_id=target_vid)
+            if s["vehicleState"] == "DRIVING":
+                broadcast("charging.updated", lambda vid: {
+                    "state": "NOT_CONNECTED",
+                    "batteryPercent": s["batteryPercent"],
+                    "targetPercent": s.get("targetPercent", 80),
+                    "powerKw": None,
+                    "sessionDurationSeconds": None,
+                    "schedule": s.get("schedule"),
+                    "currentSessionId": None,
+                }, vehicle_id=target_vid)
 
         print(f"[ControlServer] Broadcast '{event}' (target_vid={target_vid}) → state: {s}")
         import sys; sys.stdout.flush()

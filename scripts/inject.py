@@ -153,6 +153,10 @@ def main():
         if args.state is None:
             payload["vehicleState"] = "DRIVING" if args.speed > 0 else "PARKED"
     if args.state    is not None: payload["vehicleState"]          = args.state.upper()
+    if payload.get("vehicleState") == "DRIVING" and args.charging is None:
+        payload["chargingState"] = "NOT_CONNECTED"
+        if args.power is None:
+            payload["powerKw"] = None
     if args.charging is not None: payload["chargingState"]         = args.charging.upper()
     if args.power    is not None: payload["powerKw"]               = args.power
     if args.lock     is not None: payload["lockState"]             = args.lock.upper()
