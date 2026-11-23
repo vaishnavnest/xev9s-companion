@@ -161,6 +161,20 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 "lastUpdatedAt": datetime.now(timezone.utc).isoformat(),
                 "isStale": not s["isOnline"],
             })
+        elif '/location' in path:
+            vehicle_id = path.split('/vehicles/')[1].split('/location')[0] if '/vehicles/' in path else 'veh_mock_9s_01'
+            with _state_lock:
+                s = dict(state)
+            is_online = s.get("isOnline", True)
+            self._send_json(200, data={
+                "vehicleId": vehicle_id,
+                "latitude": 12.9716,
+                "longitude": 77.5946,
+                "description": "MG Road, Bengaluru",
+                "vehicleState": s.get("vehicleState", "PARKED") if is_online else "OFFLINE",
+                "reportedAt": datetime.now(timezone.utc).isoformat(),
+                "isCurrent": is_online,
+            })
         elif path in ('/control/state', '/api/v1/control/state'):
             # Read-only view of current mock state
             with _state_lock:

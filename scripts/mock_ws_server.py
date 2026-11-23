@@ -27,6 +27,23 @@ PORT = 4011
 CONTROL_PORT = 4012
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
+ROUTE_WAYPOINTS = [
+    {"lat": 12.9716, "lng": 77.5946, "desc": "MG Road, Bengaluru"},
+    {"lat": 12.9724, "lng": 77.5958, "desc": "Brigade Road Junction, Bengaluru"},
+    {"lat": 12.9735, "lng": 77.5975, "desc": "Residency Road, Bengaluru"},
+    {"lat": 12.9748, "lng": 77.5992, "desc": "Mayo Hall, MG Road, Bengaluru"},
+    {"lat": 12.9759, "lng": 77.6010, "desc": "Trinity Circle, Bengaluru"},
+    {"lat": 12.9742, "lng": 77.5985, "desc": "Webbs Ground, Bengaluru"},
+    {"lat": 12.9729, "lng": 77.5962, "desc": "Church Street, Bengaluru"},
+]
+route_idx = 0
+last_loc = {
+    "latitude": 12.9716,
+    "longitude": 77.5946,
+    "description": "MG Road, Bengaluru",
+    "nullLocation": False,
+}
+
 clients = set()
 client_subscriptions = {}  # socket -> vehicle_id string
 clients_lock = threading.Lock()
@@ -231,6 +248,28 @@ def ticker():
         # Full vehicle.status broadcast — sent to each client using its subscribed vehicleId
         broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid))
 
+        # Vehicle location update every 3-4s
+        global route_idx
+        with state_lock:
+            is_online = state["isOnline"]
+            veh_state = state["vehicleState"]
+            if is_online and not last_loc.get("nullLocation"):
+                pt = ROUTE_WAYPOINTS[route_idx % len(ROUTE_WAYPOINTS)]
+                route_idx += 1
+                last_loc["latitude"] = pt["lat"]
+                last_loc["longitude"] = pt["lng"]
+                last_loc["description"] = pt["desc"]
+
+        broadcast("vehicle.location", lambda vid: {
+            "vehicleId": vid,
+            "latitude": None if last_loc.get("nullLocation") else last_loc["latitude"],
+            "longitude": None if last_loc.get("nullLocation") else last_loc["longitude"],
+            "description": None if last_loc.get("nullLocation") else last_loc["description"],
+            "vehicleState": "OFFLINE" if not is_online else ("CHARGING" if s["chargingState"] == "CHARGING" else "DRIVING"),
+            "reportedAt": datetime.now(timezone.utc).isoformat(),
+            "isCurrent": is_online and not last_loc.get("nullLocation"),
+        })
+
         # Charging update every 15s
         if status_counter % 5 == 0:
             with state_lock:
@@ -342,6 +381,18 @@ class ControlHandler(BaseHTTPRequestHandler):
                 "powerKw": s["powerKw"],
                 "batteryPercent": s["batteryPercent"],
                 "remainingMinutes": payload.get("remainingMinutes", 45) if s["chargingState"] == "CHARGING" else None,
+            }, vehicle_id=target_vid)
+        elif event == "vehicle.location":
+            if "nullLocation" in payload:
+                last_loc["nullLocation"] = bool(payload["nullLocation"])
+            broadcast("vehicle.location", lambda vid: {
+                "vehicleId": vid,
+                "latitude": None if last_loc.get("nullLocation") else last_loc["latitude"],
+                "longitude": None if last_loc.get("nullLocation") else last_loc["longitude"],
+                "description": None if last_loc.get("nullLocation") else last_loc["description"],
+                "vehicleState": "OFFLINE" if not s["isOnline"] else "DRIVING",
+                "reportedAt": datetime.now(timezone.utc).isoformat(),
+                "isCurrent": s["isOnline"] and not last_loc.get("nullLocation"),
             }, vehicle_id=target_vid)
         else:  # default: vehicle.status — full payload with all telemetry fields
             broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid), vehicle_id=target_vid)
