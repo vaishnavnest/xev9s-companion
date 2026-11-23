@@ -253,7 +253,7 @@ def ticker():
         with state_lock:
             is_online = state["isOnline"]
             veh_state = state["vehicleState"]
-            if is_online and not last_loc.get("nullLocation"):
+            if is_online and veh_state == "DRIVING" and not last_loc.get("nullLocation"):
                 pt = ROUTE_WAYPOINTS[route_idx % len(ROUTE_WAYPOINTS)]
                 route_idx += 1
                 last_loc["latitude"] = pt["lat"]
@@ -265,7 +265,7 @@ def ticker():
             "latitude": None if last_loc.get("nullLocation") else last_loc["latitude"],
             "longitude": None if last_loc.get("nullLocation") else last_loc["longitude"],
             "description": None if last_loc.get("nullLocation") else last_loc["description"],
-            "vehicleState": "OFFLINE" if not is_online else ("CHARGING" if s["chargingState"] == "CHARGING" else "DRIVING"),
+            "vehicleState": "OFFLINE" if not is_online else veh_state,
             "reportedAt": datetime.now(timezone.utc).isoformat(),
             "isCurrent": is_online and not last_loc.get("nullLocation"),
         })
@@ -390,7 +390,7 @@ class ControlHandler(BaseHTTPRequestHandler):
                 "latitude": None if last_loc.get("nullLocation") else last_loc["latitude"],
                 "longitude": None if last_loc.get("nullLocation") else last_loc["longitude"],
                 "description": None if last_loc.get("nullLocation") else last_loc["description"],
-                "vehicleState": "OFFLINE" if not s["isOnline"] else "DRIVING",
+                "vehicleState": "OFFLINE" if not s["isOnline"] else s["vehicleState"],
                 "reportedAt": datetime.now(timezone.utc).isoformat(),
                 "isCurrent": s["isOnline"] and not last_loc.get("nullLocation"),
             }, vehicle_id=target_vid)

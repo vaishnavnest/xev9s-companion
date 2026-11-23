@@ -22,6 +22,14 @@ const wss = new WebSocketServer({ noServer: true });
 let batteryPercent = 64.0;
 let isOffline = false;
 let isCharging = false;
+let isDriving = false;
+
+function getVehicleState() {
+  if (isOffline) return 'OFFLINE';
+  if (isCharging) return 'CHARGING';
+  if (isDriving) return 'DRIVING';
+  return 'PARKED';
+}
 
 // Small test route near MG Road, Bengaluru for live location simulation
 const ROUTE_WAYPOINTS = [
@@ -62,7 +70,7 @@ function sendVehicleStatus(targetVehicleId) {
       vehicleId: targetVehicleId || 'veh_9S0001',
       name: 'Asha\'s XEV 9S',
       model: 'XEV 9S AWD Performance',
-      vehicleState: isOffline ? 'OFFLINE' : (isCharging ? 'CHARGING' : 'PARKED'),
+      vehicleState: getVehicleState(),
       connectivity: isOffline ? 'OFFLINE' : 'ONLINE',
       battery: {
         percent: batteryPercent,
@@ -72,7 +80,7 @@ function sendVehicleStatus(targetVehicleId) {
         estimatedKm: +(batteryPercent * 4.88).toFixed(1),
       },
       odometerKm: 12874.3,
-      speedKmh: isOffline ? null : 0.0,
+      speedKmh: isOffline ? null : (isDriving ? 42.0 : 0.0),
       lockState: 'LOCKED',
       preconditioningState: 'INACTIVE',
       charging: {
@@ -129,7 +137,7 @@ function sendVehicleLocation(targetVehicleId, options = {}) {
     return;
   }
 
-  if (!isOffline) {
+  if (!isOffline && isDriving) {
     const pt = ROUTE_WAYPOINTS[routeIndex];
     routeIndex = (routeIndex + 1) % ROUTE_WAYPOINTS.length;
     lastKnownLocation = {
@@ -140,7 +148,7 @@ function sendVehicleLocation(targetVehicleId, options = {}) {
   }
 
   const isCurrent = !isOffline;
-  const vehicleState = isOffline ? 'OFFLINE' : (isCharging ? 'CHARGING' : 'DRIVING');
+  const vehicleState = getVehicleState();
 
   const event = {
     event: 'vehicle.location',
@@ -234,19 +242,27 @@ if (process.stdin.isTTY) {
   process.stdin.on('data', (key) => {
     if (key === '\u0003') { // Ctrl+C
       process.exit();
+    } else if (key === 'd') {
+      isDriving = !isDriving;
+      if (isDriving) isCharging = false;
+      sendVehicleStatus('veh_9S0001');
+      sendVehicleLocation('veh_9S0001');
+      console.log(`[MockWS] Toggled driving -> ${isDriving ? 'DRIVING (speed: 42 km/h, moving route)' : 'PARKED (speed: 0 km/h, stationary)'}`);
     } else if (key === 'o') {
       sendConnectivity('OFFLINE');
     } else if (key === 'n') {
       sendConnectivity('ONLINE');
     } else if (key === 'c') {
       isCharging = !isCharging;
+      if (isCharging) isDriving = false;
       sendChargingUpdate();
       sendVehicleStatus('veh_9S0001');
+      sendVehicleLocation('veh_9S0001');
     } else if (key === 'l') {
       sendVehicleLocation('veh_9S0001', { nullLocation: true });
     }
   });
-  console.log('Interactive controls: press "o" (offline), "n" (online), "c" (toggle charging), "l" (null location), Ctrl+C (stop)');
+  console.log('Interactive controls: press "d" (toggle driving/parked), "c" (toggle charging), "o" (offline), "n" (online), "l" (null location), Ctrl+C (stop)');
 }
 
 server.listen(PORT, () => {

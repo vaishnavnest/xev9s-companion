@@ -193,8 +193,14 @@ class MockApiHandler(BaseHTTPRequestHandler):
                     state['batteryPercent'] = float(body['battery'])
                 if 'vehicleState' in body:
                     state['vehicleState'] = body['vehicleState']
+                    if state['vehicleState'] == 'PARKED':
+                        state['speedKmh'] = 0.0
+                    elif state['vehicleState'] == 'DRIVING' and state.get('speedKmh', 0.0) == 0.0:
+                        state['speedKmh'] = 42.0
                 if 'speedKmh' in body:
                     state['speedKmh'] = float(body['speedKmh'])
+                    if 'vehicleState' not in body:
+                        state['vehicleState'] = 'DRIVING' if state['speedKmh'] > 0 else 'PARKED'
                 if 'isOnline' in body:
                     state['isOnline'] = bool(body['isOnline'])
                 if 'lockState' in body:
