@@ -12,7 +12,8 @@ final sharedPreferencesProvider = Provider<SharedPreferences?>((ref) {
 
 /// Provider for TokenStorage. Overridable in tests.
 final tokenStorageProvider = Provider<TokenStorage>((ref) {
-  return SecureTokenStorage();
+  final prefs = ref.watch(sharedPreferencesProvider);
+  return SecureTokenStorage(prefs: prefs);
 });
 
 /// Provider for ApiClient configured with tokenStorageProvider. Overridable in tests.
