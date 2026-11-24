@@ -51,6 +51,8 @@ let secondCarTargetPercent = 90;
 let isOffline = false;
 let isCharging = false;
 let isDriving = false;
+let lockState = 'LOCKED';
+let preconditioningState = 'INACTIVE';
 
 // Charging simulation state
 let chargingState = 'NOT_CONNECTED';
@@ -130,8 +132,8 @@ function sendVehicleStatus(targetVehicleId) {
       },
       odometerKm: isSecondCar ? 5420.8 : 12874.3,
       speedKmh: isOffline ? null : (isSecondCar ? 0.0 : (isDriving ? 42.0 : 0.0)),
-      lockState: 'LOCKED',
-      preconditioningState: isSecondCar ? 'ACTIVE' : 'INACTIVE',
+      lockState: isSecondCar ? 'LOCKED' : lockState,
+      preconditioningState: isSecondCar ? 'ACTIVE' : preconditioningState,
       charging: {
         state: isSecondCar ? 'CHARGING' : chargingState,
         powerKw: isSecondCar ? 48.5 : chargingPowerKw,
@@ -385,6 +387,82 @@ const locationInterval = setInterval(() => {
 // prevent unexpected state flapping during development.
 // Use interactive keyboard controls (o, n, c, l) or scripts/inject.py.
 
+function sendCommandUpdate(commandId, vehicleId, commandType, status, completedAt = null, failureReason = null, resultingState = null) {
+  const event = {
+    event: 'command.updated',
+    vehicleId: vehicleId,
+    timestamp: new Date().toISOString(),
+    data: {
+      commandId: commandId,
+      vehicleId: vehicleId,
+      commandType: commandType,
+      status: status,
+      requestedAt: new Date(Date.now() - 3000).toISOString(),
+      completedAt: completedAt,
+      failureReason: failureReason,
+      resultingState: resultingState,
+    },
+  };
+  console.log(`[MockWS] Emitting command.updated -> ${status} (${commandId})`);
+  broadcast(event);
+}
+
+function simulateCommandSuccess() {
+  const commandId = 'cmd_7731';
+  const vehicleId = 'veh_9S0001';
+  const type = lockState === 'LOCKED' ? 'UNLOCK' : 'LOCK';
+
+  console.log(`[MockWS] Simulating command SUCCESS sequence for ${commandId} (${type})...`);
+  sendCommandUpdate(commandId, vehicleId, type, 'ACCEPTED');
+
+  setTimeout(() => {
+    sendCommandUpdate(commandId, vehicleId, type, 'EXECUTING');
+    setTimeout(() => {
+      lockState = (lockState === 'LOCKED') ? 'UNLOCKED' : 'LOCKED';
+      const resulting = { lockState: lockState, preconditioningState: preconditioningState };
+      sendCommandUpdate(commandId, vehicleId, type, 'SUCCEEDED', new Date().toISOString(), null, resulting);
+      sendVehicleStatus(vehicleId);
+    }, 1000);
+  }, 1000);
+}
+
+function simulateCommandFailure() {
+  const commandId = 'cmd_7731';
+  const vehicleId = 'veh_9S0001';
+  const type = 'LOCK';
+
+  console.log(`[MockWS] Simulating command FAILURE sequence for ${commandId}...`);
+  sendCommandUpdate(commandId, vehicleId, type, 'ACCEPTED');
+
+  setTimeout(() => {
+    sendCommandUpdate(commandId, vehicleId, type, 'EXECUTING');
+    setTimeout(() => {
+      sendCommandUpdate(commandId, vehicleId, type, 'FAILED', new Date().toISOString(), 'VEHICLE_DRIVING', null);
+    }, 1000);
+  }, 1000);
+}
+
+function simulateCommandTimeout() {
+  const commandId = 'cmd_7731';
+  const vehicleId = 'veh_9S0001';
+  const type = 'LOCK';
+
+  console.log(`[MockWS] Simulating command TIMEOUT sequence for ${commandId} (waiting 15s)...`);
+  sendCommandUpdate(commandId, vehicleId, type, 'ACCEPTED');
+
+  setTimeout(() => {
+    sendCommandUpdate(commandId, vehicleId, type, 'TIMED_OUT', new Date().toISOString(), null, null);
+  }, 15000);
+}
+
+function simulateLateExecuting() {
+  const commandId = 'cmd_7731';
+  const vehicleId = 'veh_9S0001';
+  const type = 'LOCK';
+  console.log(`[MockWS] Simulating late EXECUTING event for ${commandId} (should be ignored)...`);
+  sendCommandUpdate(commandId, vehicleId, type, 'EXECUTING');
+}
+
 // Interactive keyboard controls in terminal
 if (process.stdin.isTTY) {
   process.stdin.setRawMode(true);
@@ -393,6 +471,14 @@ if (process.stdin.isTTY) {
   process.stdin.on('data', (key) => {
     if (key === '\u0003') { // Ctrl+C
       process.exit();
+    } else if (key === 's') {
+      simulateCommandSuccess();
+    } else if (key === 'f') {
+      simulateCommandFailure();
+    } else if (key === 't') {
+      simulateCommandTimeout();
+    } else if (key === 'x') {
+      simulateLateExecuting();
     } else if (key === 'd') {
       isDriving = !isDriving;
       if (isDriving) isCharging = false;
@@ -415,7 +501,7 @@ if (process.stdin.isTTY) {
       sendVehicleLocation('veh_9S0001', { nullLocation: true });
     }
   });
-  console.log('Interactive controls: press "c" (simulate charging), "i" (interrupt), "u" (pause), "p" (unplug), "d" (driving), "o" (offline), "n" (online), "l" (null location), Ctrl+C (stop)');
+  console.log('Interactive controls: "s" (cmd success), "f" (cmd fail), "t" (cmd timeout), "x" (late executing), "c" (charging), "i" (interrupt), "u" (pause), "p" (unplug), "d" (driving), "o" (offline), "n" (online), "l" (null location), Ctrl+C (stop)');
 }
 
 server.listen(PORT, () => {
