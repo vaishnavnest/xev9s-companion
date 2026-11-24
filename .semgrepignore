@@ -1,0 +1,23 @@
+# Documentation and markdown files (not executable code)
+*.md
+docs/
+infrastructure/docs/
+frontend/**/*.md
+
+# IDE configurations
+.vscode/
+frontend/xev9s_app/.vscode/
+.idea/
+
+# Development / Mock Scripts
+scripts/
+
+# Unit and integration tests (contain mock URLs and test assertions)
+test/
+tests/
+**/test/**
+**/tests/**
+
+# Coverage and test reports
+coverage/
+htmlcov/

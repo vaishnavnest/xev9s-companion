@@ -49,10 +49,10 @@ RUN flutter build web --release \
 # ==============================================================================
 # Stage 2: Serve compiled assets via non-root Nginx (Trivy DS-0002 compliant)
 # ==============================================================================
-# nginxinc/nginx-unprivileged runs as uid 101 (nginx) with no root access.
+# ghcr.io/nginx/nginx-unprivileged runs as uid 101 (nginx) with no root access.
 # USER nginx is declared explicitly so Trivy's static DS-0002 check passes.
 # Listens on port 8080 (non-privileged, no root required).
-FROM nginxinc/nginx-unprivileged:1.27-alpine-slim AS runner
+FROM ghcr.io/nginx/nginx-unprivileged:1.30.8-alpine3.24-slim@sha256:04c98c78c1de60ddeada00d7d2207dcd146ecd07b61b9941c9a5799cfb258d28 AS runner
 
 # Copy compiled Flutter web assets from builder stage
 COPY --from=builder --chown=nginx:nginx /app/build/web /usr/share/nginx/html
