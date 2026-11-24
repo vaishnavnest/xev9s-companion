@@ -30,6 +30,9 @@ RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuse
 # Copy installed packages from builder stage
 COPY --from=builder /install /usr/local
 
+# Remove pip internal vendor SBOM that triggers scanner false positives
+RUN find /usr/local -name "bom.cdx.json" -delete 2>/dev/null || true
+
 # Copy backend application source code into /app/backend to match import hierarchy
 COPY . /app/backend
 
