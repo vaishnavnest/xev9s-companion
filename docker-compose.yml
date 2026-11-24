@@ -1,5 +1,5 @@
 services:
-  # 1. MongoDB Database
+  # 1. MongoDB Database (Operational Store)
   mongodb:
     image: mongo:7.0
     container_name: xev9s-mongodb
@@ -18,7 +18,19 @@ services:
       timeout: 5s
       retries: 5
 
-  # 2. FastAPI Backend
+  # 2. Eclipse Mosquitto MQTT Broker (IoT Telemetry & Commands)
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: xev9s-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./infrastructure/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    networks:
+      - xev9s-network
+
+  # 3. FastAPI Backend API & WebSocket Server
   backend:
     build:
       context: ./backend
@@ -33,9 +45,13 @@ services:
       MONGODB_DATABASE: Xev9s_db
       JWT_SECRET_KEY: dev_secret_key_minimum_32_characters_for_xev9s_auth
       VEHICLE_PAIRING_PEPPER: dev_vehicle_pairing_pepper_secret_min_32_chars
+      MQTT_BROKER_HOST: mosquitto
+      MQTT_BROKER_PORT: 1883
     depends_on:
       mongodb:
         condition: service_healthy
+      mosquitto:
+        condition: service_started
     networks:
       - xev9s-network
     healthcheck:
@@ -45,7 +61,7 @@ services:
       start_period: 15s
       retries: 5
 
-  # 3. Flutter Web Frontend
+  # 4. Flutter Web Client (Alpine Nginx Port 8080)
   frontend:
     build:
       context: ./frontend/xev9s_app
@@ -59,6 +75,48 @@ services:
       - "8080:8080"
     depends_on:
       backend:
+        condition: service_healthy
+    networks:
+      - xev9s-network
+
+  # 5. Vehicle Simulator (Telemetry Generator & Command Processor)
+  simulator:
+    build:
+      context: ./simulator
+      dockerfile: Dockerfile
+    image: xev9s-vehicle-simulator:latest
+    container_name: xev9s-simulator
+    restart: unless-stopped
+    environment:
+      VEHICLE_ID: xev9s-001
+      MQTT_BROKER_HOST: mosquitto
+      MQTT_BROKER_PORT: 1883
+      TELEMETRY_INTERVAL: 5
+    depends_on:
+      mosquitto:
+        condition: service_started
+      backend:
+        condition: service_healthy
+    networks:
+      - xev9s-network
+
+  # 6. Background Report Worker (Async Report Processing)
+  report-worker:
+    build:
+      context: ./report-worker
+      dockerfile: Dockerfile
+    image: xev9s-report-worker:latest
+    container_name: xev9s-report-worker
+    restart: unless-stopped
+    environment:
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_REGION: us-east-1
+      REPORT_BUCKET_NAME: xev9s-reports
+      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_DATABASE: Xev9s_db
+      POLL_INTERVAL: 5
+    depends_on:
+      mongodb:
         condition: service_healthy
     networks:
       - xev9s-network
