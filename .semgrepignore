@@ -1,0 +1,17 @@
+# Ignore documentation and markdown files (not executable code)
+*.md
+docs/
+infrastructure/docs/
+frontend/**/*.md
+
+# Ignore IDE configurations
+.vscode/
+frontend/xev9s_app/.vscode/
+.idea/
+
+# Ignore local mock/test utility servers and development scripts
+scripts/
+
+# Ignore coverage and test reports
+coverage/
+htmlcov/

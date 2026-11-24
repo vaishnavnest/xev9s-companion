@@ -107,13 +107,15 @@ jobs:
 
       - name: Push image to GHCR
         id: push-step
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           while IFS= read -r tag; do
             if [ -n "$tag" ]; then
               docker push "$tag"
             fi
-          done <<< "${{ steps.meta.outputs.tags }}"
-          FIRST_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+          done <<< "$TAGS"
+          FIRST_TAG=$(echo "$TAGS" | head -n 1)
           DIGEST=$(docker buildx imagetools inspect "$FIRST_TAG" --format "{{.Manifest.Digest}}")
           if [ -z "$DIGEST" ]; then
             DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$FIRST_TAG" | awk -F'@' '{print $2}')
@@ -125,12 +127,17 @@ jobs:
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Record Image Digest
+        env:
+          IMAGE_NAME: ${{ matrix.image_name }}
+          REGISTRY: ${{ env.REGISTRY }}
+          REPOSITORY: ${{ github.repository }}
+          DIGEST: ${{ steps.push-step.outputs.digest }}
         run: |
-          echo "IMAGE_NAME=${{ matrix.image_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image:** \`${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Digest:** \`${{ steps.push-step.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Trivy Scan:** No detected fixable HIGH/CRITICAL vulnerabilities" >> $GITHUB_STEP_SUMMARY
-          echo "- **SBOM:** Generated (\`${{ matrix.image_name }}-sbom.json\`)" >> $GITHUB_STEP_SUMMARY
+          echo "IMAGE_NAME=$IMAGE_NAME" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Image:** \`$REGISTRY/$REPOSITORY/$IMAGE_NAME\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Digest:** \`$DIGEST\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Trivy Scan:** No detected fixable HIGH/CRITICAL vulnerabilities" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **SBOM:** Generated (\`$IMAGE_NAME-sbom.json\`)" >> "$GITHUB_STEP_SUMMARY"
 
 
   # 2. Compile and Publish Flutter Android APK Release Artefact
@@ -191,25 +198,31 @@ jobs:
         env:
           CONTAINERS_RESULT: ${{ needs.build-and-publish-images.result }}
           ANDROID_RESULT: ${{ needs.build-android-apk.result }}
+          COMMIT_SHA: ${{ github.sha }}
+          GIT_REF: ${{ github.ref }}
+          ACTOR: ${{ github.actor }}
+          EVENT_NAME: ${{ github.event_name }}
+          REGISTRY: ${{ env.REGISTRY }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          echo "## 📦 Release Packaging & Container Build Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric / Property | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|:---|:---|" >> $GITHUB_STEP_SUMMARY
-          echo "| **Source Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Branch / Reference** | \`${{ github.ref }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Triggered By** | \`${{ github.actor }}\` via \`${{ github.event_name }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Registry Target** | \`${{ env.REGISTRY }}/${{ github.repository }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Target Images Built** | \`xev9s-flutter-web\`, \`xev9s-backend\`, \`xev9s-vehicle-simulator\`, \`xev9s-report-worker\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Image Vulnerability Scan** | Aquasecurity Trivy (Critical & High Severity Gate) |" >> $GITHUB_STEP_SUMMARY
-          echo "| **SBOM Generation** | Anchore Syft (CycloneDX JSON) |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Mobile Release Artefact** | \`app-release.apk\` (Flutter Android Release) |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Container Images Status** | \`${CONTAINERS_RESULT}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Android APK Status** | \`${ANDROID_RESULT}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> [!NOTE]" >> $GITHUB_STEP_SUMMARY
-          echo "> All application container images are built once and tagged with immutable Git SHA digests for promotion to both **AWS Service Simulation** and **On-Premises Kubernetes** targets." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📦 Release Packaging & Container Build Report" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Metric / Property | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|:---|:---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Source Commit** | \`$COMMIT_SHA\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Branch / Reference** | \`$GIT_REF\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Triggered By** | \`$ACTOR\` via \`$EVENT_NAME\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Registry Target** | \`$REGISTRY/$REPOSITORY\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Target Images Built** | \`xev9s-flutter-web\`, \`xev9s-backend\`, \`xev9s-vehicle-simulator\`, \`xev9s-report-worker\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Image Vulnerability Scan** | Aquasecurity Trivy (Critical & High Severity Gate) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **SBOM Generation** | Anchore Syft (CycloneDX JSON) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Mobile Release Artefact** | \`app-release.apk\` (Flutter Android Release) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Container Images Status** | \`$CONTAINERS_RESULT\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Android APK Status** | \`$ANDROID_RESULT\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "> [!NOTE]" >> "$GITHUB_STEP_SUMMARY"
+          echo "> All application container images are built once and tagged with immutable Git SHA digests for promotion to both **AWS Service Simulation** and **On-Premises Kubernetes** targets." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$CONTAINERS_RESULT" != "success" ] || [ "$ANDROID_RESULT" != "success" ]; then
             echo "Release packaging pipeline did not succeed (Containers: $CONTAINERS_RESULT, Android: $ANDROID_RESULT)."
