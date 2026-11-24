@@ -11,7 +11,6 @@ on:
 permissions:
   contents: read
   packages: write
-  id-token: write
 
 env:
   REGISTRY: ghcr.io
@@ -44,13 +43,13 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -58,7 +57,7 @@ jobs:
 
       - name: Extract metadata and tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image_name }}
           tags: |
@@ -67,19 +66,37 @@ jobs:
             type=ref,event=branch
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
-      - name: Build image locally for scanning
-        uses: docker/build-push-action@v5
+      - name: Build image locally
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           build-args: ${{ matrix.build_args }}
           load: true
-          tags: ${{ matrix.image_name }}:scan-${{ github.sha }}
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ matrix.image_name }}:scan-${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Generate SBOM with Syft
+        uses: anchore/sbom-action@f325610c9f50a54015d37c8d16cb3b0e2c8f4de0 # v0.18.0
+        with:
+          image: ${{ matrix.image_name }}:scan-${{ github.sha }}
+          format: cyclonedx-json
+          output-file: ${{ matrix.image_name }}-sbom.json
+
+      - name: Upload SBOM artefact
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        if: always() && hashFiles(format('{0}-sbom.json', matrix.image_name)) != ''
+        with:
+          name: ${{ matrix.image_name }}-sbom
+          path: ${{ matrix.image_name }}-sbom.json
+          retention-days: 14
+
       - name: Run Trivy container image scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           image-ref: ${{ matrix.image_name }}:scan-${{ github.sha }}
           format: 'table'
@@ -88,37 +105,31 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
 
-      - name: Generate SBOM with Syft
-        uses: anchore/sbom-action@v0
-        with:
-          image: ${{ matrix.image_name }}:scan-${{ github.sha }}
-          format: cyclonedx-json
-          output-file: ${{ matrix.image_name }}-sbom.json
-
-      - name: Upload SBOM artefact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.image_name }}-sbom
-          path: ${{ matrix.image_name }}-sbom.json
-          retention-days: 14
-
       - name: Push image to GHCR
         id: push-step
-        uses: docker/build-push-action@v5
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
-          build-args: ${{ matrix.build_args }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+        run: |
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then
+              docker push "$tag"
+            fi
+          done <<< "${{ steps.meta.outputs.tags }}"
+          FIRST_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n 1)
+          DIGEST=$(docker buildx imagetools inspect "$FIRST_TAG" --format "{{.Manifest.Digest}}")
+          if [ -z "$DIGEST" ]; then
+            DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$FIRST_TAG" | awk -F'@' '{print $2}')
+          fi
+          if [ -z "$DIGEST" ]; then
+            echo "Failed to capture remote GHCR digest for $FIRST_TAG"
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Record Image Digest
         run: |
           echo "IMAGE_NAME=${{ matrix.image_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** \`${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Digest:** \`${{ steps.push-step.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Trivy Scan:** Passed (0 Critical/High unfixed CVEs)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trivy Scan:** No detected fixable HIGH/CRITICAL vulnerabilities" >> $GITHUB_STEP_SUMMARY
           echo "- **SBOM:** Generated (\`${{ matrix.image_name }}-sbom.json\`)" >> $GITHUB_STEP_SUMMARY
 
 
@@ -132,16 +143,16 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Set up Flutter SDK
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: '3.50.0'
           channel: 'stable'
@@ -158,7 +169,7 @@ jobs:
             --dart-define=REALTIME_MODE=ws
 
       - name: Upload Android APK Artefact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: xev9s-companion-android-apk
           path: frontend/xev9s_app/build/app/outputs/flutter-apk/app-release.apk
@@ -177,6 +188,9 @@ jobs:
 
     steps:
       - name: Publish Summary to GitHub Actions
+        env:
+          CONTAINERS_RESULT: ${{ needs.build-and-publish-images.result }}
+          ANDROID_RESULT: ${{ needs.build-android-apk.result }}
         run: |
           echo "## 📦 Release Packaging & Container Build Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -190,6 +204,14 @@ jobs:
           echo "| **Image Vulnerability Scan** | Aquasecurity Trivy (Critical & High Severity Gate) |" >> $GITHUB_STEP_SUMMARY
           echo "| **SBOM Generation** | Anchore Syft (CycloneDX JSON) |" >> $GITHUB_STEP_SUMMARY
           echo "| **Mobile Release Artefact** | \`app-release.apk\` (Flutter Android Release) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Container Images Status** | \`${CONTAINERS_RESULT}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Android APK Status** | \`${ANDROID_RESULT}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "> [!NOTE]" >> $GITHUB_STEP_SUMMARY
           echo "> All application container images are built once and tagged with immutable Git SHA digests for promotion to both **AWS Service Simulation** and **On-Premises Kubernetes** targets." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$CONTAINERS_RESULT" != "success" ] || [ "$ANDROID_RESULT" != "success" ]; then
+            echo "Release packaging pipeline did not succeed (Containers: $CONTAINERS_RESULT, Android: $ANDROID_RESULT)."
+            exit 1
+          fi
