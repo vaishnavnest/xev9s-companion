@@ -13,8 +13,8 @@ class UserSummary extends Equatable {
   final String email;
 
   factory UserSummary.fromJson(Map<String, dynamic> json) {
-    final userId = json['userId'] as String?;
-    final name = json['name'] as String?;
+    final userId = (json['userId'] ?? json['id']) as String?;
+    final name = (json['name'] ?? json['full_name']) as String?;
     final email = json['email'] as String?;
 
     if (userId == null || userId.isEmpty) {

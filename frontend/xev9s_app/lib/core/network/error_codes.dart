@@ -37,6 +37,20 @@ enum ApiErrorCode {
     }
     return ApiErrorCode.unknown;
   }
+
+  /// Maps an HTTP status code to an appropriate [ApiErrorCode] fallback.
+  static ApiErrorCode fromHttpStatus(int? status) {
+    return switch (status) {
+      400 => ApiErrorCode.validationError,
+      401 => ApiErrorCode.unauthenticated,
+      403 => ApiErrorCode.forbidden,
+      404 => ApiErrorCode.notFound,
+      409 => ApiErrorCode.duplicateEmail,
+      422 => ApiErrorCode.validationError,
+      503 => ApiErrorCode.serviceUnavailable,
+      _ => ApiErrorCode.unknown,
+    };
+  }
 }
 
 extension _StringCaseExtension on String {

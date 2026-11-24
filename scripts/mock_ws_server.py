@@ -165,16 +165,21 @@ class WebSocketHandler(socketserver.StreamRequestHandler):
         if not request_line or 'GET' not in request_line:
             return
 
-        # Extract vehicleId from query string (?token=...&vehicleId=...)
+        # Extract vehicleId from path or query string (/ws/vehicles/{vehicle_id} or ?vehicleId=...)
         vehicle_id = "veh_mock_9s_01"
         try:
             req_parts = request_line.split()
             if len(req_parts) >= 2:
                 req_path = req_parts[1]
                 parsed = urllib.parse.urlparse(req_path)
-                qs = urllib.parse.parse_qs(parsed.query)
-                if 'vehicleId' in qs and qs['vehicleId'] and qs['vehicleId'][0].strip():
-                    vehicle_id = qs['vehicleId'][0].strip()
+                if '/ws/vehicles/' in parsed.path:
+                    parts = parsed.path.split('/ws/vehicles/')[1].split('/')
+                    if parts and parts[0]:
+                        vehicle_id = parts[0]
+                else:
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    if 'vehicleId' in qs and qs['vehicleId'] and qs['vehicleId'][0].strip():
+                        vehicle_id = qs['vehicleId'][0].strip()
         except Exception:
             pass
 
@@ -347,26 +352,41 @@ def ticker():
 def _build_status_payload(s: dict, vehicle_id: str = "veh_mock_9s_01") -> dict:
     """Build a full vehicle.status data payload from current state dict."""
     battery_pct = s["batteryPercent"]
+    now_iso = datetime.now(timezone.utc).isoformat()
     return {
         "vehicleId": vehicle_id,
+        "vehicle_id": vehicle_id,
         "name": s.get("name", "My XEV 9S"),
         "model": s.get("model", "XEV 9S AWD Performance"),
         "vehicleState": s["vehicleState"],
+        "operating_state": s["vehicleState"],
         "connectivity": "ONLINE" if s["isOnline"] else "OFFLINE",
         "battery": {
             "percent": battery_pct,
             "level": "WARNING" if battery_pct <= 20 else "NORMAL",
         },
+        "battery_percentage": battery_pct,
         "range": {"estimatedKm": round(battery_pct * 4.8, 1)},
+        "estimated_range_km": round(battery_pct * 4.8, 1),
         "odometerKm": s.get("odometerKm", 12874.3),
+        "odometer_km": s.get("odometerKm", 12874.3),
         "speedKmh": s["speed"],
+        "speed_kph": s["speed"],
+        "latitude": 12.9716,
+        "longitude": 77.5946,
         "lockState": s.get("lockState", "LOCKED"),
+        "is_locked": s.get("lockState") == "LOCKED",
         "preconditioningState": s.get("preconditioningState", "INACTIVE"),
+        "cabin_preconditioning_active": s.get("preconditioningState") == "ACTIVE",
         "charging": {
             "state": s["chargingState"],
             "powerKw": s["powerKw"],
         },
-        "lastUpdatedAt": datetime.now(timezone.utc).isoformat(),
+        "charging_status": "CHARGING" if s["chargingState"] == "CHARGING" else "DISCONNECTED",
+        "charging_power_kw": s.get("powerKw") or 0.0,
+        "lastUpdatedAt": now_iso,
+        "timestamp": now_iso,
+        "received_at": now_iso,
         "isStale": not s["isOnline"],
     }
 

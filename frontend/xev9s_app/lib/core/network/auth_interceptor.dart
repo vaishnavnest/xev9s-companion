@@ -98,8 +98,11 @@ class AuthInterceptor extends QueuedInterceptor {
 
     final parsedCode = ApiErrorCode.fromString(errorCode);
 
-    // If token is expired, coordinate a single synchronized refresh.
-    if (parsedCode == ApiErrorCode.tokenExpired) {
+    // If token is expired or request returned 401, coordinate a single synchronized refresh.
+    final isExplicitUnauth = parsedCode == ApiErrorCode.unauthenticated &&
+        !(data is Map<String, dynamic> && (data['detail'] as String? ?? '').toLowerCase().contains('token'));
+    final shouldAttemptRefresh = (parsedCode == ApiErrorCode.tokenExpired || statusCode == 401) && !isExplicitUnauth;
+    if (shouldAttemptRefresh) {
       final currentToken = await tokenStorage.getAccessToken();
       final sentHeader = err.requestOptions.headers['Authorization'] as String?;
       final sentToken = sentHeader?.replaceFirst('Bearer ', '').trim();
@@ -188,14 +191,19 @@ class AuthInterceptor extends QueuedInterceptor {
     try {
       final response = await refreshDio.post<Map<String, dynamic>>(
         refreshEndpoint,
-        data: {'refreshToken': refreshToken},
+        data: {
+          'refresh_token': refreshToken,
+          'refreshToken': refreshToken,
+        },
       );
 
       final respBody = response.data;
-      if (respBody != null && respBody['success'] == true) {
-        final authTokens = respBody['data'] as Map<String, dynamic>?;
-        final newAccessToken = authTokens?['accessToken'] as String?;
-        final newRefreshToken = authTokens?['refreshToken'] as String?;
+      if (respBody != null) {
+        final map = (respBody['success'] == true && respBody['data'] is Map<String, dynamic>)
+            ? respBody['data'] as Map<String, dynamic>
+            : respBody;
+        final newAccessToken = (map['access_token'] ?? map['accessToken']) as String?;
+        final newRefreshToken = (map['refresh_token'] ?? map['refreshToken']) as String?;
 
         if (newAccessToken != null && newRefreshToken != null) {
           await tokenStorage.saveTokens(

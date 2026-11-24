@@ -68,10 +68,9 @@ void main() {
     test('associateVehicle trims inputs and returns updated list', () async {
       final client = FakeVehicleApiClient(
         postHandler: (path, body) async {
-          expect(path, equals('/vehicles'));
-          expect(body['vehicleIdentifier'], equals('XEV9S-2026-0002'));
-          expect(body['pairingCode'], equals('123456'));
-          expect(body['name'], equals('Second Car'));
+          expect(path, equals('/vehicles/associate'));
+          expect(body['vehicle_id'], equals('XEV9S-2026-0002'));
+          expect(body['pairing_code'], equals('123456'));
 
           return [
             {

@@ -83,6 +83,7 @@ enum ChargingState {
   static ChargingState fromString(String? value) {
     if (value == null || value.trim().isEmpty) return ChargingState.unknown;
     final normalized = value.trim().toUpperCase();
+    if (normalized == 'DISCONNECTED') return ChargingState.notConnected;
     for (final state in ChargingState.values) {
       if (state.wireValue == normalized) return state;
     }
@@ -272,24 +273,24 @@ class VehicleStatus extends Equatable {
   }
 
   factory VehicleStatus.fromJson(Map<String, dynamic> json) {
-    final vehicleId = json['vehicleId'] as String?;
+    final vehicleId = (json['vehicleId'] ?? json['vehicle_id']) as String?;
     if (vehicleId == null || vehicleId.trim().isEmpty) {
       throw const FormatException('Missing required field: vehicleId');
     }
 
-    final rawVehicleState = json['vehicleState'] as String?;
+    final rawVehicleState = (json['vehicleState'] ?? json['operating_state']) as String?;
     if (rawVehicleState == null) {
       throw const FormatException('Missing required field: vehicleState');
     }
     final vehicleState = VehicleState.fromString(rawVehicleState);
 
-    final rawConnectivity = json['connectivity'] as String?;
+    final rawConnectivity = (json['connectivity'] ?? (json.containsKey('operating_state') ? 'ONLINE' : null)) as String?;
     if (rawConnectivity == null) {
       throw const FormatException('Missing required field: connectivity');
     }
     final connectivity = ConnectivityStatus.fromString(rawConnectivity);
 
-    final rawLastUpdatedAt = json['lastUpdatedAt'] as String?;
+    final rawLastUpdatedAt = (json['lastUpdatedAt'] ?? json['timestamp'] ?? json['received_at']) as String?;
     if (rawLastUpdatedAt == null) {
       throw const FormatException('Missing required field: lastUpdatedAt');
     }
@@ -298,29 +299,67 @@ class VehicleStatus extends Equatable {
       throw FormatException('Invalid ISO-8601 date for lastUpdatedAt: $rawLastUpdatedAt');
     }
 
+    // Battery summary
+    BatterySummary? battery;
+    if (json['battery'] != null) {
+      battery = BatterySummary.fromJson(json['battery'] as Map<String, dynamic>);
+    } else if (json['battery_percentage'] != null || json['batteryPercent'] != null) {
+      final pct = (json['battery_percentage'] ?? json['batteryPercent'] as num?)?.toDouble();
+      battery = BatterySummary(percent: pct);
+    }
+
+    // Range summary
+    RangeSummary? range;
+    if (json['range'] != null) {
+      range = RangeSummary.fromJson(json['range'] as Map<String, dynamic>);
+    } else if (json['estimated_range_km'] != null || json['rangeKm'] != null) {
+      final rkm = (json['estimated_range_km'] ?? json['rangeKm'] as num?)?.toDouble();
+      range = RangeSummary(estimatedKm: rkm);
+    }
+
+    // Odometer & Speed
+    final odometerKm = (json['odometerKm'] ?? json['odometer_km'] as num?)?.toDouble();
+    final speedKmh = (json['speedKmh'] ?? json['speed_kph'] ?? json['speed'] as num?)?.toDouble();
+
+    // Lock state
+    LockState? lockState;
+    if (json['lockState'] != null) {
+      lockState = LockState.fromString(json['lockState'] as String?);
+    } else if (json['is_locked'] != null) {
+      lockState = json['is_locked'] == true ? LockState.locked : LockState.unlocked;
+    }
+
+    // Preconditioning state
+    PreconditioningState? preconditioningState;
+    if (json['preconditioningState'] != null) {
+      preconditioningState = PreconditioningState.fromString(json['preconditioningState'] as String?);
+    } else if (json['cabin_preconditioning_active'] != null) {
+      preconditioningState = json['cabin_preconditioning_active'] == true ? PreconditioningState.active : PreconditioningState.inactive;
+    }
+
+    // Charging summary
+    ChargingSummary? charging;
+    if (json['charging'] != null) {
+      charging = ChargingSummary.fromJson(json['charging'] as Map<String, dynamic>);
+    } else if (json['charging_status'] != null || json['chargingState'] != null || json['charging_power_kw'] != null) {
+      final cState = ChargingState.fromString(json['charging_status'] as String? ?? json['chargingState'] as String?);
+      final pKw = (json['charging_power_kw'] ?? json['powerKw'] as num?)?.toDouble();
+      charging = ChargingSummary(state: cState, powerKw: pKw);
+    }
+
     return VehicleStatus(
       vehicleId: vehicleId,
       name: json['name'] as String?,
       model: json['model'] as String?,
       vehicleState: vehicleState,
       connectivity: connectivity,
-      battery: json['battery'] != null
-          ? BatterySummary.fromJson(json['battery'] as Map<String, dynamic>)
-          : null,
-      range: json['range'] != null
-          ? RangeSummary.fromJson(json['range'] as Map<String, dynamic>)
-          : null,
-      odometerKm: (json['odometerKm'] as num?)?.toDouble(),
-      speedKmh: (json['speedKmh'] as num?)?.toDouble(),
-      lockState: json['lockState'] != null
-          ? LockState.fromString(json['lockState'] as String?)
-          : null,
-      preconditioningState: json['preconditioningState'] != null
-          ? PreconditioningState.fromString(json['preconditioningState'] as String?)
-          : null,
-      charging: json['charging'] != null
-          ? ChargingSummary.fromJson(json['charging'] as Map<String, dynamic>)
-          : null,
+      battery: battery,
+      range: range,
+      odometerKm: odometerKm,
+      speedKmh: speedKmh,
+      lockState: lockState,
+      preconditioningState: preconditioningState,
+      charging: charging,
       lastUpdatedAt: lastUpdatedAt,
       isStale: json['isStale'] as bool? ?? false,
     );

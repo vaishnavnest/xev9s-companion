@@ -28,10 +28,10 @@ class FakeLocationApiClient extends ApiClient {
 
 void main() {
   group('LocationRepository Tests', () {
-    test('getLocation calls GET /vehicles/{id}/location and parses VehicleLocation', () async {
+    test('getLocation calls GET /vehicles/{id}/telemetry/latest and parses VehicleLocation', () async {
       final client = FakeLocationApiClient(
         getHandler: (path, _) async {
-          expect(path, equals('/vehicles/veh_9S0001/location'));
+          expect(path, equals('/vehicles/veh_9S0001/telemetry/latest'));
           return {
             'vehicleId': 'veh_9S0001',
             'latitude': 12.9716,
