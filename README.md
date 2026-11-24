@@ -368,7 +368,7 @@ Serves responses adhering strictly to `docs/openapi.yaml`:
 ```
 
 ### 2. WebSocket Telemetry Mock (Port 4011)
-Simulates vehicle telemetry streams, location coordinates along a route near Bengaluru (12.9716, 77.5946), and connection state transitions:
+Simulates vehicle telemetry streams, location coordinates along a route near Bengaluru (12.9716, 77.5946), connection state transitions, and UC-05 remote command execution lifecycles:
 ```powershell
 .\scripts\start-mock-ws.ps1  # PowerShell
 ./scripts/start-mock-ws.sh   # Bash
@@ -378,6 +378,32 @@ Simulates vehicle telemetry streams, location coordinates along a route near Ben
 - `o`: Simulate vehicle going offline (emits last-known location with `isCurrent: false`).
 - `n`: Return vehicle online.
 - `l`: Inject null coordinates to test the "Location unavailable" (State C) empty state.
+- `s`: Simulate command success for active command (`cmd_7731`) (`SUBMITTED` -> `ACCEPTED` -> `EXECUTING` -> `SUCCEEDED`) and update physical vehicle state.
+- `f`: Simulate command failure (`SUBMITTED` -> `ACCEPTED` -> `EXECUTING` -> `FAILED`) with `failureReason: "EXECUTION_REJECTED_BY_VEHICLE"`.
+- `t`: Simulate command timeout (`SUBMITTED` -> `ACCEPTED` -> `EXECUTING` -> `TIMED_OUT`).
+- `x`: Simulate late `EXECUTING` event on a command that is already final (tests state machine rejection of out-of-order/late events).
+
+---
+
+### 4. Remote Controls (UC-05) Architectural Rules & Constants
+
+The Remote Controls feature controls physical door locks (`LOCK` / `UNLOCK`) and cabin pre-conditioning (`START_PRECONDITIONING` / `STOP_PRECONDITIONING`):
+
+- **Non-Negotiable Correctness Rules**:
+  1. **Zero Optimistic UI Updates**: The UI never assumes lock or climate status changed locally. Lock and climate states change ONLY when the server confirms `SUCCEEDED` and `GET /vehicles/{id}/status` is refreshed.
+  2. **Authoritative Server Truth**: A command is successful only when the server returns `SUCCEEDED`.
+  3. **Strict Status Monotonicity**: A late event received after a final status (`SUCCEEDED`, `FAILED`, `TIMED_OUT`) is strictly rejected and ignored by `CommandStatusMachine`.
+  4. **Active Command Exclusivity**: All control buttons are disabled with reason `"A command is in progress."` while an active command session is in flight.
+  5. **Confirmation Dialogs**: Every action requires explicit user confirmation before dispatching, with high-visibility warnings for `UNLOCK`.
+  6. **Idempotency Guarantee**: Every new intent uses a unique UUID v4 idempotency key; unconfirmed network failures retain the key to allow duplicate-safe retries.
+  7. **State Persistence**: Command tracking is scoped per vehicle, survives page navigation, and auto-resumes if within the resume window.
+
+- **Client Timing Constants (`AppConstants`)**:
+  - `commandPollIntervalSeconds = 2`: Interval for REST polling fallback or disconnected mode.
+  - `commandSilenceBeforeSafetyPollSeconds = 8`: Silence threshold before safety poll in WebSocket mode.
+  - `commandClientWaitLimitSeconds = 60`: Elapsed threshold before displaying *"This is taking longer than expected"*.
+  - `commandResumeWindowMinutes = 5`: Maximum command age eligible for automatic session resumption.
+  - `commandsPageSize = 20`: Page size for paginated command history (`/controls/history`).
 
 ### 3. Manual Telemetry Injector (`scripts/inject.py`)
 Push specific custom telemetry states or location updates to the mock servers on demand:

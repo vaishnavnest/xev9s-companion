@@ -10,6 +10,7 @@ import '../features/auth/presentation/splash_page.dart';
 import '../features/charging/presentation/charging_page.dart';
 import '../features/charging/presentation/charging_sessions_page.dart';
 import '../features/charging/presentation/charging_session_detail_page.dart';
+import '../features/controls/presentation/controls_history_page.dart';
 import '../features/controls/presentation/controls_page.dart';
 import '../features/dashboard/presentation/dashboard_page.dart';
 import '../features/location/presentation/location_page.dart';
@@ -160,6 +161,12 @@ GoRouter createAppRouter({
               GoRoute(
                 path: '/controls',
                 builder: (context, state) => const ControlsPage(),
+                routes: [
+                  GoRoute(
+                    path: 'history',
+                    builder: (context, state) => const ControlsHistoryPage(),
+                  ),
+                ],
               ),
             ],
           ),

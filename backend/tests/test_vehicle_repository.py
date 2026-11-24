@@ -170,3 +170,29 @@ def test_get_user_vehicles_excludes_inactive_associations(
             "association_status": "active",
         }
     )
+
+def test_get_active_vehicle_by_id(repo, mock_collections):
+    vehicles, _ = mock_collections
+    expected_vehicle = {
+        "vehicle_id": "XEV9S-001",
+        "is_active": True,
+    }
+    vehicles.find_one.return_value = expected_vehicle
+
+    result = repo.get_active_vehicle_by_id("XEV9S-001")
+
+    assert result == expected_vehicle
+    vehicles.find_one.assert_called_once_with(
+        {
+            "vehicle_id": "XEV9S-001",
+            "is_active": True,
+        }
+    )
+
+def test_get_active_vehicle_by_id_not_found(repo, mock_collections):
+    vehicles, _ = mock_collections
+    vehicles.find_one.return_value = None
+
+    result = repo.get_active_vehicle_by_id("XEV9S-001")
+
+    assert result is None
