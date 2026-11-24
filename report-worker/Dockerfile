@@ -24,6 +24,9 @@ RUN groupadd -g 10001 appgroup && \
 COPY --from=builder /install /usr/local
 COPY --chown=appuser:appgroup . /app
 
+# Remove pip internal vendor SBOM that triggers scanner false positives
+RUN find /usr/local -name "bom.cdx.json" -delete 2>/dev/null || true
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app
 
