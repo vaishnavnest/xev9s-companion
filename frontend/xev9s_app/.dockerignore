@@ -1,0 +1,14 @@
+.dart_tool/
+.git/
+.github/
+.vscode/
+.idea/
+build/
+android/
+ios/
+windows/
+linux/
+macos/
+coverage/
+*.log
+.DS_Store

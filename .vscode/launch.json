@@ -5,6 +5,29 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "xev9s_app (Emulator + Mock)",
+            "cwd": "frontend\\xev9s_app",
+            "request": "launch",
+            "type": "dart",
+            "toolArgs": [
+                "--dart-define=API_BASE_URL=http://10.0.2.2:4010",
+                "--dart-define=WS_BASE_URL=ws://10.0.2.2:4011",
+                "--dart-define=REALTIME_MODE=ws"
+            ]
+        },
+        {
+            "name": "xev9s_app (Web + Mock)",
+            "cwd": "frontend\\xev9s_app",
+            "request": "launch",
+            "type": "dart",
+            "deviceId": "chrome",
+            "toolArgs": [
+                "--dart-define=API_BASE_URL=http://localhost:4010",
+                "--dart-define=WS_BASE_URL=ws://localhost:4011",
+                "--dart-define=REALTIME_MODE=ws"
+            ]
+        },
+        {
             "name": "xev9s_app",
             "cwd": "frontend\\xev9s_app",
             "request": "launch",

@@ -12,12 +12,11 @@ class Validators {
     return null;
   }
 
-  /// Simple and permissive email validator:
+  /// User-friendly email validator:
   /// - trimmed input
   /// - contains no whitespace
   /// - contains exactly one '@'
-  /// - '@' is not first or last character
-  /// - domain part contains at least one '.' with non-empty parts
+  /// - contains username before '@' and valid domain with '.' after '@'
   static String? email(String? value) {
     if (value == null) {
       return 'Email is required.';
@@ -28,25 +27,81 @@ class Validators {
     }
 
     if (trimmed.contains(' ')) {
-      return 'Please enter a valid email address.';
+      return 'Email address cannot contain spaces.';
+    }
+
+    if (!trimmed.contains('@')) {
+      return "Please include an '@' in the email address (e.g., name@example.com).";
     }
 
     final atParts = trimmed.split('@');
-    if (atParts.length != 2) {
-      return 'Please enter a valid email address.';
+    if (atParts.length > 2) {
+      return "Email address can only contain one '@'.";
     }
 
     final local = atParts[0];
     final domain = atParts[1];
 
-    if (local.isEmpty || domain.isEmpty) {
-      return 'Please enter a valid email address.';
+    if (local.isEmpty) {
+      return "Please enter a username before the '@' (e.g., name@example.com).";
     }
 
-    if (!domain.contains('.') || domain.startsWith('.') || domain.endsWith('.')) {
-      return 'Please enter a valid email address.';
+    if (domain.isEmpty) {
+      return "Please enter a domain after the '@' (e.g., example.com).";
     }
 
+    if (!domain.contains('.')) {
+      return "Please include a domain extension like '.com' (e.g., name@example.com).";
+    }
+
+    if (domain.startsWith('.') || domain.endsWith('.')) {
+      return 'Please enter a valid domain (e.g., example.com).';
+    }
+
+    final domainParts = domain.split('.');
+    if (domainParts.any((part) => part.isEmpty)) {
+      return 'Please enter a valid domain (e.g., example.com).';
+    }
+
+    return null;
+  }
+
+  /// Validates charging target percentage against allowed range.
+  static String? chargingTarget(int? value) {
+    if (value == null) {
+      return 'Charging target is required.';
+    }
+    if (value < AppConstants.chargingTargetMin ||
+        value > AppConstants.chargingTargetMax) {
+      return 'Target must be between ${AppConstants.chargingTargetMin}% and ${AppConstants.chargingTargetMax}%.';
+    }
+    return null;
+  }
+
+  /// Validates charging schedule start and end times.
+  /// Start and end times are required and must not be identical.
+  /// Overnight windows (e.g., 22:00 to 06:00) are valid.
+  static String? scheduleTimes(dynamic start, dynamic end) {
+    if (start == null || end == null) {
+      return 'Start time and end time are required.';
+    }
+    final startStr = start.toString().trim();
+    final endStr = end.toString().trim();
+    if (startStr.isEmpty || endStr.isEmpty) {
+      return 'Start time and end time are required.';
+    }
+    if (startStr == endStr) {
+      return 'Start time and end time cannot be the same.';
+    }
+    return null;
+  }
+
+  /// Validates charging schedule days selection.
+  /// When schedule is enabled, at least one day must be selected.
+  static String? scheduleDays(Iterable<dynamic>? days, bool enabled) {
+    if (enabled && (days == null || days.isEmpty)) {
+      return 'Please select at least one day for the schedule.';
+    }
     return null;
   }
 

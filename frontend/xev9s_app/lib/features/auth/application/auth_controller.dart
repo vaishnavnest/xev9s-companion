@@ -85,13 +85,13 @@ class AuthController extends Notifier<AuthState> {
 
   /// Verifies stored session by calling GET /users/me.
   Future<void> checkSession() async {
-    final token = await _tokenStorage.getAccessToken();
-    if (token == null || token.isEmpty) {
-      state = const AuthUnauthenticated();
-      return;
-    }
-
     try {
+      final token = await _tokenStorage.getAccessToken();
+      if (token == null || token.isEmpty) {
+        state = const AuthUnauthenticated();
+        return;
+      }
+
       final user = await _authRepository.currentUser();
       state = AuthAuthenticated(user);
     } on AppError catch (e) {
@@ -104,8 +104,8 @@ class AuthController extends Notifier<AuthState> {
         // Network error, timeout, or 5xx: DO NOT log out.
         state = AuthStartupFailed(e);
       }
-    } catch (e) {
-      state = AuthStartupFailed(AppError.unknown(e.toString()));
+    } catch (_) {
+      state = const AuthUnauthenticated();
     }
   }
 
@@ -124,8 +124,9 @@ class AuthController extends Notifier<AuthState> {
   Future<void> register(String name, String email, String password) async {
     try {
       final session = await _authRepository.register(name, email, password);
-      ref.invalidate(vehiclesControllerProvider);
+      await ref.read(selectedVehicleProvider.notifier).clear();
       state = AuthAuthenticated(session.user);
+      ref.invalidate(vehiclesControllerProvider);
     } on AppError {
       rethrow;
     }

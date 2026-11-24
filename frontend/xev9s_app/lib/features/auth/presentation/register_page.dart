@@ -32,7 +32,6 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
   String? _generalError;
   Map<String, String> _fieldErrors = {};
   bool _hasUserInteracted = false;
-  bool _isClearingPasswords = false;
 
   @override
   void initState() {
@@ -44,7 +43,6 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
   }
 
   void _onFieldChanged() {
-    if (_isClearingPasswords) return;
     setState(() {
       _generalError = null;
       _fieldErrors = {};
@@ -88,6 +86,14 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
   Future<void> _submit() async {
     setState(() => _hasUserInteracted = true);
+
+    if (!_agreedToTerms) {
+      setState(() {
+        _generalError = 'Please agree to the Terms of Service & Privacy Policy.';
+      });
+      return;
+    }
+
     if (!_formKey.currentState!.validate() || _isLoading) return;
 
     setState(() {
@@ -98,8 +104,8 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
 
     try {
       await ref.read(authControllerProvider.notifier).register(
-            _nameController.text,
-            _emailController.text,
+            _nameController.text.trim(),
+            _emailController.text.trim(),
             _passwordController.text,
           );
     } on AppError catch (e) {
@@ -112,19 +118,11 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
           _fieldErrors = e.fieldErrors;
         }
       });
-      _isClearingPasswords = true;
-      _passwordController.clear();
-      _confirmPasswordController.clear();
-      _isClearingPasswords = false;
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _generalError = 'Something went wrong. Please try again.';
       });
-      _isClearingPasswords = true;
-      _passwordController.clear();
-      _confirmPasswordController.clear();
-      _isClearingPasswords = false;
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -337,6 +335,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                       key: const Key('register-email'),
                       controller: _emailController,
                       focusNode: _emailFocusNode,
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
                       style: const TextStyle(
@@ -349,6 +348,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                           color: Color(0xFF94A3B8),
                           fontSize: 14,
                         ),
+                        errorMaxLines: 2,
                         filled: true,
                         fillColor: Colors.white,
                         prefixIcon: const Icon(
@@ -715,7 +715,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),
-                          elevation: (_isFormInputValid && !_isLoading) ? 3 : 0,
+                          elevation: _isLoading ? 0 : 3,
                           shadowColor: const Color(0xFF00BCD4).withValues(alpha: 0.35),
                         ),
                         child: _isLoading

@@ -1,0 +1,523 @@
+"""
+Pure Python Mock WebSocket Server for XEV 9S Companion.
+Requires no external dependencies (built on Python standard library socketserver/hashlib/base64).
+Listens on port 4011 at /ws?token=...&vehicleId=...
+Simulates:
+- Periodic vehicle.status telemetry broadcasts every 3 seconds
+- Periodic charging.updated broadcasts every 15 seconds
+- Connectivity toggles every 30 seconds
+
+POST http://localhost:4012/control  — inject a custom WS broadcast:
+  {"event": "vehicle.status", "battery": 15.0, "vehicleState": "DRIVING",
+   "speedKmh": 90.0, "isOnline": true, "chargingState": "CHARGING", "powerKw": 48.5}
+"""
+
+import base64
+import hashlib
+import json
+import socket
+import socketserver
+import threading
+import time
+import urllib.parse
+from datetime import datetime, timezone
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+
+PORT = 4011
+CONTROL_PORT = 4012
+GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+ROUTE_WAYPOINTS = [
+    {"lat": 12.9716, "lng": 77.5946, "desc": "MG Road, Bengaluru"},
+    {"lat": 12.9724, "lng": 77.5958, "desc": "Brigade Road Junction, Bengaluru"},
+    {"lat": 12.9735, "lng": 77.5975, "desc": "Residency Road, Bengaluru"},
+    {"lat": 12.9748, "lng": 77.5992, "desc": "Mayo Hall, MG Road, Bengaluru"},
+    {"lat": 12.9759, "lng": 77.6010, "desc": "Trinity Circle, Bengaluru"},
+    {"lat": 12.9742, "lng": 77.5985, "desc": "Webbs Ground, Bengaluru"},
+    {"lat": 12.9729, "lng": 77.5962, "desc": "Church Street, Bengaluru"},
+]
+route_idx = 0
+last_loc = {
+    "latitude": 12.9716,
+    "longitude": 77.5946,
+    "description": "MG Road, Bengaluru",
+    "nullLocation": False,
+}
+
+clients = set()
+client_subscriptions = {}  # socket -> vehicle_id string
+clients_lock = threading.Lock()
+
+vehicle_states = {
+    "veh_mock_9s_01": {
+        "vehicleId": "veh_mock_9s_01",
+        "name": "My XEV 9S",
+        "model": "XEV 9S AWD Performance",
+        "vehicleState": "PARKED",
+        "isOnline": True,
+        "batteryPercent": 64.0,
+        "speed": 0.0,
+        "odometerKm": 12874.3,
+        "lockState": "LOCKED",
+        "preconditioningState": "INACTIVE",
+        "chargingState": "CONNECTED",
+        "powerKw": 0.0,
+        "targetPercent": 80,
+        "sessionDurationSeconds": None,
+        "currentSessionId": None,
+        "schedule": {
+            "enabled": True,
+            "startTime": "22:00",
+            "endTime": "06:00",
+            "daysOfWeek": ["MON", "TUE", "WED", "THU", "FRI"],
+        },
+    },
+    "veh_mock_9s_02": {
+        "vehicleId": "veh_mock_9s_02",
+        "name": "Asha's City Cruiser",
+        "model": "XEV 9S Long Range RWD",
+        "vehicleState": "CHARGING",
+        "isOnline": True,
+        "batteryPercent": 42.0,
+        "speed": 0.0,
+        "odometerKm": 5420.8,
+        "lockState": "LOCKED",
+        "preconditioningState": "ACTIVE",
+        "chargingState": "CHARGING",
+        "powerKw": 48.5,
+        "targetPercent": 90,
+        "sessionDurationSeconds": 1800,
+        "currentSessionId": "chs_mock_003",
+        "schedule": {
+            "enabled": False,
+            "startTime": "00:00",
+            "endTime": "06:00",
+            "daysOfWeek": ["SAT", "SUN"],
+        },
+    },
+}
+
+state = vehicle_states["veh_mock_9s_01"]
+state_lock = threading.Lock()
+
+def _get_vehicle_state(vid: str) -> dict:
+    if vid in vehicle_states:
+        return vehicle_states[vid]
+    return vehicle_states["veh_mock_9s_01"]
+
+def make_frame(payload_str: str) -> bytes:
+    payload_bytes = payload_str.encode('utf-8')
+    length = len(payload_bytes)
+    if length < 126:
+        header = bytes([0x81, length])
+    elif length <= 65535:
+        header = bytes([0x81, 126, (length >> 8) & 0xFF, length & 0xFF])
+    else:
+        header = bytes([0x81, 127]) + length.to_bytes(8, byteorder='big')
+    return header + payload_bytes
+
+def broadcast(event_name: str, data_or_builder, vehicle_id: str = None):
+    """
+    Broadcast an event to connected clients.
+    If vehicle_id is provided, only clients subscribed to that vehicle_id receive it.
+    If vehicle_id is None, each client receives a payload addressed to its own subscribed vehicleId.
+    data_or_builder can be a dict, or a callable: fn(target_vid: str) -> dict.
+    """
+    with clients_lock:
+        to_remove = set()
+        for client in list(clients):
+            client_vid = client_subscriptions.get(client, "veh_mock_9s_01")
+
+            # If a specific vehicle_id is targeted and doesn't match this client's subscription, skip
+            if vehicle_id is not None and vehicle_id != client_vid:
+                continue
+
+            target_vid = vehicle_id or client_vid
+
+            if callable(data_or_builder):
+                client_data = data_or_builder(target_vid)
+            else:
+                client_data = dict(data_or_builder)
+                if "vehicleId" in client_data:
+                    client_data["vehicleId"] = target_vid
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            message = json.dumps({
+                "event": event_name,
+                "vehicleId": target_vid,
+                "timestamp": now_iso,
+                "data": client_data,
+            })
+            frame = make_frame(message)
+            try:
+                client.sendall(frame)
+            except Exception:
+                to_remove.add(client)
+
+        for dead in to_remove:
+            clients.discard(dead)
+            client_subscriptions.pop(dead, None)
+
+class WebSocketHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        # Read HTTP Upgrade Handshake
+        request_line = self.rfile.readline().decode('utf-8', errors='ignore')
+        if not request_line or 'GET' not in request_line:
+            return
+
+        # Extract vehicleId from query string (?token=...&vehicleId=...)
+        vehicle_id = "veh_mock_9s_01"
+        try:
+            req_parts = request_line.split()
+            if len(req_parts) >= 2:
+                req_path = req_parts[1]
+                parsed = urllib.parse.urlparse(req_path)
+                qs = urllib.parse.parse_qs(parsed.query)
+                if 'vehicleId' in qs and qs['vehicleId'] and qs['vehicleId'][0].strip():
+                    vehicle_id = qs['vehicleId'][0].strip()
+        except Exception:
+            pass
+
+        headers = {}
+        while True:
+            line = self.rfile.readline().decode('utf-8', errors='ignore').strip()
+            if not line:
+                break
+            if ':' in line:
+                k, v = line.split(':', 1)
+                headers[k.strip().lower()] = v.strip()
+
+        key = headers.get('sec-websocket-key')
+        if not key:
+            self.wfile.write(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+            return
+
+        # Handshake response
+        accept_val = base64.b64encode(hashlib.sha1((key + GUID).encode()).digest()).decode()
+        response = (
+            "HTTP/1.1 101 Switching Protocols\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Accept: {accept_val}\r\n"
+            "\r\n"
+        )
+        self.wfile.write(response.encode('utf-8'))
+        self.wfile.flush()
+
+        print(f"[MockWS] Client connected from {self.client_address} (subscribed to vehicleId={vehicle_id})")
+        with clients_lock:
+            clients.add(self.request)
+            client_subscriptions[self.request] = vehicle_id
+
+        # Send initial status frame immediately upon connect — tailored to this client's vehicleId
+        with state_lock:
+            s = dict(_get_vehicle_state(vehicle_id))
+        now_iso = datetime.now(timezone.utc).isoformat()
+        self.request.sendall(make_frame(json.dumps({
+            "event": "vehicle.status",
+            "vehicleId": vehicle_id,
+            "timestamp": now_iso,
+            "data": _build_status_payload(s, vehicle_id=vehicle_id),
+        })))
+
+        try:
+            while True:
+                # Keep socket open and consume incoming frames / pings
+                b1_b2 = self.rfile.read(2)
+                if not b1_b2 or len(b1_b2) < 2:
+                    break
+                opcode = b1_b2[0] & 0x0F
+                if opcode == 0x08:  # Close frame
+                    break
+                length = b1_b2[1] & 0x7F
+                if length == 126:
+                    length = int.from_bytes(self.rfile.read(2), 'big')
+                elif length == 127:
+                    length = int.from_bytes(self.rfile.read(8), 'big')
+                # Read mask and payload
+                mask = self.rfile.read(4)
+                payload = self.rfile.read(length)
+                if opcode == 0x09:  # Ping -> reply Pong
+                    self.request.sendall(bytes([0x8A, 0x00]))
+        except Exception:
+            pass
+        finally:
+            with clients_lock:
+                clients.discard(self.request)
+                client_subscriptions.pop(self.request, None)
+            print(f"[MockWS] Client disconnected from {self.client_address}")
+
+class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
+
+def ticker():
+    status_counter = 0
+    while True:
+        time.sleep(3)
+        status_counter += 1
+        with clients_lock:
+            has_clients = len(clients) > 0
+
+        if not has_clients:
+            continue
+
+        just_went_offline = False
+        with state_lock:
+            for vid, v_state in vehicle_states.items():
+                if not v_state.get("isOnline", True):
+                    continue
+                # Battery drain while driving
+                if v_state.get("vehicleState") == "DRIVING":
+                    new_battery = round(v_state["batteryPercent"] - 0.1, 1)
+                    if new_battery <= 0.0:
+                        v_state["batteryPercent"] = 0.0
+                        v_state["speed"] = 0.0
+                        v_state["vehicleState"] = "OFFLINE"
+                        v_state["isOnline"] = False
+                        if vid == "veh_mock_9s_01":
+                            just_went_offline = True
+                    else:
+                        v_state["batteryPercent"] = new_battery
+                        v_state["speed"] = v_state.get("speed", 42.0) or 42.0
+                # Battery charge increase while charging
+                elif v_state.get("chargingState") == "CHARGING" or v_state.get("vehicleState") == "CHARGING":
+                    target = float(v_state.get("targetPercent") or 80)
+                    current_bat = float(v_state.get("batteryPercent", 50.0))
+                    if current_bat < target:
+                        v_state["batteryPercent"] = round(min(target, current_bat + 0.2), 1)
+                        if v_state.get("powerKw") is None or v_state.get("powerKw", 0.0) == 0.0:
+                            v_state["powerKw"] = 48.5 if vid == "veh_mock_9s_02" else 11.2
+                        if v_state.get("sessionDurationSeconds") is not None:
+                            v_state["sessionDurationSeconds"] += 3
+                        else:
+                            v_state["sessionDurationSeconds"] = 3
+                    elif current_bat >= target:
+                        v_state["chargingState"] = "COMPLETED"
+                        if v_state.get("vehicleState") == "CHARGING":
+                            v_state["vehicleState"] = "PARKED"
+                        v_state["powerKw"] = 0.0
+                else:
+                    v_state["speed"] = 0.0
+            s = dict(state)
+
+        if just_went_offline:
+            print("[MockWS] Battery reached 0.0%! Vehicle shut down and is now OFFLINE.")
+            broadcast("connectivity.changed", lambda vid: {
+                "status": "OFFLINE",
+                "lastCommunicationAt": datetime.now(timezone.utc).isoformat(),
+            })
+
+        # Full vehicle.status broadcast — sent to each client using its subscribed vehicleId
+        broadcast("vehicle.status", lambda vid: _build_status_payload(dict(_get_vehicle_state(vid)), vehicle_id=vid))
+
+        # Vehicle location update every 3-4s
+        global route_idx
+        with state_lock:
+            is_online = state["isOnline"]
+            veh_state = state["vehicleState"]
+            if is_online and veh_state == "DRIVING" and not last_loc.get("nullLocation"):
+                pt = ROUTE_WAYPOINTS[route_idx % len(ROUTE_WAYPOINTS)]
+                route_idx += 1
+                last_loc["latitude"] = pt["lat"]
+                last_loc["longitude"] = pt["lng"]
+                last_loc["description"] = pt["desc"]
+
+        broadcast("vehicle.location", lambda vid: {
+            "vehicleId": vid,
+            "latitude": None if last_loc.get("nullLocation") else (last_loc["latitude"] if vid == "veh_mock_9s_01" else 12.9352),
+            "longitude": None if last_loc.get("nullLocation") else (last_loc["longitude"] if vid == "veh_mock_9s_01" else 77.6245),
+            "description": None if last_loc.get("nullLocation") else (last_loc["description"] if vid == "veh_mock_9s_01" else "Koramangala 4th Block, Bengaluru"),
+            "vehicleState": "OFFLINE" if not _get_vehicle_state(vid)["isOnline"] else _get_vehicle_state(vid)["vehicleState"],
+            "reportedAt": datetime.now(timezone.utc).isoformat(),
+            "isCurrent": _get_vehicle_state(vid)["isOnline"] and not last_loc.get("nullLocation"),
+        })
+
+        # Charging telemetry broadcast every tick (3s) for responsive live updates
+        broadcast("charging.updated", lambda vid: {
+            "state": _get_vehicle_state(vid)["chargingState"],
+            "batteryPercent": _get_vehicle_state(vid)["batteryPercent"],
+            "targetPercent": _get_vehicle_state(vid).get("targetPercent", 80),
+            "powerKw": _get_vehicle_state(vid)["powerKw"],
+            "sessionDurationSeconds": _get_vehicle_state(vid).get("sessionDurationSeconds"),
+            "schedule": _get_vehicle_state(vid).get("schedule"),
+            "currentSessionId": _get_vehicle_state(vid).get("currentSessionId"),
+        })
+
+
+def _build_status_payload(s: dict, vehicle_id: str = "veh_mock_9s_01") -> dict:
+    """Build a full vehicle.status data payload from current state dict."""
+    battery_pct = s["batteryPercent"]
+    return {
+        "vehicleId": vehicle_id,
+        "name": s.get("name", "My XEV 9S"),
+        "model": s.get("model", "XEV 9S AWD Performance"),
+        "vehicleState": s["vehicleState"],
+        "connectivity": "ONLINE" if s["isOnline"] else "OFFLINE",
+        "battery": {
+            "percent": battery_pct,
+            "level": "WARNING" if battery_pct <= 20 else "NORMAL",
+        },
+        "range": {"estimatedKm": round(battery_pct * 4.8, 1)},
+        "odometerKm": s.get("odometerKm", 12874.3),
+        "speedKmh": s["speed"],
+        "lockState": s.get("lockState", "LOCKED"),
+        "preconditioningState": s.get("preconditioningState", "INACTIVE"),
+        "charging": {
+            "state": s["chargingState"],
+            "powerKw": s["powerKw"],
+        },
+        "lastUpdatedAt": datetime.now(timezone.utc).isoformat(),
+        "isStale": not s["isOnline"],
+    }
+
+state["vehicleState"] = "PARKED"
+
+# ── HTTP Control Server on port 4012 ─────────────────────────────────────────
+class ControlHandler(BaseHTTPRequestHandler):
+    """Accepts POST /control to update state and trigger an immediate broadcast."""
+
+    def _cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._cors()
+        self.end_headers()
+
+    def do_GET(self):
+        # GET /control/state → read current state
+        with state_lock:
+            body = json.dumps({"state": dict(state)}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self._cors()
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        payload = json.loads(self.rfile.read(length)) if length else {}
+
+        event = payload.get("event", "vehicle.status")
+        target_vid = payload.get("vehicleId") or "veh_mock_9s_01"
+
+        with state_lock:
+            s_target = _get_vehicle_state(target_vid)
+            if "battery"              in payload: s_target["batteryPercent"]      = float(payload["battery"])
+            if "speedKmh"             in payload:
+                s_target["speed"] = float(payload["speedKmh"])
+                if "vehicleState" not in payload:
+                    if s_target["speed"] > 0:
+                        s_target["vehicleState"] = "DRIVING"
+                    elif s_target["vehicleState"] == "DRIVING":
+                        s_target["vehicleState"] = "PARKED"
+                if s_target["speed"] > 0 and "chargingState" not in payload:
+                    s_target["chargingState"] = "NOT_CONNECTED"
+                    s_target["powerKw"] = None
+                    s_target["sessionDurationSeconds"] = None
+                    s_target["currentSessionId"] = None
+            if "isOnline"             in payload: s_target["isOnline"]            = bool(payload["isOnline"])
+            if "vehicleState"         in payload:
+                s_target["vehicleState"]        = payload["vehicleState"]
+                if s_target["vehicleState"] == "DRIVING" and "chargingState" not in payload:
+                    s_target["chargingState"] = "NOT_CONNECTED"
+                    s_target["powerKw"] = None
+                    s_target["sessionDurationSeconds"] = None
+                    s_target["currentSessionId"] = None
+            if "chargingState"        in payload: s_target["chargingState"]       = payload["chargingState"]
+            if "powerKw"              in payload: s_target["powerKw"]             = payload["powerKw"]
+            if "lockState"            in payload: s_target["lockState"]           = payload["lockState"]
+            if "preconditioningState" in payload: s_target["preconditioningState"]= payload["preconditioningState"]
+            if "odometerKm"           in payload: s_target["odometerKm"]          = float(payload["odometerKm"])
+            if "targetPercent"        in payload: s_target["targetPercent"]       = int(payload["targetPercent"]) if payload["targetPercent"] is not None else None
+            if "schedule"             in payload: s_target["schedule"]            = payload["schedule"]
+
+            # Harmonize charging state & vehicle state
+            if s_target.get("chargingState") == "CHARGING" and "vehicleState" not in payload:
+                s_target["vehicleState"] = "CHARGING"
+            elif s_target.get("vehicleState") == "CHARGING" and "chargingState" not in payload:
+                s_target["chargingState"] = "CHARGING"
+
+            s = dict(s_target)
+
+        # Build and broadcast the right event immediately
+        if event == "connectivity.changed":
+            broadcast("connectivity.changed", lambda vid: {
+                "status": "ONLINE" if s["isOnline"] else "OFFLINE",
+                "lastCommunicationAt": datetime.now(timezone.utc).isoformat(),
+            }, vehicle_id=target_vid)
+            # Also send a full vehicle.status so the app updates all telemetry fields
+            broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid), vehicle_id=target_vid)
+        elif event == "charging.updated" or "targetPercent" in payload or "chargingState" in payload or "schedule" in payload:
+            broadcast("charging.updated", lambda vid: {
+                "state": s["chargingState"],
+                "batteryPercent": s["batteryPercent"],
+                "targetPercent": s.get("targetPercent", 80),
+                "powerKw": s["powerKw"],
+                "sessionDurationSeconds": s.get("sessionDurationSeconds"),
+                "schedule": s.get("schedule"),
+                "currentSessionId": s.get("currentSessionId"),
+            }, vehicle_id=target_vid)
+            if "chargingState" in payload or "battery" in payload:
+                broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid), vehicle_id=target_vid)
+        elif event == "vehicle.location":
+            if "nullLocation" in payload:
+                last_loc["nullLocation"] = bool(payload["nullLocation"])
+            broadcast("vehicle.location", lambda vid: {
+                "vehicleId": vid,
+                "latitude": None if last_loc.get("nullLocation") else last_loc["latitude"],
+                "longitude": None if last_loc.get("nullLocation") else last_loc["longitude"],
+                "description": None if last_loc.get("nullLocation") else last_loc["description"],
+                "vehicleState": "OFFLINE" if not s["isOnline"] else s["vehicleState"],
+                "reportedAt": datetime.now(timezone.utc).isoformat(),
+                "isCurrent": s["isOnline"] and not last_loc.get("nullLocation"),
+            }, vehicle_id=target_vid)
+        else:  # default: vehicle.status — full payload with all telemetry fields
+            broadcast("vehicle.status", lambda vid: _build_status_payload(s, vehicle_id=vid), vehicle_id=target_vid)
+            if s["vehicleState"] == "DRIVING":
+                broadcast("charging.updated", lambda vid: {
+                    "state": "NOT_CONNECTED",
+                    "batteryPercent": s["batteryPercent"],
+                    "targetPercent": s.get("targetPercent", 80),
+                    "powerKw": None,
+                    "sessionDurationSeconds": None,
+                    "schedule": s.get("schedule"),
+                    "currentSessionId": None,
+                }, vehicle_id=target_vid)
+
+        print(f"[ControlServer] Broadcast '{event}' (target_vid={target_vid}) → state: {s}")
+        import sys; sys.stdout.flush()
+
+        resp = json.dumps({"ok": True, "event": event, "state": s}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(resp)))
+        self._cors()
+        self.end_headers()
+        self.wfile.write(resp)
+
+    def log_message(self, fmt, *args):
+        pass  # silence access logs
+
+
+if __name__ == '__main__':
+    t = threading.Thread(target=ticker, daemon=True)
+    t.start()
+
+    # Start HTTP control server on port 4012
+    control_server = ThreadingHTTPServer(('0.0.0.0', CONTROL_PORT), ControlHandler)
+    ct = threading.Thread(target=control_server.serve_forever, daemon=True)
+    ct.start()
+    print(f"XEV 9S Mock WebSocket Server  → ws://127.0.0.1:{PORT}/ws")
+    print(f"XEV 9S Mock Control Endpoint  → http://127.0.0.1:{CONTROL_PORT}/control")
+    print("Broadcasting live telemetry on port 4011...")
+
+    ws_server = ThreadedTCPServer(('0.0.0.0', PORT), WebSocketHandler)
+    try:
+        ws_server.serve_forever()
+    except KeyboardInterrupt:
+        ws_server.server_close()
+        control_server.server_close()

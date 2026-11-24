@@ -16,14 +16,14 @@ void main() {
       expect(Validators.email(null), equals('Email is required.'));
       expect(Validators.email(''), equals('Email is required.'));
       expect(Validators.email('   '), equals('Email is required.'));
-      expect(Validators.email('plainaddress'), equals('Please enter a valid email address.'));
-      expect(Validators.email('@missinglocal.com'), equals('Please enter a valid email address.'));
-      expect(Validators.email('missingdomain@'), equals('Please enter a valid email address.'));
-      expect(Validators.email('two@@at.com'), equals('Please enter a valid email address.'));
-      expect(Validators.email('has space@domain.com'), equals('Please enter a valid email address.'));
-      expect(Validators.email('domain@nodot'), equals('Please enter a valid email address.'));
-      expect(Validators.email('user@.leadingdot.com'), equals('Please enter a valid email address.'));
-      expect(Validators.email('user@trailingdot.'), equals('Please enter a valid email address.'));
+      expect(Validators.email('plainaddress'), equals("Please include an '@' in the email address (e.g., name@example.com)."));
+      expect(Validators.email('@missinglocal.com'), equals("Please enter a username before the '@' (e.g., name@example.com)."));
+      expect(Validators.email('missingdomain@'), equals("Please enter a domain after the '@' (e.g., example.com)."));
+      expect(Validators.email('two@@at.com'), equals("Email address can only contain one '@'."));
+      expect(Validators.email('has space@domain.com'), equals('Email address cannot contain spaces.'));
+      expect(Validators.email('domain@nodot'), equals("Please include a domain extension like '.com' (e.g., name@example.com)."));
+      expect(Validators.email('user@.leadingdot.com'), equals('Please enter a valid domain (e.g., example.com).'));
+      expect(Validators.email('user@trailingdot.'), equals('Please enter a valid domain (e.g., example.com).'));
 
       // Valid emails
       expect(Validators.email('owner@example.com'), isNull);

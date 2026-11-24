@@ -36,10 +36,47 @@ class AppConfig {
 
   /// Base URL for WebSocket connections.
   /// Injected at compile time via `--dart-define=WS_BASE_URL=...`.
-  /// Default points to the local mock server (note: Prism does not support
-  /// WebSocket, so this is a placeholder for future use).
+  /// Default points to the local mock WebSocket server on port 4011.
   static const wsBaseUrl = String.fromEnvironment(
     'WS_BASE_URL',
-    defaultValue: 'ws://localhost:4010',
+    defaultValue: 'ws://localhost:4011',
   );
+
+  /// Raw realtime communication mode: 'ws' (WebSocket) or 'polling'.
+  /// Injected via `--dart-define=REALTIME_MODE=...`.
+  static const String rawRealtimeMode = String.fromEnvironment(
+    'REALTIME_MODE',
+    defaultValue: 'ws',
+  );
+
+  /// Validated realtime mode (defaults to WebSocket for any unrecognized value).
+  static RealtimeMode get realtimeMode {
+    if (rawRealtimeMode.trim().toLowerCase() == 'polling') {
+      return RealtimeMode.polling;
+    }
+    return RealtimeMode.ws;
+  }
+
+  /// Interval in seconds for fallback polling mode.
+  /// Injected via `--dart-define=POLL_INTERVAL_SECONDS=...`.
+  static const int pollIntervalSeconds = int.fromEnvironment(
+    'POLL_INTERVAL_SECONDS',
+    defaultValue: 10,
+  );
+
+  /// OpenStreetMap tile URL template.
+  /// Injected via `--dart-define=MAP_TILE_URL=...`.
+  static const String mapTileUrl = String.fromEnvironment(
+    'MAP_TILE_URL',
+    defaultValue: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  );
+
+  /// User-Agent package name identifier for OpenStreetMap tile requests.
+  static const String mapUserAgentPackageName = 'com.xev9s.companion';
+}
+
+/// Operational modes for vehicle status and telemetry synchronization.
+enum RealtimeMode {
+  ws,
+  polling,
 }
