@@ -71,7 +71,7 @@ class VehicleLocation extends Equatable {
   }
 
   factory VehicleLocation.fromJson(Map<String, dynamic> json) {
-    final rawVehicleId = json['vehicleId'];
+    final rawVehicleId = json['vehicleId'] ?? json['vehicle_id'];
     if (rawVehicleId == null ||
         rawVehicleId is! String ||
         rawVehicleId.trim().isEmpty) {
@@ -85,16 +85,16 @@ class VehicleLocation extends Equatable {
     final double? latitude = (rawLat is num) ? rawLat.toDouble() : null;
     final double? longitude = (rawLng is num) ? rawLng.toDouble() : null;
 
-    final rawState = json['vehicleState'] as String?;
+    final rawState = (json['vehicleState'] ?? json['operating_state']) as String?;
     final vehicleState = VehicleState.fromString(rawState);
 
     DateTime? reportedAt;
-    final rawReported = json['reportedAt'] as String?;
+    final rawReported = (json['reportedAt'] ?? json['timestamp']) as String?;
     if (rawReported != null) {
       reportedAt = DateTime.tryParse(rawReported);
     }
 
-    final isCurrent = json['isCurrent'] as bool? ?? false;
+    final isCurrent = json['isCurrent'] as bool? ?? (json.containsKey('received_at') ? true : false);
 
     return VehicleLocation(
       vehicleId: rawVehicleId.trim(),

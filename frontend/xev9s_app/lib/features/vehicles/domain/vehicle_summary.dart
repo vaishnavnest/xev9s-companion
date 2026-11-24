@@ -29,11 +29,11 @@ class VehicleSummary extends Equatable {
   bool get isOffline => connectivity == VehicleConnectivity.offline;
 
   factory VehicleSummary.fromJson(Map<String, dynamic> json) {
-    final vehicleId = json['vehicleId'] as String?;
-    final name = json['name'] as String?;
+    final vehicleId = (json['vehicleId'] ?? json['vehicle_id']) as String?;
     final model = json['model'] as String?;
-    final identifier = json['identifier'] as String?;
-    final rawStatus = json['associationStatus'] as String?;
+    final name = (json['name'] ?? model) as String?;
+    final identifier = (json['identifier'] ?? (json.containsKey('vehicle_id') ? json['vehicle_id'] : null)) as String?;
+    final rawStatus = (json['associationStatus'] ?? json['association_status']) as String?;
     final rawConnectivity = json['connectivity'] as String?;
 
     if (vehicleId == null || vehicleId.isEmpty) {

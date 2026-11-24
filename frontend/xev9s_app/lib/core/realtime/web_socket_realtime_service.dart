@@ -110,7 +110,10 @@ class WebSocketRealtimeService implements RealtimeService {
       final base = _wsBaseUrl.endsWith('/')
           ? _wsBaseUrl.substring(0, _wsBaseUrl.length - 1)
           : _wsBaseUrl;
-      final uri = Uri.parse('$base/ws').replace(
+      final path = _currentVehicleId != null && _currentVehicleId!.isNotEmpty
+          ? '$base/ws/vehicles/$_currentVehicleId'
+          : '$base/ws';
+      final uri = Uri.parse(path).replace(
         queryParameters: {
           'token': token,
           if (_currentVehicleId != null && _currentVehicleId!.isNotEmpty)
@@ -132,6 +135,11 @@ class WebSocketRealtimeService implements RealtimeService {
       // are handled cleanly in the try/catch block rather than surfacing as unhandled exceptions
       await channel.ready;
 
+      // Backend expects initial authentication frame containing the access token
+      try {
+        channel.sink.add(jsonEncode({'token': token}));
+      } catch (_) {}
+
       // Successfully connected
       final wasReconnecting = _isReconnecting || _reconnectAttempts > 0;
       _reconnectAttempts = 0;
@@ -152,7 +160,23 @@ class WebSocketRealtimeService implements RealtimeService {
     try {
       final decoded = jsonDecode(raw);
       if (decoded is Map<String, dynamic>) {
-        final event = RealtimeEvent.fromJson(decoded);
+        RealtimeEvent event;
+        if (decoded.containsKey('event')) {
+          event = RealtimeEvent.fromJson(decoded);
+        } else if (decoded.containsKey('vehicle_id') || decoded.containsKey('battery_percentage')) {
+          final vid = (decoded['vehicle_id'] ?? _currentVehicleId ?? '') as String;
+          final rawTs = decoded['timestamp'] as String? ?? decoded['received_at'] as String?;
+          final ts = rawTs != null ? (DateTime.tryParse(rawTs) ?? DateTime.now().toUtc()) : DateTime.now().toUtc();
+          event = RealtimeEvent(
+            type: RealtimeEventType.vehicleStatus,
+            vehicleId: vid,
+            timestamp: ts,
+            rawData: decoded,
+          );
+        } else {
+          event = RealtimeEvent.fromJson(decoded);
+        }
+
         if (!_eventsController.isClosed) {
           _eventsController.add(event);
         }
@@ -170,8 +194,9 @@ class WebSocketRealtimeService implements RealtimeService {
     final closeCode = _channel?.closeCode;
     final closeReason = _channel?.closeReason;
 
-    // Check if close indicates token expiration/unauthorized
-    final isAuthFailure = closeCode == 4001 ||
+    // Check if close indicates token expiration/unauthorized (1008 is policy violation from FastAPI backend)
+    final isAuthFailure = closeCode == 1008 ||
+        closeCode == 4001 ||
         closeCode == 401 ||
         (closeReason != null && closeReason.toLowerCase().contains('token'));
 

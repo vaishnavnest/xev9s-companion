@@ -25,10 +25,10 @@ class FakeStatusApiClient extends ApiClient {
 
 void main() {
   group('VehicleStatusRepository Tests', () {
-    test('getStatus calls GET /vehicles/{id}/status and parses VehicleStatus', () async {
+    test('getStatus calls GET /vehicles/{id}/telemetry/latest and parses VehicleStatus', () async {
       final client = FakeStatusApiClient(
         getHandler: (path, _) async {
-          expect(path, equals('/vehicles/veh_9S0001/status'));
+          expect(path, equals('/vehicles/veh_9S0001/telemetry/latest'));
           return {
             'vehicleId': 'veh_9S0001',
             'name': 'My EV',

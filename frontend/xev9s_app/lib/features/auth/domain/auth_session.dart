@@ -18,10 +18,10 @@ class AuthSession extends Equatable {
   final UserSummary user;
 
   factory AuthSession.fromJson(Map<String, dynamic> json) {
-    final accessToken = json['accessToken'] as String?;
-    final refreshToken = json['refreshToken'] as String?;
-    final expiresIn = (json['expiresIn'] as num?)?.toInt();
-    final tokenType = json['tokenType'] as String? ?? 'Bearer';
+    final accessToken = (json['accessToken'] ?? json['access_token']) as String?;
+    final refreshToken = (json['refreshToken'] ?? json['refresh_token']) as String?;
+    final expiresIn = ((json['expiresIn'] ?? json['expires_in']) as num?)?.toInt();
+    final tokenType = (json['tokenType'] ?? json['token_type']) as String? ?? 'Bearer';
     final userJson = json['user'];
 
     if (accessToken == null || accessToken.isEmpty) {
