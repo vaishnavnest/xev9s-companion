@@ -160,6 +160,19 @@ class Validators {
     return null;
   }
 
+  /// Validates that [value] consists solely of alphanumeric characters (a-z, A-Z, 0-9).
+  static String? alphanumeric(String? value, [String message = 'Must contain only letters and numbers.']) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    final trimmed = value.trim();
+    final isAlphanumeric = RegExp(r'^[a-zA-Z0-9]+$').hasMatch(trimmed);
+    if (!isAlphanumeric) {
+      return message;
+    }
+    return null;
+  }
+
   /// Validates that [value] consists solely of ASCII decimal digits (0-9).
   static String? digitsOnly(String? value, [String message = 'Must contain only digits.']) {
     if (value == null || value.trim().isEmpty) {

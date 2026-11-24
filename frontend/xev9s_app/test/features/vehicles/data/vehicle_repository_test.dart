@@ -14,6 +14,7 @@ class FakeVehicleApiClient extends ApiClient {
   Future<T> get<T>(
     String path, {
     Map<String, dynamic>? query,
+    Map<String, dynamic>? headers,
     required T Function(Object? json) parse,
   }) async {
     if (getHandler != null) {

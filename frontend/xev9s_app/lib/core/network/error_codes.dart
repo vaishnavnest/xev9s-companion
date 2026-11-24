@@ -39,10 +39,19 @@ enum ApiErrorCode {
   }
 
   /// Maps an HTTP status code to an appropriate [ApiErrorCode] fallback.
-  static ApiErrorCode fromHttpStatus(int? status) {
+  /// If [message] is provided, checks for common error details (e.g. incorrect credentials).
+  static ApiErrorCode fromHttpStatus(int? status, [String? message]) {
+    if (status == 401) {
+      if (message != null &&
+          (message.toLowerCase().contains('incorrect') ||
+              message.toLowerCase().contains('invalid credential') ||
+              message.toLowerCase().contains('password'))) {
+        return ApiErrorCode.invalidCredentials;
+      }
+      return ApiErrorCode.unauthenticated;
+    }
     return switch (status) {
       400 => ApiErrorCode.validationError,
-      401 => ApiErrorCode.unauthenticated,
       403 => ApiErrorCode.forbidden,
       404 => ApiErrorCode.notFound,
       409 => ApiErrorCode.duplicateEmail,
