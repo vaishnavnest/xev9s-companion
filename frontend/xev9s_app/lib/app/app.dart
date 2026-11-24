@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/theme_provider.dart';
+import 'global_command_result_listener.dart';
 import 'router.dart';
 
 class App extends ConsumerWidget {
@@ -18,6 +19,12 @@ class App extends ConsumerWidget {
       darkTheme: AppTheme.darkTheme,
       themeMode: themeMode,
       routerConfig: router,
+      builder: (context, child) {
+        return GlobalCommandResultListener(
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
     );
   }
 }
+

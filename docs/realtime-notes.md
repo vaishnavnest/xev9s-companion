@@ -40,7 +40,7 @@ The backend broadcasts JSON text frames matching the `WsEvent` envelope defined 
 | `vehicle.status` | `VehicleStatus` | Replaces active telemetry state if `lastUpdatedAt` is newer than current state. |
 | `vehicle.location` | `VehicleLocation` | Updates active vehicle location in `vehicleLocationProvider` if `reportedAt` is newer. |
 | `charging.updated` | `ChargingOverview` | Merges active charging state, power in kW, battery percentage, target percentage, schedule, and current session ID. Synchronizes with `vehicleStatusProvider` via `chargingViewProvider`. |
-| `command.updated` | `Command` | Parsed safely; ready for UC-03 Remote Controls feedback. |
+| `command.updated` | `Command` | Realtime progress updates for remote lock/climate commands (lifecycle: `SUBMITTED` $\to$ `ACCEPTED` $\to$ `EXECUTING` $\to$ `SUCCEEDED` / `FAILED` / `TIMED_OUT`). Ignored if out of order or late. |
 | `notification.created` | `Notification` | Parsed safely; ready for Push Alerts. |
 | `connectivity.changed` | `ConnectivityStatus` | Updates vehicle connectivity (`ONLINE` / `OFFLINE`), toggles `isStale`, and nulls live-only fields (speed, charging power). |
 
@@ -170,3 +170,16 @@ The XEV 9S Companion app supports both modes via compile-time flag `--dart-defin
 ### Recommendation for Decision Log (UC-02)
 - **Default to WebSocket (`ws`)** for live dashboard telemetry, instant charging status, and command completion events.
 - **Fallback to Polling (`polling`)** in corporate networks that block WebSocket upgrades, or as a low-cost backend fallback during server scaling events.
+
+---
+
+## 7. Remote Controls (UC-05) Realtime & Protocol Questions
+
+The following questions have been identified during implementation and verification of Remote Controls for the backend and product teams:
+
+1. **Idempotency Key Retention Window**: What is the TTL or retention window on the server for `Idempotency-Key` deduplication on `POST /vehicles/{id}/commands`? Is it per-vehicle or global across all user commands?
+2. **Command Completion vs. Vehicle Telemetry Latency**: When a command reaches `SUCCEEDED`, is the backend guaranteed to return the updated physical vehicle state on immediate `GET /vehicles/{id}/status`, or is there an internal queue delay between telemetry ingestion and status cache invalidation?
+3. **Out-of-Order WebSocket Delivery Guarantee**: Does the message broker guarantee in-order delivery of `command.updated` frames per vehicle? (Client enforces monotonicity via `CommandStatusMachine`, but server-side monotonic sequencing prevents spurious safety polls).
+4. **Failure Reason Localization**: Are `failureReason` strings on `Command` intended to be machine-readable error codes (e.g. `VEHICLE_MOVING`, `BATTERY_TOO_LOW`) or localized user-facing sentences? (Client currently displays raw reason codes with user-friendly fallbacks).
+5. **Simultaneous Multi-Vehicle Command Concurrency**: Can an account issue simultaneous commands across two distinct vehicles (e.g. unlock Vehicle A while preconditioning Vehicle B)? (Client supports independent per-vehicle tracking sessions).
+6. **Command Timeout Durations**: What are the exact server-side timeout boundaries before the vehicle telematics gateway marks an in-flight command as `TIMED_OUT`? (Client displays a soft wait warning at 60s and hard tracking cap at 10 minutes).
