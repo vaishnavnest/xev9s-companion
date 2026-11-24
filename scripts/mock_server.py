@@ -80,7 +80,9 @@ vehicle_states = {
     },
 }
 
-state = vehicle_states["veh_mock_9s_01"]
+# Global in-memory list of command records
+mock_commands = []
+command_counter = 7730
 
 def _sync_to_ws_server(payload: dict):
     """Notify mock WebSocket servers (port 4012 for python, port 4011 for node) of state changes."""
@@ -357,6 +359,37 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 "reportedAt": datetime.now(timezone.utc).isoformat(),
                 "isCurrent": is_online,
             })
+        elif '/commands' in path:
+            vehicle_id = _extract_vehicle_id(path)
+            parts = [p for p in path.split('/') if p]
+            # Check if specific commandId was requested: /vehicles/{id}/commands/{commandId}
+            if len(parts) >= 4 and parts[0] == 'vehicles' and parts[2] == 'commands':
+                cmd_id = parts[3]
+                with _state_lock:
+                    found = next((c for c in mock_commands if c.get('commandId') == cmd_id), None)
+                if found:
+                    self._send_json(200, data=found)
+                else:
+                    self._send_json(404, error={
+                        "code": "NOT_FOUND",
+                        "message": f"Command {cmd_id} not found",
+                        "details": None,
+                        "retryable": False
+                    })
+                return
+
+            with _state_lock:
+                cmds = [dict(c) for c in mock_commands if c.get('vehicleId') == vehicle_id]
+                cmds.sort(key=lambda x: x.get('requestedAt', ''), reverse=True)
+            self._send_json(200, data=cmds, meta={
+                "pagination": {
+                    "total": len(cmds),
+                    "page": 1,
+                    "pageSize": 20,
+                    "hasMore": False,
+                }
+            })
+            return
         elif path in ('/control/state', '/api/v1/control/state'):
             # Read-only view of current mock state
             with _state_lock:
@@ -499,6 +532,35 @@ class MockApiHandler(BaseHTTPRequestHandler):
             })
         elif path in ('/auth/logout', '/api/v1/auth/logout'):
             self._send_json(200, data={"message": "Logged out successfully"})
+        elif '/commands' in path:
+            vehicle_id = _extract_vehicle_id(path)
+            global command_counter
+            command_type = body.get('commandType', 'LOCK')
+            now_iso = datetime.now(timezone.utc).isoformat()
+            with _state_lock:
+                command_counter += 1
+                cmd_id = f"cmd_{command_counter}"
+                cmd_record = {
+                    "commandId": cmd_id,
+                    "vehicleId": vehicle_id,
+                    "commandType": command_type,
+                    "status": "SUBMITTED",
+                    "requestedAt": now_iso,
+                    "completedAt": None,
+                    "failureReason": None,
+                    "resultingState": None,
+                }
+                mock_commands.insert(0, cmd_record)
+
+            # Notify WebSocket server of new command
+            _sync_to_ws_server({
+                "vehicleId": vehicle_id,
+                "command": dict(cmd_record),
+            })
+
+            # Return 202 with status SUBMITTED per openapi.yaml
+            self._send_json(202, data=dict(cmd_record))
+            return
         elif path in ('/vehicles', '/api/v1/vehicles'):
             target_token = token if token and token in user_vehicles else DEFAULT_TOKEN
             with _state_lock:

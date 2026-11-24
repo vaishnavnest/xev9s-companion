@@ -20,6 +20,10 @@ const server = http.createServer((req, res) => {
       try {
         const payload = JSON.parse(body);
         const vid = payload.vehicleId || 'veh_mock_9s_01';
+        if (payload.command) {
+          const cmd = payload.command;
+          handleIncomingCommand(cmd.commandId, vid, cmd.commandType);
+        }
         if (payload.targetPercent !== undefined) {
           if (vid === 'veh_mock_9s_02') {
             secondCarTargetPercent = Number(payload.targetPercent);
@@ -405,6 +409,30 @@ function sendCommandUpdate(commandId, vehicleId, commandType, status, completedA
   };
   console.log(`[MockWS] Emitting command.updated -> ${status} (${commandId})`);
   broadcast(event);
+}
+
+function handleIncomingCommand(commandId, vehicleId, commandType) {
+  console.log(`[MockWS] Received command ${commandId} (${commandType}) for ${vehicleId}. Starting execution sequence...`);
+  setTimeout(() => {
+    sendCommandUpdate(commandId, vehicleId, commandType, 'ACCEPTED');
+    setTimeout(() => {
+      sendCommandUpdate(commandId, vehicleId, commandType, 'EXECUTING');
+      setTimeout(() => {
+        if (commandType === 'LOCK') {
+          lockState = 'LOCKED';
+        } else if (commandType === 'UNLOCK') {
+          lockState = 'UNLOCKED';
+        } else if (commandType === 'START_PRECONDITIONING') {
+          preconditioningState = 'ACTIVE';
+        } else if (commandType === 'STOP_PRECONDITIONING') {
+          preconditioningState = 'INACTIVE';
+        }
+        const resulting = { lockState: lockState, preconditioningState: preconditioningState };
+        sendCommandUpdate(commandId, vehicleId, commandType, 'SUCCEEDED', new Date().toISOString(), null, resulting);
+        sendVehicleStatus(vehicleId);
+      }, 1500);
+    }, 1500);
+  }, 1000);
 }
 
 function simulateCommandSuccess() {
