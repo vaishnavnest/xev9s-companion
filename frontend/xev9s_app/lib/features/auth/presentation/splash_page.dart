@@ -1,6 +1,6 @@
+import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/error_view.dart';
 import '../../../shared/widgets/xev_logo.dart';
 import '../application/auth_controller.dart';
@@ -19,7 +19,7 @@ class SplashPage extends ConsumerWidget {
     final authState = ref.watch(authControllerProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF010406),
+      backgroundColor: const Color(0xFF020305),
       body: switch (authState) {
         AuthStartupFailed(:final error) => ErrorView(
             title: "Couldn't load your account",
@@ -43,27 +43,37 @@ class _SplashContent extends StatefulWidget {
 }
 
 class _SplashContentState extends State<_SplashContent>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _breatheController;
-  late final Animation<double> _breatheAnimation;
+    with TickerProviderStateMixin {
+  late final AnimationController _entranceController;
+  late final Animation<double> _entranceFade;
+  late final AnimationController _cycleController;
 
   @override
   void initState() {
     super.initState();
-    _breatheController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2400),
-    )..repeat(reverse: true);
 
-    _breatheAnimation = CurvedAnimation(
-      parent: _breatheController,
-      curve: Curves.easeInOut,
+    // Elegant entrance fade-in
+    _entranceController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    )..forward();
+
+    _entranceFade = CurvedAnimation(
+      parent: _entranceController,
+      curve: Curves.easeOutCubic,
     );
+
+    // Continuous luxury motion: weightless suspension float + metallic light sweep
+    _cycleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3600),
+    )..repeat();
   }
 
   @override
   void dispose() {
-    _breatheController.dispose();
+    _entranceController.dispose();
+    _cycleController.dispose();
     super.dispose();
   }
 
@@ -72,59 +82,71 @@ class _SplashContentState extends State<_SplashContent>
     return Container(
       width: double.infinity,
       height: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: RadialGradient(
-          center: Alignment(0.0, -0.05),
-          radius: 1.25,
-          colors: [
-            Color(0xFF062A2B), // Deep electric teal glow from AppTheme brand palette
-            Color(0xFF04171A), // Deep oceanic midnight teal
-            Color(0xFF02090D), // Obsidian EV cockpit dark
-            Color(0xFF010406), // Deep luxury black
-          ],
-          stops: [0.0, 0.45, 0.8, 1.0],
-        ),
-      ),
+      color: const Color(0xFF020305),
       child: SafeArea(
         child: Center(
-          child: AnimatedBuilder(
-            animation: _breatheAnimation,
-            builder: (context, child) {
-              final breathe = _breatheAnimation.value;
-              final scale = 0.95 + (0.08 * breathe);
-              final tealGlowOpacity = 0.16 + (0.18 * breathe);
-              final redGlowOpacity = 0.12 + (0.16 * breathe);
-              final glowBlur = 32.0 + (30.0 * breathe);
+          child: FadeTransition(
+            opacity: _entranceFade,
+            child: AnimatedBuilder(
+              animation: _cycleController,
+              builder: (context, child) {
+                final progress = _cycleController.value;
 
-              return Transform.scale(
-                scale: scale,
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 320),
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      // Electric Teal halo directly from AppTheme.accentColor
-                      BoxShadow(
-                        color: AppTheme.accentColor
-                            .withValues(alpha: tealGlowOpacity),
-                        blurRadius: glowBlur * 1.3,
-                        spreadRadius: 2.0 + (4.0 * breathe),
-                      ),
-                      // Crimson red aura matching the "9S" red badge accent
-                      BoxShadow(
-                        color: const Color(0xFFE11D48)
-                            .withValues(alpha: redGlowOpacity),
-                        blurRadius: glowBlur,
-                        offset: const Offset(30, 0),
-                        spreadRadius: 1.0 + (3.0 * breathe),
-                      ),
-                    ],
+                // 1. Organic weightless float & subtle pulse (smooth cyclic sine wave)
+                final floatWave =
+                    (math.sin(progress * 2 * math.pi) + 1.0) / 2.0;
+                final scale = 0.97 + (0.05 * floatWave);
+                final floatY = -3.5 + (7.0 * floatWave);
+
+                // 2. Specular metallic sheen sweep across the emblem
+                // Sweeps across the logo during the first 45% of the cycle (~1.6s), then rests
+                const sheenWindow = 0.45;
+                final double sheenPosition;
+                final double sheenOpacity;
+
+                if (progress < sheenWindow) {
+                  final sheenT =
+                      Curves.easeInOutCubic.transform(progress / sheenWindow);
+                  sheenPosition = -1.5 + (sheenT * 3.0);
+                  sheenOpacity = 1.0;
+                } else {
+                  sheenPosition = 2.5;
+                  sheenOpacity = 0.0;
+                }
+
+                return Transform.translate(
+                  offset: Offset(0, floatY),
+                  child: Transform.scale(
+                    scale: scale,
+                    child: ShaderMask(
+                      blendMode: BlendMode.srcATop,
+                      shaderCallback: (Rect bounds) {
+                        if (sheenOpacity == 0.0) {
+                          return const LinearGradient(
+                            colors: [Colors.transparent, Colors.transparent],
+                          ).createShader(bounds);
+                        }
+
+                        return LinearGradient(
+                          begin: Alignment(sheenPosition - 0.45, -0.6),
+                          end: Alignment(sheenPosition + 0.45, 0.6),
+                          colors: [
+                            Colors.transparent,
+                            Colors.white.withValues(alpha: 0.15),
+                            Colors.white.withValues(alpha: 0.55),
+                            const Color(0xFF00E5BE).withValues(alpha: 0.40),
+                            Colors.white.withValues(alpha: 0.15),
+                            Colors.transparent,
+                          ],
+                          stops: const [0.0, 0.35, 0.50, 0.58, 0.75, 1.0],
+                        ).createShader(bounds);
+                      },
+                      child: const XevAppLogo(height: 80),
+                    ),
                   ),
-                  child: const XevAppLogo(height: 80),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
       ),
