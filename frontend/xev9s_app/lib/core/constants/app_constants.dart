@@ -28,4 +28,19 @@ class AppConstants {
 
   /// Default page size for charging sessions history pagination.
   static const int sessionsPageSize = 20;
+
+  /// Polling interval for remote commands when using polling realtime mode or fallback (UC-05).
+  static const int commandPollIntervalSeconds = 2;
+
+  /// Silence duration on websocket stream before falling back to safety polling (UC-05).
+  static const int commandSilenceBeforeSafetyPollSeconds = 8;
+
+  /// Time after which UI indicates a command is taking longer than expected (UC-05).
+  static const int commandClientWaitLimitSeconds = 60;
+
+  /// Window within which an active command is resumed on page build / vehicle change (UC-05).
+  static const int commandResumeWindowMinutes = 5;
+
+  /// Default page size for remote commands history pagination (UC-05).
+  static const int commandsPageSize = 20;
 }
