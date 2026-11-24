@@ -45,25 +45,35 @@ def test_database_health_check_failure():
     assert exc_info.value.detail == "Database connection unavailable"
 
 
+
 @pytest.mark.anyio
 async def test_lifespan_lifecycle():
     fake_app = MagicMock()
     mock_db = MagicMock()
+    mock_subscriber = MagicMock()
 
     with (
         patch(
-            "backend.app.main.connect_to_database", return_value=mock_db
+            "backend.app.main.connect_to_database",
+            return_value=mock_db,
         ) as mock_connect,
         patch("backend.app.main.ensure_database_indexes") as mock_indexes,
+        patch("backend.app.main.MQTTSubscriber", return_value=mock_subscriber),
         patch("backend.app.main.close_database_connection") as mock_close,
     ):
         async with lifespan(fake_app):
             assert fake_app.state.database == mock_db
+            assert fake_app.state.telemetry_service is not None
+            assert fake_app.state.mqtt_subscriber == mock_subscriber
+
             mock_connect.assert_called_once()
             mock_indexes.assert_called_once_with(mock_db)
+            mock_subscriber.start.assert_called_once()
             mock_close.assert_not_called()
 
+        mock_subscriber.stop.assert_called_once()
         mock_close.assert_called_once()
+
 
 
 def test_routes_registered_and_openapi():
@@ -82,6 +92,7 @@ def test_ensure_database_indexes():
         "sessions": MagicMock(),
         "vehicles": MagicMock(),
         "user_vehicles": MagicMock(),
+        "vehicle_telemetry": MagicMock(),
     }
 
     ensure_database_indexes(mock_db)
