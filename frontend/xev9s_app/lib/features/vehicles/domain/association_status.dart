@@ -13,6 +13,9 @@ enum AssociationStatus {
       return AssociationStatus.unknown;
     }
     final normalized = value.trim().toUpperCase();
+    if (normalized == 'ACTIVE') {
+      return AssociationStatus.associated;
+    }
     for (final status in AssociationStatus.values) {
       if (status.wireValue == normalized) {
         return status;

@@ -27,10 +27,15 @@ class ApiVehicleRepository implements VehicleRepository {
     return apiClient.get<List<VehicleSummary>>(
       '/vehicles',
       parse: (json) {
-        if (json is! List) {
-          throw const FormatException('Expected JSON list for VehicleList');
+        List<dynamic> list;
+        if (json is List) {
+          list = json;
+        } else if (json is Map<String, dynamic> && json['vehicles'] is List) {
+          list = json['vehicles'] as List;
+        } else {
+          throw const FormatException('Expected JSON list or {vehicles: [...]} for VehicleList');
         }
-        return json
+        return list
             .map((item) => VehicleSummary.fromJson(item as Map<String, dynamic>))
             .toList();
       },
@@ -45,22 +50,25 @@ class ApiVehicleRepository implements VehicleRepository {
   }) async {
     final trimmedIdentifier = identifier.trim();
     final trimmedPairingCode = pairingCode.trim();
-    final trimmedName = name?.trim();
 
     final body = <String, dynamic>{
-      'vehicleIdentifier': trimmedIdentifier,
-      'pairingCode': trimmedPairingCode,
-      if (trimmedName != null && trimmedName.isNotEmpty) 'name': trimmedName,
+      'vehicle_id': trimmedIdentifier,
+      'pairing_code': trimmedPairingCode,
     };
 
     return apiClient.post<List<VehicleSummary>>(
-      '/vehicles',
+      '/vehicles/associate',
       body: body,
       parse: (json) {
-        if (json is! List) {
-          throw const FormatException('Expected JSON list for VehicleList');
+        List<dynamic> list;
+        if (json is List) {
+          list = json;
+        } else if (json is Map<String, dynamic> && json['vehicles'] is List) {
+          list = json['vehicles'] as List;
+        } else {
+          throw const FormatException('Expected JSON list or {vehicles: [...]} for VehicleList');
         }
-        return json
+        return list
             .map((item) => VehicleSummary.fromJson(item as Map<String, dynamic>))
             .toList();
       },

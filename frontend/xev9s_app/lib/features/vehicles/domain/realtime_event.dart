@@ -124,10 +124,10 @@ class RealtimeEvent extends Equatable {
     try {
       final map = Map<String, dynamic>.from(rawData!);
       if (!map.containsKey('vehicleId') || map['vehicleId'] == null) {
-        map['vehicleId'] = vehicleId;
+        map['vehicleId'] = vehicleId.isNotEmpty ? vehicleId : (map['vehicle_id'] ?? '');
       }
       if (!map.containsKey('lastUpdatedAt') || map['lastUpdatedAt'] == null) {
-        map['lastUpdatedAt'] = timestamp.toUtc().toIso8601String();
+        map['lastUpdatedAt'] = map['timestamp'] ?? timestamp.toUtc().toIso8601String();
       }
       return VehicleStatus.fromJson(map);
     } catch (_) {

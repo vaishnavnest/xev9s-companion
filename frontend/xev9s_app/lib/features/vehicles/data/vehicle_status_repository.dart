@@ -21,7 +21,7 @@ class ApiVehicleStatusRepository implements VehicleStatusRepository {
   @override
   Future<VehicleStatus> getStatus(String vehicleId) async {
     return apiClient.get<VehicleStatus>(
-      '/vehicles/$vehicleId/status',
+      '/vehicles/$vehicleId/telemetry/latest',
       parse: (json) {
         if (json is! Map<String, dynamic>) {
           throw const FormatException('Expected JSON map for VehicleStatusResponse');

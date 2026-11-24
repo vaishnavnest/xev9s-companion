@@ -1,1318 +1,523 @@
 openapi: 3.0.3
-
 info:
-  title: XEV 9S Companion Platform API
+  title: XEV 9S Backend API
   version: 1.0.0
   description: |
-    API contract for the XEV 9S connected-vehicle companion platform, derived from the
-    "Stream 1 - Full Stack" specification (Flutter app, backend + vehicle simulator, DevSecOps).
+    # XEV 9S Connected Vehicle Platform Backend API
 
-    ## Conventions
-    * **Base path:** `/api/v1`. All app-facing endpoints require `Authorization: Bearer <accessToken>`
-      except register, login, refresh and health.
-    * **Envelope:** every JSON response uses `{ success, data, meta, error }`.
-      On success `error` is `null`; on failure `data` is `null`.
-    * **Naming:** `camelCase` keys; enums are `UPPER_SNAKE_CASE`; timestamps are ISO-8601 UTC.
-    * **Units are encoded in field names:** `rangeKm`, `speedKmh`, `powerKw`, `energyKwh`, `durationSeconds`.
-    * **Unavailable data is `null`, never `0`** (dashboard, analytics, trips). Stale data is flagged with
-      `isStale` / `isCurrent` and the original `lastUpdatedAt` / `reportedAt` timestamp.
-    * **Vehicle access control:** every `/vehicles/{vehicleId}/...` call verifies the vehicle belongs to the
-      authenticated user (`403 VEHICLE_ACCESS_DENIED`).
-    * **Commands** are asynchronous: `202` + `SUBMITTED`; success is only reported once the vehicle confirms.
-    * **Items marked `[assumption]`** are design decisions not explicitly stated in the source document.
+    This OpenAPI specification documents the **actual implementation** of the FastAPI backend for the XEV 9S Connected Vehicle Companion Platform.
 
-    ## Audiences
-    1. Flutter app (Android + Web) - tags: Auth, Profile, Vehicles, Charging, Commands, Trips, Analytics, Notifications, Reports, Realtime
-    2. Vehicle simulator <-> backend - tag: Internal (MQTT over Mosquitto broker)
-    3. Platform operator - tag: Simulator
-    4. DevOps / SRE - tag: Operations
+    ## 1. Architectural Conventions & Protocols
+    * **Base URL / Mount Path:** Routes are mounted at root (`/`). There is **no** `/api/v1` prefix.
+    * **No Response Envelopes:** All responses return raw JSON objects or lists (e.g. `UserResponse`, `TokenResponse`, `{"vehicles": [...]}`). The backend does **not** wrap responses in `{ success, data, meta, error }`.
+    * **JSON Key Casing:** All request and response JSON properties use `snake_case` (e.g. `full_name`, `access_token`, `vehicle_id`, `battery_percentage`, `speed_kph`).
+    * **Enum Naming:** Enums are lowercase strings (e.g. `"parked"`, `"driving"`, `"charging"`, `"interrupted"`, `"active"`).
+    * **Timestamps:** ISO-8601 UTC formatted strings (`datetime` in Python).
+    * **Security:** Authenticated endpoints require a JWT Bearer token passed in the `Authorization` header (`Bearer <access_token>`).
 
-    ## Simulator ↔ Backend Transport (MQTT)
-    The vehicle simulator and the FastAPI backend communicate exclusively over **MQTT** using an
-    Eclipse Mosquitto broker (default port 1883). OpenAPI HTTP paths under `Internal` and `Simulator`
-    tags document the **message schema and topic contract** — they are not HTTP endpoints.
+    ## 2. Multi-Protocol Transport Overview
+    The platform employs three distinct transport layers:
+    1. **HTTP/REST (Port 8000/8080):** Serves client authentication, vehicle association, and telemetry queries.
+    2. **WebSocket (`/ws/vehicles/{vehicle_id}`):** Realtime vehicle telemetry stream to connected frontend clients.
+       * Handshake: Client opens connection to `/ws/vehicles/{vehicle_id}`.
+       * Authentication: The client **must** send an initial JSON text frame: `{"token": "<jwt_access_token>"}`.
+       * Validation: The server validates the token, verifies the user is active, and verifies the vehicle is associated with the user. If any check fails, the socket closes with code `1008` (Policy Violation).
+       * Broadcasting: When new telemetry is ingested via MQTT, the backend broadcasts a JSON `TelemetryResponse` object to all active connections for that `vehicle_id`.
+       * Server Shutdown: The server closes active sockets with code `1001` (Going Away).
+    3. **MQTT (Broker port 1883/1884):** Telemetry ingestion channel from the vehicle simulator.
+       * Topic: `xev9s/vehicles/{vehicle_id}/telemetry`
+       * Direction: Simulator -> Backend
+       * Subscriber QoS: `0` (Backend subscriber)
+       * Publisher QoS: `1` (Simulator client)
+       * Ingest Payload: Validated against `TelemetryPayload` schema before persisting to MongoDB.
 
-    **Broker:** `mqtt://mosquitto:1883` (Docker service name). Auth via username/password
-    sourced from env-var `MQTT_USERNAME` / `MQTT_PASSWORD` (same value on both sides).
-
-    ### MQTT Topic Map
-
-    | Direction | Topic | Payload schema | QoS |
-    |-----------|-------|---------------|-----|
-    | Simulator → Backend | `vehicle/{vehicleId}/telemetry` | `TelemetryIngest` | 1 |
-    | Simulator → Backend | `vehicle/{vehicleId}/events/charging` | `ChargingEventIngest` | 1 |
-    | Simulator → Backend | `vehicle/{vehicleId}/commands/{commandId}/result` | `CommandResultIngest` | 1 |
-    | Backend → Simulator | `vehicle/{vehicleId}/commands` | `SimCommandRequest` | 1 |
-    | Backend → Simulator | `vehicle/{vehicleId}/charging-preferences` | `ChargingPreferencesPush` | 1 |
-    | Backend → Simulator | `sim/scenarios/{vehicleId}/control` | `StartScenarioRequest` | 1 |
-
-    QoS 1 (at-least-once) is used for all operational messages. Retained flag is **not** set for
-    telemetry; the backend always uses the latest in-memory state. All payloads are JSON (UTF-8).
-
-    **Note:** The `/sim/*` HTTP endpoints listed below are retained for the **operator control plane
-    only** (scenario start/stop/reset and state inspection). They are served by the simulator's
-    lightweight HTTP server on port 8081 and are NOT replaced by MQTT.
+    ## 3. Implemented vs. Unimplemented Subsystems
+    This specification documents **only** the features currently implemented in the FastAPI backend (`backend/app`).
+    The following subsystems are defined in initial product requirements or frontend mockups, but are **NOT implemented in the backend**:
+    * **Remote Vehicle Commands (UC-05):** `POST /vehicles/{id}/commands`, command history, and state transitions are not implemented.
+    * **Charging Management (UC-04):** `GET /vehicles/{id}/charging`, target setting, recurring schedules, and charging sessions are not implemented.
+    * **User Profile & Preferences (UC-09):** `PATCH /users/me`, notification preferences, and unit preferences are not implemented.
+    * **Standalone Vehicle Location (UC-03):** `GET /vehicles/{id}/location` is not implemented (GPS coordinates are returned inside telemetry records).
+    * **Trips & History (UC-06):** `GET /vehicles/{id}/trips` is not implemented.
+    * **Driving & Energy Analytics (UC-07):** `GET /vehicles/{id}/analytics` is not implemented.
+    * **In-App Notifications (UC-08):** `GET/PATCH /notifications` is not implemented.
+    * **PDF/CSV Reports:** Report generation workers and download endpoints are not implemented.
+    * **Prometheus Metrics:** `/metrics` is not implemented.
 
 servers:
-  - url: http://localhost:8080/api/v1
-    description: Local / LocalStack (AWS simulation) environment
-  - url: https://xev9s.example.com/api/v1
-    description: On-premises Kubernetes environment
+  - url: http://localhost:8000
+    description: Default local FastAPI development server
+  - url: http://localhost:8080
+    description: Alternative local / container deployment server
 
 tags:
-  - name: Auth
-    description: Registration, login, token refresh, logout (UC-01, 3.2.1)
-  - name: Profile
-    description: Account information and application preferences (UC-09)
+  - name: Root & Operations
+    description: Service health probes and root status endpoint.
+  - name: Authentication
+    description: User registration, login, token refresh, logout, and authenticated user profile.
   - name: Vehicles
-    description: Vehicle association, dashboard status, location, connectivity, telemetry history (UC-01/02/03/09)
-  - name: Charging
-    description: Charging overview, target, schedule and session history (UC-04, 3.2.5)
-  - name: Commands
-    description: Remote vehicle operations and command history (UC-05, 3.2.4)
-  - name: Trips
-    description: Trip history and trip details (UC-06, 3.2.7)
-  - name: Analytics
-    description: Driving and energy analytics (UC-07, 3.2.8)
-  - name: Notifications
-    description: Alerts and notification history (UC-08, 3.2.9)
-  - name: Reports
-    description: Asynchronous report generation and download (3.2.12, 4.8.3)
-  - name: Realtime
-    description: Push updates to connected app sessions (3.2.3, 3.2.5, 3.2.9)
-  - name: Internal
-    description: >
-      Simulator → Backend MQTT messages (broker: mqtt://mosquitto:1883, QoS 1).
-      Topics follow the pattern `vehicle/{vehicleId}/<event>`. Payload schemas are defined in components/schemas.
-  - name: Simulator
-    description: >
-      Backend → Simulator MQTT messages and operator HTTP control plane (port 8081).
-      MQTT topics follow `vehicle/{vehicleId}/<action>`. HTTP endpoints (/sim/*) are for scenario control only.
-  - name: Operations
-    description: Health, readiness and metrics (Section 4)
-
-security:
-  - BearerAuth: []
+    description: Vehicle association and retrieval of associated vehicles.
+  - name: Vehicle Telemetry
+    description: Querying latest and historical telemetry records for associated vehicles.
+  - name: Realtime (WebSocket)
+    description: Realtime streaming of vehicle telemetry via WebSocket.
+  - name: Internal (MQTT)
+    description: Simulator-to-backend MQTT telemetry ingestion contract.
 
 paths:
-  # ======================================================================
-  # AUTH
-  # ======================================================================
+  /:
+    get:
+      tags: [Root & Operations]
+      summary: Root service check
+      description: Returns confirmation that the backend service is running.
+      operationId: rootServiceCheck
+      responses:
+        '200':
+          description: Service is operational.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RootResponse'
+
+  /health:
+    get:
+      tags: [Root & Operations]
+      summary: Health check
+      description: Returns service liveness status.
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /health/database:
+    get:
+      tags: [Root & Operations]
+      summary: Database health check
+      description: Verifies MongoDB connectivity via a ping command.
+      operationId: databaseHealthCheck
+      responses:
+        '200':
+          description: MongoDB connection is active.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatabaseHealthResponse'
+        '503':
+          description: Database connection unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+
   /auth/register:
     post:
-      tags: [Auth]
+      tags: [Authentication]
+      summary: Register a new user
+      description: |
+        Creates a new user account with hashed password in MongoDB.
+        Note: The backend validates that `password == confirm_password`.
+        Returns the created user record (`UserResponse`) without tokens.
       operationId: registerUser
-      summary: Register a new user account
-      security: []
       requestBody:
         required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/RegisterRequest' }
-      responses:
-        '201':
-          description: Account created; session established.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AuthResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /auth/login:
-    post:
-      tags: [Auth]
-      operationId: loginUser
-      summary: Authenticate and obtain tokens
-      description: Invalid credentials return `401 INVALID_CREDENTIALS` with a user-presentable message.
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/LoginRequest' }
-      responses:
-        '200':
-          description: Authenticated.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AuthResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /auth/refresh:
-    post:
-      tags: [Auth]
-      operationId: refreshToken
-      summary: Exchange a refresh token for a new access token [assumption]
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/RefreshRequest' }
-      responses:
-        '200':
-          description: New tokens issued.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AuthResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /auth/logout:
-    post:
-      tags: [Auth]
-      operationId: logoutUser
-      summary: Invalidate the current session
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/LogoutRequest' }
-      responses:
-        '200':
-          description: Session invalidated.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/EmptyResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  # ======================================================================
-  # PROFILE
-  # ======================================================================
-  /users/me:
-    get:
-      tags: [Profile]
-      operationId: getMyProfile
-      summary: Get account information and associated vehicle summary
-      responses:
-        '200':
-          description: Profile.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ProfileResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '500': { $ref: '#/components/responses/ServerError' }
-    patch:
-      tags: [Profile]
-      operationId: updateMyProfile
-      summary: Update editable account fields
-      description: Email and `userId` are read-only. Mandatory fields are validated.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/UpdateProfileRequest' }
-      responses:
-        '200':
-          description: Updated profile.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ProfileResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /users/me/preferences:
-    get:
-      tags: [Profile]
-      operationId: getMyPreferences
-      summary: Get notification and unit preferences
-      responses:
-        '200':
-          description: Preferences.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PreferencesResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '500': { $ref: '#/components/responses/ServerError' }
-    put:
-      tags: [Profile]
-      operationId: saveMyPreferences
-      summary: Save notification and unit preferences
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/Preferences' }
-      responses:
-        '200':
-          description: Saved preferences.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PreferencesResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  # ======================================================================
-  # VEHICLES
-  # ======================================================================
-  /vehicles:
-    get:
-      tags: [Vehicles]
-      operationId: listVehicles
-      summary: List vehicles associated with the authenticated user
-      description: Returns an empty array (not an error) when the user has no vehicles, so the app can show the "add vehicle" empty state.
-      responses:
-        '200':
-          description: Vehicle list.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/VehicleListResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '500': { $ref: '#/components/responses/ServerError' }
-    post:
-      tags: [Vehicles]
-      operationId: associateVehicle
-      summary: Associate a vehicle with the user's account
-      description: |
-        Validates the vehicle identifier and pairing information. Rejects unknown vehicles (`404 VEHICLE_NOT_FOUND`)
-        and vehicles that are already associated (`409 VEHICLE_ALREADY_ASSOCIATED`). Returns the updated vehicle list.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/AssociateVehicleRequest' }
-      responses:
-        '201':
-          description: Vehicle associated; updated list returned.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/VehicleListResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /vehicles/{vehicleId}:
-    get:
-      tags: [Vehicles]
-      operationId: getVehicle
-      summary: Get vehicle details
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-      responses:
-        '200':
-          description: Vehicle.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/VehicleResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /vehicles/{vehicleId}/status:
-    get:
-      tags: [Vehicles]
-      operationId: getVehicleStatus
-      summary: Dashboard - latest vehicle state
-      description: |
-        Returns the latest valid vehicle state. When the vehicle is offline, `connectivity=OFFLINE`, `isStale=true`,
-        `lastUpdatedAt` is preserved and live-only fields (`speedKmh`, `charging.powerKw`) are `null`.
-        Unavailable values are `null`, never `0`.
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-      responses:
-        '200':
-          description: Vehicle status.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/VehicleStatusResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /vehicles/{vehicleId}/location:
-    get:
-      tags: [Vehicles]
-      operationId: getVehicleLocation
-      summary: Latest reported or last-known vehicle location
-      description: |
-        `isCurrent=false` when the vehicle is offline (last-known position). If no location has ever been received,
-        `latitude` and `longitude` are `null`.
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-      responses:
-        '200':
-          description: Location.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/VehicleLocationResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /vehicles/{vehicleId}/connectivity:
-    get:
-      tags: [Vehicles]
-      operationId: getVehicleConnectivity
-      summary: Connectivity status and last communication
-      description: A vehicle is never reported Online merely because an older telemetry record exists.
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-      responses:
-        '200':
-          description: Connectivity.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ConnectivityResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /vehicles/{vehicleId}/telemetry:
-    get:
-      tags: [Vehicles]
-      operationId: listVehicleTelemetry
-      summary: Historical telemetry records
-      description: Read-only history; retrieval never modifies records.
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-        - $ref: '#/components/parameters/From'
-        - $ref: '#/components/parameters/To'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-        - $ref: '#/components/parameters/Sort'
-      responses:
-        '200':
-          description: Paginated telemetry.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TelemetryListResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  # ======================================================================
-  # CHARGING
-  # ======================================================================
-  /vehicles/{vehicleId}/charging:
-    get:
-      tags: [Charging]
-      operationId: getChargingOverview
-      summary: Current charging state, target, schedule and active session
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-      responses:
-        '200':
-          description: Charging overview.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChargingOverviewResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /vehicles/{vehicleId}/charging/target:
-    put:
-      tags: [Charging]
-      operationId: setChargingTarget
-      summary: Set the charging target percentage
-      description: |
-        Validates and saves the target, then makes it available to the simulator.
-        If the target cannot be applied, `422 CHARGING_TARGET_NOT_APPLICABLE` explains why.
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SetChargingTargetRequest' }
-      responses:
-        '200':
-          description: Saved preference; updated overview returned.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChargingOverviewResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/Unprocessable' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /vehicles/{vehicleId}/charging/schedule:
-    put:
-      tags: [Charging]
-      operationId: saveChargingSchedule
-      summary: Create or update the charging schedule
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/ChargingSchedule' }
-      responses:
-        '200':
-          description: Saved preference; updated overview returned.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChargingOverviewResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/Unprocessable' }
-        '500': { $ref: '#/components/responses/ServerError' }
-    delete:
-      tags: [Charging]
-      operationId: deleteChargingSchedule
-      summary: Remove the charging schedule [assumption]
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-      responses:
-        '200':
-          description: Schedule removed; updated overview returned.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChargingOverviewResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /vehicles/{vehicleId}/charging/sessions:
-    get:
-      tags: [Charging]
-      operationId: listChargingSessions
-      summary: Charging session history (latest first)
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-        - $ref: '#/components/parameters/From'
-        - $ref: '#/components/parameters/To'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-        - $ref: '#/components/parameters/Sort'
-        - name: status
-          in: query
-          required: false
-          description: Filter by final or current session status.
-          schema: { $ref: '#/components/schemas/ChargingState' }
-      responses:
-        '200':
-          description: Paginated sessions.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChargingSessionListResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /vehicles/{vehicleId}/charging/sessions/{sessionId}:
-    get:
-      tags: [Charging]
-      operationId: getChargingSession
-      summary: Charging session detail
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-        - $ref: '#/components/parameters/SessionId'
-      responses:
-        '200':
-          description: Session.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ChargingSessionResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  # ======================================================================
-  # COMMANDS
-  # ======================================================================
-  /vehicles/{vehicleId}/commands:
-    post:
-      tags: [Commands]
-      operationId: submitCommand
-      summary: Submit a remote vehicle command
-      description: |
-        Creates a command record with status `SUBMITTED` and forwards it to the vehicle simulator.
-        **Never treat `202` as success** - poll `GET .../commands/{commandId}` or subscribe to `command.updated`
-        until a final status (`SUCCEEDED`, `FAILED`, `TIMED_OUT`).
-
-        Lifecycle: `SUBMITTED -> ACCEPTED -> EXECUTING -> SUCCEEDED | FAILED | TIMED_OUT`.
-        A late simulator response must not change an already-final status.
-
-        Errors: `409 COMMAND_IN_PROGRESS` (a command is already active), `422 VEHICLE_OFFLINE`,
-        `422 INVALID_COMMAND_STATE`.
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CreateCommandRequest' }
-      responses:
-        '202':
-          description: Command accepted for processing (status `SUBMITTED`).
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/CommandResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/Unprocessable' }
-        '500': { $ref: '#/components/responses/ServerError' }
-    get:
-      tags: [Commands]
-      operationId: listCommands
-      summary: Command history (latest first)
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-        - $ref: '#/components/parameters/From'
-        - $ref: '#/components/parameters/To'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-        - $ref: '#/components/parameters/Sort'
-        - name: status
-          in: query
-          required: false
-          schema: { $ref: '#/components/schemas/CommandStatus' }
-        - name: commandType
-          in: query
-          required: false
-          schema: { $ref: '#/components/schemas/CommandType' }
-      responses:
-        '200':
-          description: Paginated commands.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/CommandListResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /vehicles/{vehicleId}/commands/{commandId}:
-    get:
-      tags: [Commands]
-      operationId: getCommand
-      summary: Get one command's current status
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-        - $ref: '#/components/parameters/CommandId'
-      responses:
-        '200':
-          description: Command.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/CommandResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  # ======================================================================
-  # TRIPS
-  # ======================================================================
-  /vehicles/{vehicleId}/trips:
-    get:
-      tags: [Trips]
-      operationId: listTrips
-      summary: Trip history (latest first by default)
-      description: An `ONGOING` trip is distinguishable from a `COMPLETED` one; its end fields and final totals are `null`.
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-        - $ref: '#/components/parameters/From'
-        - $ref: '#/components/parameters/To'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-        - $ref: '#/components/parameters/Sort'
-        - name: status
-          in: query
-          required: false
-          schema: { $ref: '#/components/schemas/TripStatus' }
-      responses:
-        '200':
-          description: Paginated trips.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TripListResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /vehicles/{vehicleId}/trips/{tripId}:
-    get:
-      tags: [Trips]
-      operationId: getTrip
-      summary: Trip detail with route and statistics
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-        - $ref: '#/components/parameters/TripId'
-      responses:
-        '200':
-          description: Trip detail.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/TripDetailResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  # ======================================================================
-  # ANALYTICS
-  # ======================================================================
-  /vehicles/{vehicleId}/analytics/summary:
-    get:
-      tags: [Analytics]
-      operationId: getAnalyticsSummary
-      summary: Driving and energy summary plus trend for a period
-      description: |
-        Calculation rules (3.2.8):
-        * `totalDistanceKm` = sum of completed trip distances
-        * `totalDrivingTimeSeconds` = sum of completed trip durations
-        * `averageSpeedKmh` = total distance / total driving time
-        * `efficiencyKwhPer100Km` = total energy / total distance x 100
-        * Any metric without valid underlying data is `null` (not invented). With no trips, `tripCount=0` and all other metrics are `null`.
-        When `period=CUSTOM`, `from` and `to` are required.
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-        - name: period
-          in: query
-          required: true
-          schema: { $ref: '#/components/schemas/Period' }
-        - name: from
-          in: query
-          required: false
-          description: Start date (required when period=CUSTOM).
-          schema: { type: string, format: date }
-        - name: to
-          in: query
-          required: false
-          description: End date (required when period=CUSTOM).
-          schema: { type: string, format: date }
-      responses:
-        '200':
-          description: Analytics.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AnalyticsResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  # ======================================================================
-  # NOTIFICATIONS
-  # ======================================================================
-  /notifications:
-    get:
-      tags: [Notifications]
-      operationId: listNotifications
-      summary: List notifications (latest first)
-      description: Notification history is persisted; unread notifications can be viewed separately with `read=false`.
-      parameters:
-        - name: vehicleId
-          in: query
-          required: false
-          schema: { type: string }
-        - name: read
-          in: query
-          required: false
-          schema: { type: boolean }
-        - name: category
-          in: query
-          required: false
-          schema: { $ref: '#/components/schemas/NotificationCategory' }
-        - $ref: '#/components/parameters/From'
-        - $ref: '#/components/parameters/To'
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-        - $ref: '#/components/parameters/Sort'
-      responses:
-        '200':
-          description: Paginated notifications.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/NotificationListResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /notifications/unread-count:
-    get:
-      tags: [Notifications]
-      operationId: getUnreadNotificationCount
-      summary: Unread notification count [assumption]
-      parameters:
-        - name: vehicleId
-          in: query
-          required: false
-          schema: { type: string }
-      responses:
-        '200':
-          description: Count.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/UnreadCountResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /notifications/read-all:
-    post:
-      tags: [Notifications]
-      operationId: markAllNotificationsRead
-      summary: Mark all notifications as read [assumption]
-      requestBody:
-        required: false
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                vehicleId:
-                  type: string
-                  description: Limit to one vehicle; omit for all.
+              $ref: '#/components/schemas/UserCreate'
       responses:
-        '200':
-          description: Number of notifications updated.
+        '201':
+          description: User account created successfully.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ReadAllResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '500': { $ref: '#/components/responses/ServerError' }
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '409':
+          description: An account with this email already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '422':
+          description: Validation error (e.g. Passwords do not match or invalid format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 
-  /notifications/{notificationId}:
-    get:
-      tags: [Notifications]
-      operationId: getNotification
-      summary: Notification detail
-      parameters:
-        - $ref: '#/components/parameters/NotificationId'
-      responses:
-        '200':
-          description: Notification.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/NotificationResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-    patch:
-      tags: [Notifications]
-      operationId: updateNotification
-      summary: Mark a notification read or unread
-      parameters:
-        - $ref: '#/components/parameters/NotificationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/UpdateNotificationRequest' }
-      responses:
-        '200':
-          description: Updated notification.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/NotificationResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  # ======================================================================
-  # REPORTS
-  # ======================================================================
-  /reports:
+  /auth/login:
     post:
-      tags: [Reports]
-      operationId: requestReport
-      summary: Request a trip or energy report (asynchronous)
+      tags: [Authentication]
+      summary: Authenticate user
       description: |
-        Flow (4.8.3): backend creates a report record in MongoDB, publishes a message to SQS, returns `REQUESTED`.
-        The report worker generates a PDF/CSV, uploads it to S3 (LocalStack) or the persistent volume (Kubernetes),
-        and updates the record to `COMPLETED` (or `FAILED` with `failureReason` after retry / dead-letter handling).
+        Validates email and password, creates a session record, and issues access and refresh tokens.
+        Access token expires in 15 minutes (or `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`).
+        Refresh token expires in 7 days (or `REFRESH_TOKEN_EXPIRE_DAYS`).
+      operationId: loginUser
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CreateReportRequest' }
-      responses:
-        '202':
-          description: Report request accepted.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ReportResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-    get:
-      tags: [Reports]
-      operationId: listReports
-      summary: List the user's reports
-      parameters:
-        - name: vehicleId
-          in: query
-          required: false
-          schema: { type: string }
-        - name: status
-          in: query
-          required: false
-          schema: { $ref: '#/components/schemas/ReportStatus' }
-        - $ref: '#/components/parameters/Page'
-        - $ref: '#/components/parameters/PageSize'
-        - $ref: '#/components/parameters/Sort'
+            schema:
+              $ref: '#/components/schemas/UserLogin'
       responses:
         '200':
-          description: Paginated reports.
+          description: Successfully authenticated.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ReportListResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /reports/{reportId}:
-    get:
-      tags: [Reports]
-      operationId: getReport
-      summary: Report status and metadata
-      parameters:
-        - $ref: '#/components/parameters/ReportId'
-      responses:
-        '200':
-          description: Report.
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Incorrect email or password, or user account inactive.
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+                example: Bearer
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ReportResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /reports/{reportId}/download:
-    get:
-      tags: [Reports]
-      operationId: downloadReport
-      summary: Download a completed report file
-      description: Verifies the user's access, then streams the file from S3 / persistent storage. Returns `409 REPORT_NOT_READY` unless status is `COMPLETED`.
-      parameters:
-        - $ref: '#/components/parameters/ReportId'
-      responses:
-        '200':
-          description: Report file.
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '422':
+          description: Request validation error.
           content:
-            application/pdf:
-              schema: { type: string, format: binary }
-            text/csv:
-              schema: { type: string, format: binary }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '500': { $ref: '#/components/responses/ServerError' }
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 
-  # ======================================================================
-  # REALTIME
-  # ======================================================================
-  /ws:
-    get:
-      tags: [Realtime]
-      operationId: connectRealtime
-      summary: WebSocket upgrade for live updates [assumption - transport not specified in source]
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh access token
       description: |
-        Upgrade to a WebSocket. Authenticate with the `token` query parameter (browsers cannot set headers on WebSocket).
-        Messages are JSON objects of schema `WsEvent`. Event names:
-        `vehicle.status`, `vehicle.location`, `charging.updated`, `command.updated`, `notification.created`, `connectivity.changed`.
-        REST endpoints remain a complete fallback (reconnect, then re-fetch state).
-      security: []
+        Rotates the submitted refresh token and generates a new access token and new refresh token.
+        Detects token reuse; revokes the session if reuse is detected.
+      operationId: refreshAccessToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Tokens refreshed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid, expired, or revoked refresh token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '422':
+          description: Request validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout user
+      description: Revokes the specified refresh token and invalidates the session.
+      operationId: logoutUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Logged out successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '401':
+          description: Invalid or already revoked refresh token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '422':
+          description: Request validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get current authenticated user
+      description: |
+        Returns the profile details of the user associated with the Bearer JWT token.
+        Note: The backend mounts this endpoint at `/auth/me` (not `/users/me`).
+      operationId: getCurrentUser
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Profile of the authenticated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: Invalid or expired authentication token.
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+
+  /vehicles:
+    get:
+      tags: [Vehicles]
+      summary: Retrieve associated vehicles
+      description: Retrieves all vehicles associated with the authenticated user.
+      operationId: getMyVehicles
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of vehicles associated with the user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleListResponse'
+        '401':
+          description: Invalid or expired authentication token.
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+
+  /vehicles/associate:
+    post:
+      tags: [Vehicles]
+      summary: Associate a vehicle with user account
+      description: |
+        Associates an active vehicle with the authenticated user account using its pairing code.
+        Note: The backend mounts this endpoint at `POST /vehicles/associate` (not `POST /vehicles`).
+        The request model strictly forbids additional properties (`extra="forbid"`).
+      operationId: associateVehicle
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VehicleAssociationRequest'
+      responses:
+        '201':
+          description: Vehicle associated successfully. Returns updated vehicle list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleListResponse'
+        '400':
+          description: Invalid, expired, or used pairing code.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '401':
+          description: Invalid or expired authentication token.
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '409':
+          description: Vehicle is already associated with this user account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '422':
+          description: Request validation error (e.g. Empty fields or extraneous properties).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /vehicles/{vehicle_id}/telemetry/latest:
+    get:
+      tags: [Vehicle Telemetry]
+      summary: Get latest telemetry for vehicle
+      description: |
+        Retrieves the most recent telemetry snapshot for the vehicle.
+        Requires that the vehicle is associated with the authenticated user.
+        Note: The backend mounts this at `/vehicles/{vehicle_id}/telemetry/latest` (not `/vehicles/{vehicleId}/status`).
+      operationId: getLatestTelemetry
+      security:
+        - BearerAuth: []
       parameters:
-        - name: token
+        - name: vehicle_id
+          in: path
+          required: true
+          description: Identifier of the vehicle.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Latest telemetry record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryResponse'
+        '401':
+          description: Invalid or expired authentication token.
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '403':
+          description: Access denied (vehicle is not associated with this user).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '404':
+          description: No telemetry available for this vehicle.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+
+  /vehicles/{vehicle_id}/telemetry/history:
+    get:
+      tags: [Vehicle Telemetry]
+      summary: Get telemetry history for vehicle
+      description: |
+        Retrieves historical telemetry records within the specified time range.
+        Requires vehicle association.
+        Note: Path is `/vehicles/{vehicle_id}/telemetry/history` and uses query parameters `start_time` and `end_time`.
+      operationId: getTelemetryHistory
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: vehicle_id
+          in: path
+          required: true
+          description: Identifier of the vehicle.
+          schema:
+            type: string
+        - name: start_time
           in: query
           required: true
-          schema: { type: string }
-        - name: vehicleId
+          description: Beginning of the time window (ISO-8601).
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          required: true
+          description: End of the time window (ISO-8601). Must be after start_time.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
           in: query
           required: false
-          description: Subscribe to one vehicle; omit for all of the user's vehicles.
-          schema: { type: string }
+          description: Maximum number of records to return (1-1000).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        '200':
+          description: Collection of historical telemetry records.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryHistoryResponse'
+        '401':
+          description: Invalid or expired authentication token.
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '403':
+          description: Access denied (vehicle is not associated with this user).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '422':
+          description: Invalid query parameters (e.g. start_time > end_time or limit out of bounds).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /ws/vehicles/{vehicle_id}:
+    get:
+      tags: [Realtime (WebSocket)]
+      summary: Vehicle telemetry streaming WebSocket
+      description: |
+        ### WebSocket Connection Contract
+        * **Protocol:** `ws://` or `wss://`
+        * **Path:** `/ws/vehicles/{vehicle_id}`
+        * **Connection Handshake:** Server accepts connection (`await websocket.accept()`).
+        * **Client Authentication:** Immediately after connection, client **must** send a JSON frame:
+          ```json
+          { "token": "<jwt_access_token>" }
+          ```
+        * **Connection Validation:** Server decodes JWT `sub`, checks user exists and is active, and verifies vehicle is associated with user.
+        * **Closure Codes:**
+          * `1008` (Policy Violation): Token missing, invalid, expired, user inactive, or vehicle not associated.
+          * `1001` (Going Away): Server shutdown (`WebSocketManager.disconnect_all()`).
+        * **Server Broadcast:** Server sends `TelemetryResponse` JSON frames whenever new telemetry is ingested via MQTT for `vehicle_id`.
+      operationId: streamVehicleTelemetryWebSocket
+      parameters:
+        - name: vehicle_id
+          in: path
+          required: true
+          description: Identifier of the vehicle to stream telemetry for.
+          schema:
+            type: string
       responses:
         '101':
-          description: Switching protocols. Server sends `WsEvent` messages.
+          description: Switching Protocols to WebSocket.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/WsEvent' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
-  # ======================================================================
-  # INTERNAL (SIMULATOR -> BACKEND) — MQTT
-  # These are documented as HTTP paths for schema reference only.
-  # Actual transport: MQTT broker at mqtt://mosquitto:1883
-  # Auth: MQTT username/password (env MQTT_USERNAME / MQTT_PASSWORD)
-  # QoS: 1 (at-least-once) for all topics below.
-  # ======================================================================
-
-  # MQTT Topic: vehicle/{vehicleId}/telemetry
-  # Direction: Simulator → Backend (publish every ~1 s while DRIVING/CHARGING)
-  /internal/telemetry:
-    post:
-      tags: [Internal]
-      operationId: ingestTelemetry
-      summary: "[MQTT] vehicle/{vehicleId}/telemetry — Simulator publishes a telemetry record"
-      description: |
-        **Transport:** MQTT topic `vehicle/{vehicleId}/telemetry` (QoS 1).
-        This path exists for schema documentation only — it is NOT an HTTP endpoint.
-
-        The backend subscribes to this topic via `aiomqtt`. On each message it:
-        - Validates: known `vehicleId`; parseable non-absurd timestamp; battery 0-100; speed >= 0;
-          latitude -90..90; longitude -180..180; valid enums; consistent state (a vehicle cannot be
-          `DRIVING` and charging at once).
-        - Updates latest state, history, trip detection, event/notification evaluation, connectivity
-          (restores ONLINE) and pushes updates to connected WebSocket sessions.
-        - Invalid payloads are dropped and logged; there is no MQTT PUBACK rejection.
-
-        **Broker:** `mqtt://mosquitto:1883`
-        **Auth:** `MQTT_USERNAME` / `MQTT_PASSWORD` environment variables (same value on both sides).
-        **Retained:** false. **QoS:** 1.
-      security:
-        - MqttCredentials: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/TelemetryIngest' }
-      responses:
-        '202':
-          description: (Schema reference) Telemetry accepted.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/IngestAckResponse' }
-
-  # MQTT Topic: vehicle/{vehicleId}/events/charging
-  # Direction: Simulator → Backend
-  /internal/events/charging:
-    post:
-      tags: [Internal]
-      operationId: ingestChargingEvent
-      summary: "[MQTT] vehicle/{vehicleId}/events/charging — Simulator reports a charging event"
-      description: |
-        **Transport:** MQTT topic `vehicle/{vehicleId}/events/charging` (QoS 1).
-        This path exists for schema documentation only — it is NOT an HTTP endpoint.
-
-        Events: `CONNECTED`, `STARTED`, `PROGRESS`, `PAUSED`, `INTERRUPTED`, `COMPLETED`, `DISCONNECTED`.
-        The backend creates/updates/closes the charging session and raises the corresponding
-        notification (started / completed / interrupted).
-
-        **Retained:** false. **QoS:** 1.
-      security:
-        - MqttCredentials: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/ChargingEventIngest' }
-      responses:
-        '202':
-          description: (Schema reference) Event accepted.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/IngestAckResponse' }
-
-  # MQTT Topic: vehicle/{vehicleId}/commands/{commandId}/result
-  # Direction: Simulator → Backend
-  /internal/commands/{commandId}/result:
-    post:
-      tags: [Internal]
-      operationId: ingestCommandResult
-      summary: "[MQTT] vehicle/{vehicleId}/commands/{commandId}/result — Simulator reports command execution result"
-      description: |
-        **Transport:** MQTT topic `vehicle/{vehicleId}/commands/{commandId}/result` (QoS 1).
-        This path exists for schema documentation only — it is NOT an HTTP endpoint.
-
-        A result arriving for a command already in a final status (e.g. `TIMED_OUT`) is acknowledged
-        but must not change that status.
-
-        **Retained:** false. **QoS:** 1.
-      security:
-        - MqttCredentials: []
-      parameters:
-        - $ref: '#/components/parameters/CommandId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CommandResultIngest' }
-      responses:
-        '200':
-          description: (Schema reference) Result recorded.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/IngestAckResponse' }
-
-  # ======================================================================
-  # SIMULATOR API
-  # MQTT: Backend → Simulator (commands + preferences)
-  # HTTP: Operator control plane only (port 8081, OperatorKey auth)
-  # ======================================================================
-
-  # MQTT Topic: vehicle/{vehicleId}/commands
-  # Direction: Backend → Simulator
-  /sim/commands:
-    post:
-      tags: [Simulator]
-      operationId: simDeliverCommand
-      summary: "[MQTT] vehicle/{vehicleId}/commands — Backend delivers a command to the simulator"
-      description: |
-        **Transport:** MQTT topic `vehicle/{vehicleId}/commands` (QoS 1).
-        This path exists for schema documentation only — it is NOT an HTTP endpoint.
-
-        The simulator subscribes to this topic. On receipt it evaluates the command against current
-        vehicle state and later publishes the result to
-        `vehicle/{vehicleId}/commands/{commandId}/result`.
-
-        **Retained:** false. **QoS:** 1.
-      security:
-        - MqttCredentials: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SimCommandRequest' }
-      responses:
-        '202':
-          description: (Schema reference) Command received by simulator.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/IngestAckResponse' }
-
-  # MQTT Topic: vehicle/{vehicleId}/charging-preferences
-  # Direction: Backend → Simulator
-  /sim/vehicles/{vehicleId}/charging-preferences:
-    put:
-      tags: [Simulator]
-      operationId: simPushChargingPreferences
-      summary: "[MQTT] vehicle/{vehicleId}/charging-preferences — Backend pushes charging target and schedule"
-      description: |
-        **Transport:** MQTT topic `vehicle/{vehicleId}/charging-preferences` (QoS 1, retained=true).
-        This path exists for schema documentation only — it is NOT an HTTP endpoint.
-
-        Published with `retained=true` so the simulator picks up the latest preferences immediately
-        on (re)connect.
-
-        **Retained:** true. **QoS:** 1.
-      security:
-        - MqttCredentials: []
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/ChargingPreferencesPush' }
-      responses:
-        '200':
-          description: (Schema reference) Preferences applied by simulator.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/IngestAckResponse' }
-
-  # ======================================================================
-  # SIMULATOR OPERATOR HTTP CONTROL PLANE (real HTTP endpoints on port 8081)
-  # These are actual HTTP REST endpoints served by the simulator's own server.
-  # Auth: X-Operator-Key header. These are NOT replaced by MQTT.
-  # ======================================================================
-  /sim/scenarios:
-    get:
-      tags: [Simulator]
-      operationId: simListScenarios
-      summary: "[HTTP] List supported demonstration scenarios (operator)"
-      description: Real HTTP endpoint served by the simulator at http://vehicle-simulator:8081.
-      servers:
-        - url: http://vehicle-simulator:8081
-          description: Vehicle simulator service (operator HTTP control plane)
-      security:
-        - OperatorKey: []
-      responses:
-        '200':
-          description: Scenarios.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ScenarioListResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /sim/vehicles/{vehicleId}/scenarios/start:
-    post:
-      tags: [Simulator]
-      operationId: simStartScenario
-      summary: "[HTTP] Start a scenario with optional initial conditions (operator)"
-      description: |
-        Real HTTP endpoint served by the simulator at http://vehicle-simulator:8081.
-        The simulator emits telemetry/events over MQTT that flow through the normal backend workflows.
-      servers:
-        - url: http://vehicle-simulator:8081
-          description: Vehicle simulator service
-      security:
-        - OperatorKey: []
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/StartScenarioRequest' }
-      responses:
-        '200':
-          description: Scenario started.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ScenarioStatusResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /sim/vehicles/{vehicleId}/scenarios/stop:
-    post:
-      tags: [Simulator]
-      operationId: simStopScenario
-      summary: "[HTTP] Stop the running scenario (operator)"
-      description: Real HTTP endpoint served by the simulator at http://vehicle-simulator:8081.
-      servers:
-        - url: http://vehicle-simulator:8081
-          description: Vehicle simulator service
-      security:
-        - OperatorKey: []
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-      responses:
-        '200':
-          description: Scenario stopped.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ScenarioStatusResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /sim/vehicles/{vehicleId}/scenarios/reset:
-    post:
-      tags: [Simulator]
-      operationId: simResetScenario
-      summary: "[HTTP] Reset the vehicle to its defined initial condition (operator)"
-      description: |
-        Real HTTP endpoint served by the simulator at http://vehicle-simulator:8081.
-        A reset must not create false completed trips or charging sessions.
-      servers:
-        - url: http://vehicle-simulator:8081
-          description: Vehicle simulator service
-      security:
-        - OperatorKey: []
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-      responses:
-        '200':
-          description: Vehicle reset.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ScenarioStatusResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  /sim/vehicles/{vehicleId}/state:
-    get:
-      tags: [Simulator]
-      operationId: simGetVehicleState
-      summary: "[HTTP] Inspect the simulator's current internal vehicle state (operator)"
-      description: Real HTTP endpoint served by the simulator at http://vehicle-simulator:8081.
-      servers:
-        - url: http://vehicle-simulator:8081
-          description: Vehicle simulator service
-      security:
-        - OperatorKey: []
-      parameters:
-        - $ref: '#/components/parameters/VehicleId'
-      responses:
-        '200':
-          description: Simulator state.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SimVehicleStateResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '500': { $ref: '#/components/responses/ServerError' }
-
-  # ======================================================================
-  # OPERATIONS
-  # ======================================================================
-  /health/live:
-    get:
-      tags: [Operations]
-      operationId: healthLive
-      summary: Liveness probe
-      security: []
-      responses:
-        '200':
-          description: Process is alive.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/HealthStatus' }
-
-  /health/ready:
-    get:
-      tags: [Operations]
-      operationId: healthReady
-      summary: Readiness probe (checks MongoDB, and SQS/S3 where applicable)
-      description: Used by Kubernetes readiness, deployment verification and the post-deployment health check.
-      security: []
-      responses:
-        '200':
-          description: Ready to serve traffic.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/HealthStatus' }
-        '503':
-          description: A mandatory dependency is unavailable.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/HealthStatus' }
-
-  /metrics:
-    get:
-      tags: [Operations]
-      operationId: getMetrics
-      summary: Prometheus metrics
-      description: |
-        Includes API request count, response duration histogram, API error count, telemetry updates processed,
-        report jobs submitted / completed / failed, and command / charging / trip counters.
-      security: []
-      responses:
-        '200':
-          description: Prometheus exposition format.
-          content:
-            text/plain:
-              schema: { type: string }
+              schema:
+                $ref: '#/components/schemas/TelemetryResponse'
 
 components:
   securitySchemes:
@@ -1320,1080 +525,438 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Access token from `/auth/login`. Used by the Flutter app for all app-facing endpoints.
-    MqttCredentials:
-      type: http
-      scheme: basic
-      description: >
-        MQTT username/password credentials shared between the FastAPI backend and the vehicle simulator.
-        Values sourced from env-vars MQTT_USERNAME and MQTT_PASSWORD on both sides.
-        Broker: mqtt://mosquitto:1883 (Eclipse Mosquitto). NOT an HTTP Basic Auth header — documented
-        here as the closest OpenAPI 3 equivalent to represent the shared-secret nature of the credential.
-    OperatorKey:
-      type: apiKey
-      in: header
-      name: X-Operator-Key
-      description: Platform-operator credential for simulator HTTP control-plane endpoints (port 8081). Scenario start/stop/reset/state only.
+      description: |
+        JWT Access Token issued by `POST /auth/login` or `POST /auth/refresh`.
+        Format: `Authorization: Bearer <access_token>`.
 
-  # ----------------------------------------------------------------------
-  parameters:
-    VehicleId:
-      name: vehicleId
-      in: path
-      required: true
-      schema: { type: string, example: veh_9S0001 }
-    SessionId:
-      name: sessionId
-      in: path
-      required: true
-      schema: { type: string, example: chs_0042 }
-    CommandId:
-      name: commandId
-      in: path
-      required: true
-      schema: { type: string, example: cmd_7731 }
-    TripId:
-      name: tripId
-      in: path
-      required: true
-      schema: { type: string, example: trp_0105 }
-    NotificationId:
-      name: notificationId
-      in: path
-      required: true
-      schema: { type: string, example: ntf_5521 }
-    ReportId:
-      name: reportId
-      in: path
-      required: true
-      schema: { type: string, example: rpt_301 }
-    Page:
-      name: page
-      in: query
-      required: false
-      schema: { type: integer, minimum: 1, default: 1 }
-    PageSize:
-      name: pageSize
-      in: query
-      required: false
-      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
-    From:
-      name: from
-      in: query
-      required: false
-      description: Inclusive range start (ISO-8601 date or date-time).
-      schema: { type: string, format: date-time }
-    To:
-      name: to
-      in: query
-      required: false
-      description: Inclusive range end (ISO-8601 date or date-time).
-      schema: { type: string, format: date-time }
-    Sort:
-      name: sort
-      in: query
-      required: false
-      description: Field name; prefix with `-` for descending (e.g. `-startedAt`). Default is newest first.
-      schema: { type: string, example: '-startedAt' }
-    IdempotencyKey:
-      name: Idempotency-Key
-      in: header
-      required: false
-      description: Client-generated unique key to prevent duplicate command submission on retry [assumption].
-      schema: { type: string, maxLength: 128 }
-
-  # ----------------------------------------------------------------------
-  responses:
-    BadRequest:
-      description: Validation error (`VALIDATION_ERROR`).
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
-          example:
-            success: false
-            data: null
-            meta: { requestId: req_8f2c1a, timestamp: '2026-11-16T09:30:00Z' }
-            error:
-              code: VALIDATION_ERROR
-              message: Charging target must be between 20 and 100.
-              details: [ { field: targetPercent, issue: OUT_OF_RANGE } ]
-              retryable: false
-    Unauthorized:
-      description: Missing/invalid credentials or expired session (`INVALID_CREDENTIALS`, `TOKEN_EXPIRED`, `UNAUTHENTICATED`). The app must sign in again.
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
-    Forbidden:
-      description: Vehicle or resource not owned by the user (`VEHICLE_ACCESS_DENIED`, `FORBIDDEN`).
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
-    NotFound:
-      description: Resource not found (`NOT_FOUND`, `VEHICLE_NOT_FOUND`).
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
-    Conflict:
-      description: State conflict (`VEHICLE_ALREADY_ASSOCIATED`, `COMMAND_IN_PROGRESS`, `DUPLICATE_EMAIL`, `REPORT_NOT_READY`, `SCENARIO_ALREADY_RUNNING`).
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
-    Unprocessable:
-      description: Valid request but vehicle state forbids it (`VEHICLE_OFFLINE`, `INVALID_COMMAND_STATE`, `CHARGING_TARGET_NOT_APPLICABLE`).
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
-    TooManyRequests:
-      description: Rate limited (`RATE_LIMITED`).
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
-    ServerError:
-      description: Server-side failure (`INTERNAL_ERROR`, `SERVICE_UNAVAILABLE`).
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
-
-  # ----------------------------------------------------------------------
   schemas:
-    # ---------------- Envelope ----------------
-    Meta:
+    RootResponse:
       type: object
-      required: [requestId, timestamp]
+      required: [message]
       properties:
-        requestId: { type: string, example: req_8f2c1a }
-        timestamp: { type: string, format: date-time, example: '2026-11-16T09:30:00Z' }
-        pagination: { $ref: '#/components/schemas/Pagination' }
-    Pagination:
-      type: object
-      required: [page, pageSize, totalItems, totalPages]
-      properties:
-        page: { type: integer, example: 1 }
-        pageSize: { type: integer, example: 20 }
-        totalItems: { type: integer, example: 134 }
-        totalPages: { type: integer, example: 7 }
-    ErrorCode:
-      type: string
-      enum:
-        - VALIDATION_ERROR
-        - INVALID_CREDENTIALS
-        - TOKEN_EXPIRED
-        - UNAUTHENTICATED
-        - FORBIDDEN
-        - VEHICLE_ACCESS_DENIED
-        - NOT_FOUND
-        - VEHICLE_NOT_FOUND
-        - VEHICLE_ALREADY_ASSOCIATED
-        - DUPLICATE_EMAIL
-        - COMMAND_IN_PROGRESS
-        - REPORT_NOT_READY
-        - SCENARIO_ALREADY_RUNNING
-        - VEHICLE_OFFLINE
-        - INVALID_COMMAND_STATE
-        - CHARGING_TARGET_NOT_APPLICABLE
-        - RATE_LIMITED
-        - INTERNAL_ERROR
-        - SERVICE_UNAVAILABLE
-    ErrorDetail:
-      type: object
-      required: [field, issue]
-      properties:
-        field: { type: string, example: targetPercent }
-        issue: { type: string, example: OUT_OF_RANGE }
-    ErrorBody:
-      type: object
-      required: [code, message, retryable]
-      properties:
-        code: { $ref: '#/components/schemas/ErrorCode' }
-        message: { type: string, description: Human-readable, safe to show to the user. }
-        details:
-          type: array
-          items: { $ref: '#/components/schemas/ErrorDetail' }
-        retryable: { type: boolean, description: Whether the app should offer a retry. }
-    ErrorEnvelope:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [false] }
-        data: { nullable: true, enum: [null] }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { $ref: '#/components/schemas/ErrorBody' }
-    EmptyResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { nullable: true, type: object }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-
-    # ---------------- Enums ----------------
-    VehicleState:
-      type: string
-      enum: [PARKED, DRIVING, CHARGING, OFFLINE]
-    Connectivity:
-      type: string
-      enum: [ONLINE, OFFLINE]
-    LockState:
-      type: string
-      enum: [LOCKED, UNLOCKED]
-    PreconditioningState:
-      type: string
-      enum: [ACTIVE, INACTIVE]
-    ChargingState:
-      type: string
-      enum: [NOT_CONNECTED, CONNECTED, CHARGING, PAUSED, COMPLETED, INTERRUPTED]
-    BatteryLevel:
-      type: string
-      description: Drives normal / warning / unavailable styling.
-      enum: [NORMAL, WARNING, UNAVAILABLE]
-    AssociationStatus:
-      type: string
-      enum: [ASSOCIATED, PENDING]
-    CommandType:
-      type: string
-      enum: [LOCK, UNLOCK, START_PRECONDITIONING, STOP_PRECONDITIONING]
-    CommandStatus:
-      type: string
-      enum: [SUBMITTED, ACCEPTED, EXECUTING, SUCCEEDED, FAILED, TIMED_OUT]
-    TripStatus:
-      type: string
-      enum: [ONGOING, COMPLETED]
-    NotificationType:
-      type: string
-      enum:
-        - LOW_BATTERY
-        - CHARGING_STARTED
-        - CHARGING_COMPLETED
-        - CHARGING_INTERRUPTED
-        - VEHICLE_UNLOCKED
-        - COMMAND_FAILED
-        - COMMAND_TIMED_OUT
-        - VEHICLE_OFFLINE
-        - CONNECTIVITY_RESTORED
-        - TRIP_COMPLETED
-    NotificationCategory:
-      type: string
-      enum: [BATTERY, CHARGING, VEHICLE, REMOTE_OPERATION, CONNECTIVITY]
-    AppScreen:
-      type: string
-      description: App screen a notification deep-links to.
-      enum: [HOME, LOCATION, CHARGING, CONTROLS, TRIPS, DRIVING_ENERGY, NOTIFICATIONS, PROFILE]
-    ReportType:
-      type: string
-      enum: [TRIP, ENERGY]
-    ReportFormat:
-      type: string
-      enum: [PDF, CSV]
-    ReportStatus:
-      type: string
-      enum: [REQUESTED, PROCESSING, COMPLETED, FAILED]
-    Period:
-      type: string
-      enum: [DAY, WEEK, MONTH, CUSTOM]
-    Granularity:
-      type: string
-      enum: [HOUR, DAY, WEEK]
-    DayOfWeek:
-      type: string
-      enum: [MON, TUE, WED, THU, FRI, SAT, SUN]
-    ChargingEventType:
-      type: string
-      enum: [CONNECTED, STARTED, PROGRESS, PAUSED, INTERRUPTED, COMPLETED, DISCONNECTED]
-    ScenarioName:
-      type: string
-      enum:
-        - PARKED_BATTERY_LEVEL
-        - DRIVING_ROUTE
-        - CHARGING_TO_TARGET
-        - CHARGING_INTERRUPTION
-        - REMOTE_OP_SUCCESS
-        - REMOTE_OP_FAILURE
-        - CONNECTIVITY_LOSS_RESTORE
-        - LOW_BATTERY
-        - COMPLETED_JOURNEY
-    WsEventName:
-      type: string
-      enum:
-        - vehicle.status
-        - vehicle.location
-        - charging.updated
-        - command.updated
-        - notification.created
-        - connectivity.changed
-
-    # ---------------- Shared value objects ----------------
-    GeoPoint:
-      type: object
-      required: [latitude, longitude]
-      properties:
-        latitude: { type: number, format: double, minimum: -90, maximum: 90, nullable: true, example: 12.9716 }
-        longitude: { type: number, format: double, minimum: -180, maximum: 180, nullable: true, example: 77.5946 }
-    NamedLocation:
-      allOf:
-        - $ref: '#/components/schemas/GeoPoint'
-        - type: object
-          properties:
-            description: { type: string, nullable: true, example: Indiranagar, description: Address or place description where available. }
-    RoutePoint:
-      allOf:
-        - $ref: '#/components/schemas/GeoPoint'
-        - type: object
-          required: [timestamp]
-          properties:
-            timestamp: { type: string, format: date-time }
-            speedKmh: { type: number, nullable: true }
-    BatteryRange:
-      type: object
-      properties:
-        startPercent: { type: number, minimum: 0, maximum: 100, nullable: true, example: 72.0 }
-        endPercent: { type: number, minimum: 0, maximum: 100, nullable: true, example: 68.0 }
-
-    # ---------------- Auth / Profile ----------------
-    RegisterRequest:
-      type: object
-      required: [name, email, password]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 100, example: Asha Nair }
-        email: { type: string, format: email, example: owner@example.com }
-        password: { type: string, format: password, minLength: 8, maxLength: 128 }
-    LoginRequest:
-      type: object
-      required: [identifier, password]
-      properties:
-        identifier: { type: string, description: Email or username., example: owner@example.com }
-        password: { type: string, format: password }
-    RefreshRequest:
-      type: object
-      required: [refreshToken]
-      properties:
-        refreshToken: { type: string }
-    LogoutRequest:
-      type: object
-      properties:
-        refreshToken: { type: string, description: If supplied it is revoked as well. }
-    UserSummary:
-      type: object
-      required: [userId, name, email]
-      properties:
-        userId: { type: string, example: usr_01 }
-        name: { type: string, example: Asha Nair }
-        email: { type: string, format: email }
-    AuthTokens:
-      type: object
-      required: [accessToken, refreshToken, tokenType, expiresIn, user]
-      properties:
-        accessToken: { type: string }
-        refreshToken: { type: string }
-        tokenType: { type: string, enum: [Bearer] }
-        expiresIn: { type: integer, description: Access-token lifetime in seconds., example: 900 }
-        user: { $ref: '#/components/schemas/UserSummary' }
-    AuthResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/AuthTokens' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    UserProfile:
-      type: object
-      required: [userId, name, email]
-      properties:
-        userId: { type: string, readOnly: true }
-        name: { type: string }
-        email: { type: string, format: email, readOnly: true }
-        createdAt: { type: string, format: date-time, readOnly: true }
-        vehicles:
-          type: array
-          description: Associated vehicle summary.
-          items: { $ref: '#/components/schemas/VehicleSummary' }
-    UpdateProfileRequest:
-      type: object
-      minProperties: 1
-      properties:
-        name: { type: string, minLength: 1, maxLength: 100 }
-    ProfileResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/UserProfile' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    Preferences:
-      type: object
-      required: [notifications, units]
-      properties:
-        notifications:
-          type: object
-          required: [enabledTypes]
-          properties:
-            enabledTypes:
-              type: array
-              items: { $ref: '#/components/schemas/NotificationType' }
-            lowBatteryThresholdPercent:
-              type: integer
-              minimum: 5
-              maximum: 50
-              example: 20
-        units:
-          type: object
-          properties:
-            distance: { type: string, enum: [KM, MILES], default: KM }
-            temperature: { type: string, enum: [CELSIUS, FAHRENHEIT], default: CELSIUS }
-    PreferencesResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/Preferences' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-
-    # ---------------- Vehicles ----------------
-    VehicleSummary:
-      type: object
-      required: [vehicleId, name, model, identifier, associationStatus]
-      properties:
-        vehicleId: { type: string, example: veh_9S0001 }
-        name: { type: string, example: My XEV }
-        model: { type: string, example: XEV 9S }
-        identifier: { type: string, description: Public vehicle identifier / VIN-style., example: XEV9S-MH12-0001 }
-        associationStatus: { $ref: '#/components/schemas/AssociationStatus' }
-        connectivity: { $ref: '#/components/schemas/Connectivity' }
-    VehicleListResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data:
-          type: array
-          items: { $ref: '#/components/schemas/VehicleSummary' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    VehicleResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/VehicleSummary' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    AssociateVehicleRequest:
-      type: object
-      required: [vehicleIdentifier, pairingCode]
-      properties:
-        vehicleIdentifier: { type: string, example: XEV9S-MH12-0001 }
-        pairingCode: { type: string, example: '482913' }
-        name: { type: string, description: Optional friendly name., example: My XEV }
-    VehicleStatus:
-      type: object
-      required: [vehicleId, vehicleState, connectivity, lastUpdatedAt, isStale]
-      properties:
-        vehicleId: { type: string }
-        name: { type: string }
-        model: { type: string }
-        vehicleState: { $ref: '#/components/schemas/VehicleState' }
-        connectivity: { $ref: '#/components/schemas/Connectivity' }
-        battery:
-          type: object
-          properties:
-            percent: { type: number, minimum: 0, maximum: 100, nullable: true, example: 64.0 }
-            level: { $ref: '#/components/schemas/BatteryLevel' }
-        range:
-          type: object
-          properties:
-            estimatedKm: { type: number, minimum: 0, nullable: true, example: 312.5 }
-        odometerKm: { type: number, minimum: 0, nullable: true, example: 12874.3 }
-        speedKmh: { type: number, minimum: 0, nullable: true, description: Null when offline. }
-        lockState: { $ref: '#/components/schemas/LockState' }
-        preconditioningState: { $ref: '#/components/schemas/PreconditioningState' }
-        charging:
-          type: object
-          properties:
-            state: { $ref: '#/components/schemas/ChargingState' }
-            powerKw: { type: number, minimum: 0, nullable: true, example: 11.2 }
-        lastUpdatedAt: { type: string, format: date-time, description: Time the latest vehicle information was received. }
-        isStale: { type: boolean, description: True when showing last-reported data for an offline vehicle. }
-    VehicleStatusResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/VehicleStatus' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    VehicleLocation:
-      type: object
-      required: [vehicleId, vehicleState, isCurrent]
-      properties:
-        vehicleId: { type: string }
-        latitude: { type: number, format: double, nullable: true, example: 12.9716 }
-        longitude: { type: number, format: double, nullable: true, example: 77.5946 }
-        description: { type: string, nullable: true, example: 'MG Road, Bengaluru' }
-        vehicleState: { $ref: '#/components/schemas/VehicleState' }
-        reportedAt: { type: string, format: date-time, nullable: true }
-        isCurrent: { type: boolean, description: False when offline (last-known position). }
-    VehicleLocationResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/VehicleLocation' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    ConnectivityStatus:
-      type: object
-      required: [vehicleId, status]
-      properties:
-        vehicleId: { type: string }
-        status: { $ref: '#/components/schemas/Connectivity' }
-        lastCommunicationAt: { type: string, format: date-time, nullable: true }
-        secondsSinceLastUpdate: { type: integer, nullable: true, example: 5 }
-        lastKnownState:
-          nullable: true
-          description: Last available vehicle information, retained while offline.
-          allOf:
-            - $ref: '#/components/schemas/VehicleStatus'
-    ConnectivityResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/ConnectivityStatus' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    TelemetryRecord:
-      type: object
-      required: [vehicleId, timestamp]
-      properties:
-        vehicleId: { type: string }
-        timestamp: { type: string, format: date-time }
-        batteryPercent: { type: number, minimum: 0, maximum: 100 }
-        rangeKm: { type: number, minimum: 0 }
-        speedKmh: { type: number, minimum: 0 }
-        odometerKm: { type: number, minimum: 0 }
-        location: { $ref: '#/components/schemas/GeoPoint' }
-        vehicleState: { $ref: '#/components/schemas/VehicleState' }
-        lockState: { $ref: '#/components/schemas/LockState' }
-        charging:
-          type: object
-          properties:
-            state: { $ref: '#/components/schemas/ChargingState' }
-            powerKw: { type: number, minimum: 0 }
-        preconditioningState: { $ref: '#/components/schemas/PreconditioningState' }
-    TelemetryListResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data:
-          type: array
-          items: { $ref: '#/components/schemas/TelemetryRecord' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-
-    # ---------------- Charging ----------------
-    ChargingSchedule:
-      type: object
-      required: [enabled]
-      properties:
-        enabled: { type: boolean }
-        startTime: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: '22:00', description: Local 24h time HH:mm. }
-        endTime: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: '06:00' }
-        daysOfWeek:
-          type: array
-          items: { $ref: '#/components/schemas/DayOfWeek' }
-          example: [MON, TUE, WED, THU, FRI]
-    ChargingOverview:
-      type: object
-      required: [state]
-      properties:
-        state: { $ref: '#/components/schemas/ChargingState' }
-        batteryPercent: { type: number, minimum: 0, maximum: 100, nullable: true, example: 64.0 }
-        targetPercent: { type: integer, minimum: 20, maximum: 100, nullable: true, example: 80 }
-        powerKw: { type: number, nullable: true, example: 11.2 }
-        sessionDurationSeconds: { type: integer, nullable: true, example: 1260 }
-        schedule:
-          nullable: true
-          allOf:
-            - $ref: '#/components/schemas/ChargingSchedule'
-        currentSessionId: { type: string, nullable: true, example: chs_0042 }
-    ChargingOverviewResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/ChargingOverview' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    SetChargingTargetRequest:
-      type: object
-      required: [targetPercent]
-      properties:
-        targetPercent:
-          type: integer
-          minimum: 20
-          maximum: 100
-          example: 80
-          description: Allowed range is an [assumption]; agree final limits across streams.
-    ChargingSession:
-      type: object
-      required: [sessionId, vehicleId, startedAt, status]
-      properties:
-        sessionId: { type: string, example: chs_0042 }
-        vehicleId: { type: string }
-        startedAt: { type: string, format: date-time }
-        endedAt: { type: string, format: date-time, nullable: true, description: Null while active. }
-        durationSeconds: { type: integer, nullable: true }
-        startBatteryPercent: { type: number, nullable: true }
-        endBatteryPercent: { type: number, nullable: true }
-        targetPercent: { type: integer, nullable: true }
-        avgPowerKw: { type: number, nullable: true }
-        maxPowerKw: { type: number, nullable: true }
-        status: { $ref: '#/components/schemas/ChargingState' }
-        interruptionReason: { type: string, nullable: true }
-    ChargingSessionResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/ChargingSession' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    ChargingSessionListResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data:
-          type: array
-          items: { $ref: '#/components/schemas/ChargingSession' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-
-    # ---------------- Commands ----------------
-    CreateCommandRequest:
-      type: object
-      required: [commandType]
-      properties:
-        commandType: { $ref: '#/components/schemas/CommandType' }
-    Command:
-      type: object
-      required: [commandId, vehicleId, commandType, status, requestedAt]
-      properties:
-        commandId: { type: string, example: cmd_7731 }
-        vehicleId: { type: string }
-        commandType: { $ref: '#/components/schemas/CommandType' }
-        status: { $ref: '#/components/schemas/CommandStatus' }
-        requestedAt: { type: string, format: date-time }
-        completedAt: { type: string, format: date-time, nullable: true }
-        failureReason: { type: string, nullable: true, description: Rejection / failure reason where available. }
-        resultingState:
-          type: object
-          nullable: true
-          description: Vehicle state change produced by a successful command.
-          properties:
-            lockState: { $ref: '#/components/schemas/LockState' }
-            preconditioningState: { $ref: '#/components/schemas/PreconditioningState' }
-    CommandResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/Command' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    CommandListResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data:
-          type: array
-          items: { $ref: '#/components/schemas/Command' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-
-    # ---------------- Trips ----------------
-    Trip:
-      type: object
-      required: [tripId, status, startedAt]
-      properties:
-        tripId: { type: string, example: trp_0105 }
-        status: { $ref: '#/components/schemas/TripStatus' }
-        startedAt: { type: string, format: date-time }
-        endedAt: { type: string, format: date-time, nullable: true }
-        startLocation: { $ref: '#/components/schemas/NamedLocation' }
-        endLocation:
-          nullable: true
-          allOf:
-            - $ref: '#/components/schemas/NamedLocation'
-        distanceKm: { type: number, nullable: true, example: 14.8 }
-        durationSeconds: { type: integer, nullable: true, example: 2520 }
-        energyConsumedKwh: { type: number, nullable: true, example: 2.9 }
-    TripDetail:
-      allOf:
-        - $ref: '#/components/schemas/Trip'
-        - type: object
-          properties:
-            averageSpeedKmh: { type: number, nullable: true, example: 21.1 }
-            battery: { $ref: '#/components/schemas/BatteryRange' }
-            route:
-              type: array
-              items: { $ref: '#/components/schemas/RoutePoint' }
-    TripListResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data:
-          type: array
-          items: { $ref: '#/components/schemas/Trip' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    TripDetailResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/TripDetail' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-
-    # ---------------- Analytics ----------------
-    AnalyticsSummary:
-      type: object
-      properties:
-        period:
-          type: object
-          properties:
-            type: { $ref: '#/components/schemas/Period' }
-            from: { type: string, format: date }
-            to: { type: string, format: date }
-        summary:
-          type: object
-          required: [tripCount]
-          properties:
-            totalDistanceKm: { type: number, nullable: true, example: 142.6 }
-            tripCount: { type: integer, example: 11 }
-            totalDrivingTimeSeconds: { type: integer, nullable: true, example: 19800 }
-            averageSpeedKmh: { type: number, nullable: true, example: 25.9 }
-            totalEnergyKwh: { type: number, nullable: true, example: 24.4 }
-            efficiencyKwhPer100Km: { type: number, nullable: true, example: 17.1 }
-        trend:
-          type: object
-          properties:
-            granularity: { $ref: '#/components/schemas/Granularity' }
-            points:
-              type: array
-              items:
-                type: object
-                required: [date]
-                properties:
-                  date: { type: string, format: date }
-                  energyKwh: { type: number, nullable: true }
-                  distanceKm: { type: number, nullable: true }
-                  tripIds:
-                    type: array
-                    description: Trips contributing to this data point (links to trip details).
-                    items: { type: string }
-    AnalyticsResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/AnalyticsSummary' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-
-    # ---------------- Notifications ----------------
-    NotificationLink:
-      type: object
-      properties:
-        screen: { $ref: '#/components/schemas/AppScreen' }
-        referenceId: { type: string, nullable: true, example: chs_0042 }
-    Notification:
-      type: object
-      required: [notificationId, vehicleId, type, category, title, message, occurredAt, read]
-      properties:
-        notificationId: { type: string, example: ntf_5521 }
-        vehicleId: { type: string }
-        type: { $ref: '#/components/schemas/NotificationType' }
-        category: { $ref: '#/components/schemas/NotificationCategory' }
-        title: { type: string, example: Charging completed }
-        message: { type: string, example: Your XEV 9S reached the 80% target. }
-        occurredAt: { type: string, format: date-time }
-        read: { type: boolean }
-        link:
-          nullable: true
-          allOf:
-            - $ref: '#/components/schemas/NotificationLink'
-    UpdateNotificationRequest:
-      type: object
-      required: [read]
-      properties:
-        read: { type: boolean }
-    NotificationResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/Notification' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    NotificationListResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data:
-          type: array
-          items: { $ref: '#/components/schemas/Notification' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    UnreadCountResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data:
-          type: object
-          required: [unreadCount]
-          properties:
-            unreadCount: { type: integer, example: 3 }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    ReadAllResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data:
-          type: object
-          required: [updatedCount]
-          properties:
-            updatedCount: { type: integer, example: 3 }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-
-    # ---------------- Reports ----------------
-    CreateReportRequest:
-      type: object
-      required: [vehicleId, reportType, format, from, to]
-      properties:
-        vehicleId: { type: string }
-        reportType: { $ref: '#/components/schemas/ReportType' }
-        format: { $ref: '#/components/schemas/ReportFormat' }
-        from: { type: string, format: date }
-        to: { type: string, format: date }
-    Report:
-      type: object
-      required: [reportId, vehicleId, reportType, format, status, requestedAt]
-      properties:
-        reportId: { type: string, example: rpt_301 }
-        vehicleId: { type: string }
-        reportType: { $ref: '#/components/schemas/ReportType' }
-        format: { $ref: '#/components/schemas/ReportFormat' }
-        from: { type: string, format: date }
-        to: { type: string, format: date }
-        status: { $ref: '#/components/schemas/ReportStatus' }
-        requestedAt: { type: string, format: date-time }
-        completedAt: { type: string, format: date-time, nullable: true }
-        failureReason: { type: string, nullable: true }
-        downloadUrl:
+        message:
           type: string
-          nullable: true
-          description: Set once status is COMPLETED.
-          example: /api/v1/reports/rpt_301/download
-    ReportResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/Report' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    ReportListResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data:
-          type: array
-          items: { $ref: '#/components/schemas/Report' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
+          example: XEV 9S Backend is running
 
-    # ---------------- Realtime ----------------
-    WsEvent:
-      type: object
-      required: [event, vehicleId, timestamp, data]
-      properties:
-        event: { $ref: '#/components/schemas/WsEventName' }
-        vehicleId: { type: string }
-        timestamp: { type: string, format: date-time }
-        data:
-          description: |
-            Payload depends on `event`:
-            `vehicle.status` -> VehicleStatus; `vehicle.location` -> VehicleLocation;
-            `charging.updated` -> ChargingOverview; `command.updated` -> Command;
-            `notification.created` -> Notification; `connectivity.changed` -> ConnectivityStatus.
-          oneOf:
-            - $ref: '#/components/schemas/VehicleStatus'
-            - $ref: '#/components/schemas/VehicleLocation'
-            - $ref: '#/components/schemas/ChargingOverview'
-            - $ref: '#/components/schemas/Command'
-            - $ref: '#/components/schemas/Notification'
-            - $ref: '#/components/schemas/ConnectivityStatus'
-      example:
-        event: command.updated
-        vehicleId: veh_9S0001
-        timestamp: '2026-11-16T09:31:03Z'
-        data: { commandId: cmd_7731, vehicleId: veh_9S0001, commandType: UNLOCK, status: SUCCEEDED, requestedAt: '2026-11-16T09:31:00Z', completedAt: '2026-11-16T09:31:03Z', failureReason: null }
-
-    # ---------------- Internal (simulator -> backend) ----------------
-    TelemetryIngest:
-      allOf:
-        - $ref: '#/components/schemas/TelemetryRecord'
-        - type: object
-          required: [batteryPercent, rangeKm, speedKmh, odometerKm, location, vehicleState, lockState, charging, preconditioningState]
-    ChargingEventIngest:
-      type: object
-      required: [vehicleId, eventType, timestamp]
-      properties:
-        vehicleId: { type: string }
-        sessionId: { type: string, nullable: true, description: Omit on first CONNECTED/STARTED; backend assigns. }
-        eventType: { $ref: '#/components/schemas/ChargingEventType' }
-        timestamp: { type: string, format: date-time }
-        batteryPercent: { type: number, minimum: 0, maximum: 100 }
-        powerKw: { type: number, minimum: 0 }
-        targetPercent: { type: integer }
-        interruptionReason: { type: string, nullable: true }
-    CommandResultIngest:
-      type: object
-      required: [result, executedAt]
-      properties:
-        result: { type: string, enum: [ACCEPTED, EXECUTING, SUCCEEDED, FAILED] }
-        reason: { type: string, nullable: true, example: VEHICLE_DRIVING }
-        executedAt: { type: string, format: date-time }
-        resultingState:
-          type: object
-          nullable: true
-          properties:
-            lockState: { $ref: '#/components/schemas/LockState' }
-            preconditioningState: { $ref: '#/components/schemas/PreconditioningState' }
-    IngestAckResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data:
-          type: object
-          properties:
-            accepted: { type: boolean, example: true }
-            note: { type: string, nullable: true, example: Command already in final status; result ignored. }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-
-    # ---------------- Simulator ----------------
-    SimCommandRequest:
-      type: object
-      required: [commandId, vehicleId, commandType]
-      properties:
-        commandId: { type: string }
-        vehicleId: { type: string }
-        commandType: { $ref: '#/components/schemas/CommandType' }
-    ChargingPreferencesPush:
-      type: object
-      properties:
-        targetPercent: { type: integer, minimum: 20, maximum: 100 }
-        schedule:
-          nullable: true
-          allOf:
-            - $ref: '#/components/schemas/ChargingSchedule'
-    Scenario:
-      type: object
-      required: [name, description]
-      properties:
-        name: { $ref: '#/components/schemas/ScenarioName' }
-        description: { type: string }
-        parameters:
-          type: array
-          items:
-            type: object
-            properties:
-              name: { type: string, example: batteryPercent }
-              type: { type: string, example: number }
-              required: { type: boolean }
-    ScenarioListResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data:
-          type: array
-          items: { $ref: '#/components/schemas/Scenario' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    StartScenarioRequest:
-      type: object
-      required: [scenario]
-      properties:
-        scenario: { $ref: '#/components/schemas/ScenarioName' }
-        initialConditions:
-          type: object
-          description: Scenario-specific starting values; all optional.
-          properties:
-            batteryPercent: { type: number, minimum: 0, maximum: 100 }
-            targetPercent: { type: integer }
-            lockState: { $ref: '#/components/schemas/LockState' }
-            routeId: { type: string }
-            lowBatteryThresholdPercent: { type: integer }
-            offlineDurationSeconds: { type: integer }
-    ScenarioStatus:
-      type: object
-      required: [vehicleId, running]
-      properties:
-        vehicleId: { type: string }
-        running: { type: boolean }
-        scenario:
-          nullable: true
-          allOf:
-            - $ref: '#/components/schemas/Scenario'
-        startedAt: { type: string, format: date-time, nullable: true }
-    ScenarioStatusResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data: { $ref: '#/components/schemas/ScenarioStatus' }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-    SimVehicleStateResponse:
-      type: object
-      required: [success, data, meta, error]
-      properties:
-        success: { type: boolean, enum: [true] }
-        data:
-          allOf:
-            - $ref: '#/components/schemas/TelemetryRecord'
-            - type: object
-              properties:
-                connectivitySimulated: { $ref: '#/components/schemas/Connectivity' }
-                activeScenario: { type: string, nullable: true }
-        meta: { $ref: '#/components/schemas/Meta' }
-        error: { nullable: true, enum: [null] }
-
-    # ---------------- Operations ----------------
-    HealthStatus:
+    HealthResponse:
       type: object
       required: [status]
       properties:
-        status: { type: string, enum: [UP, DOWN] }
-        version: { type: string, example: 1.0.0 }
-        checks:
-          type: object
-          additionalProperties: { type: string, enum: [UP, DOWN] }
-          example: { mongodb: UP, sqs: UP, s3: UP }
+        status:
+          type: string
+          example: healthy
+
+    DatabaseHealthResponse:
+      type: object
+      required: [database]
+      properties:
+        database:
+          type: string
+          example: connected
+
+    UserCreate:
+      type: object
+      description: Data submitted to register a new user account.
+      required:
+        - full_name
+        - email
+        - password
+        - confirm_password
+      properties:
+        full_name:
+          type: string
+          minLength: 2
+          maxLength: 80
+          example: Asha Nair
+        email:
+          type: string
+          format: email
+          example: owner@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+          example: SecureP@ssw0rd!
+        confirm_password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+          example: SecureP@ssw0rd!
+
+    UserLogin:
+      type: object
+      description: Credentials submitted during user login.
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: owner@example.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+          example: SecureP@ssw0rd!
+
+    UserResponse:
+      type: object
+      description: Public user information returned by the API.
+      required:
+        - id
+        - email
+        - full_name
+        - is_active
+        - created_at
+      properties:
+        id:
+          type: string
+          example: 673c52a0e4b0a1d2f3e4b5c6
+        email:
+          type: string
+          format: email
+          example: owner@example.com
+        full_name:
+          type: string
+          example: Asha Nair
+        is_active:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-11-20T10:00:00Z'
+
+    TokenResponse:
+      type: object
+      description: Authentication tokens returned after successful login or refresh.
+      required:
+        - access_token
+        - refresh_token
+        - expires_in
+      properties:
+        access_token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        refresh_token:
+          type: string
+          example: 48-character-opaque-url-safe-token
+        token_type:
+          type: string
+          default: bearer
+          example: bearer
+        expires_in:
+          type: integer
+          description: Lifetime of access_token in seconds (e.g. 900 for 15 minutes).
+          example: 900
+
+    RefreshTokenRequest:
+      type: object
+      description: Refresh token submitted to renew access token or log out.
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+          example: 48-character-opaque-url-safe-token
+
+    MessageResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          example: Logged out successfully
+
+    VehicleAssociationRequest:
+      type: object
+      description: Vehicle identifier and pairing code submitted for association. Extra properties forbidden.
+      required:
+        - vehicle_id
+        - pairing_code
+      properties:
+        vehicle_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+          example: veh_9S0001
+        pairing_code:
+          type: string
+          minLength: 1
+          maxLength: 128
+          example: '482913'
+      additionalProperties: false
+
+    VehicleResponse:
+      type: object
+      description: Vehicle information returned to its associated user.
+      required:
+        - vehicle_id
+        - model
+        - association_status
+        - associated_at
+      properties:
+        vehicle_id:
+          type: string
+          example: veh_9S0001
+        model:
+          type: string
+          example: XEV 9S
+        association_status:
+          type: string
+          enum: [active]
+          example: active
+        associated_at:
+          type: string
+          format: date-time
+          example: '2026-11-20T10:05:00Z'
+
+    VehicleListResponse:
+      type: object
+      description: List of vehicles associated with the authenticated user.
+      required:
+        - vehicles
+      properties:
+        vehicles:
+          type: array
+          items:
+            $ref: '#/components/schemas/VehicleResponse'
+
+    OperatingState:
+      type: string
+      description: Operational motion and power state of the vehicle.
+      enum:
+        - parked
+        - driving
+        - charging
+        - interrupted
+      example: parked
+
+    ChargingStatus:
+      type: string
+      description: High-voltage battery charging status.
+      enum:
+        - disconnected
+        - connected
+        - charging
+        - interrupted
+      example: disconnected
+
+    TelemetryPayload:
+      type: object
+      description: Validated telemetry payload received over MQTT topic `xev9s/vehicles/{vehicle_id}/telemetry`.
+      required:
+        - vehicle_id
+        - timestamp
+        - battery_percentage
+        - estimated_range_km
+        - speed_kph
+        - odometer_km
+        - operating_state
+        - is_locked
+        - charging_status
+        - charging_power_kw
+        - cabin_preconditioning_active
+      properties:
+        vehicle_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+          example: veh_9S0001
+        timestamp:
+          type: string
+          format: date-time
+          example: '2026-11-24T14:30:00Z'
+        battery_percentage:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+          example: 64.0
+        estimated_range_km:
+          type: number
+          format: float
+          minimum: 0
+          example: 312.5
+        speed_kph:
+          type: number
+          format: float
+          minimum: 0
+          example: 0.0
+        odometer_km:
+          type: number
+          format: float
+          minimum: 0
+          example: 12874.3
+        latitude:
+          type: number
+          format: float
+          minimum: -90
+          maximum: 90
+          nullable: true
+          example: 12.9716
+        longitude:
+          type: number
+          format: float
+          minimum: -180
+          maximum: 180
+          nullable: true
+          example: 77.5946
+        operating_state:
+          $ref: '#/components/schemas/OperatingState'
+        is_locked:
+          type: boolean
+          example: true
+        charging_status:
+          $ref: '#/components/schemas/ChargingStatus'
+        charging_power_kw:
+          type: number
+          format: float
+          minimum: 0
+          example: 0.0
+        cabin_preconditioning_active:
+          type: boolean
+          example: false
+      additionalProperties: false
+
+    TelemetryResponse:
+      type: object
+      description: Stored vehicle telemetry record returned by REST endpoints and broadcast over WebSocket.
+      required:
+        - vehicle_id
+        - timestamp
+        - battery_percentage
+        - estimated_range_km
+        - speed_kph
+        - odometer_km
+        - operating_state
+        - is_locked
+        - charging_status
+        - charging_power_kw
+        - cabin_preconditioning_active
+        - received_at
+      properties:
+        vehicle_id:
+          type: string
+          example: veh_9S0001
+        timestamp:
+          type: string
+          format: date-time
+          example: '2026-11-24T14:30:00Z'
+        battery_percentage:
+          type: number
+          format: float
+          example: 64.0
+        estimated_range_km:
+          type: number
+          format: float
+          example: 312.5
+        speed_kph:
+          type: number
+          format: float
+          example: 0.0
+        odometer_km:
+          type: number
+          format: float
+          example: 12874.3
+        latitude:
+          type: number
+          format: float
+          nullable: true
+          example: 12.9716
+        longitude:
+          type: number
+          format: float
+          nullable: true
+          example: 77.5946
+        operating_state:
+          $ref: '#/components/schemas/OperatingState'
+        is_locked:
+          type: boolean
+          example: true
+        charging_status:
+          $ref: '#/components/schemas/ChargingStatus'
+        charging_power_kw:
+          type: number
+          format: float
+          example: 0.0
+        cabin_preconditioning_active:
+          type: boolean
+          example: false
+        received_at:
+          type: string
+          format: date-time
+          example: '2026-11-24T14:30:01Z'
+
+    TelemetryHistoryResponse:
+      type: object
+      description: Collection of historical vehicle telemetry records.
+      required:
+        - telemetry
+        - count
+      properties:
+        telemetry:
+          type: array
+          items:
+            $ref: '#/components/schemas/TelemetryResponse'
+        count:
+          type: integer
+          example: 42
+
+    WebSocketAuthMessage:
+      type: object
+      description: Initial payload message sent by the client immediately after establishing WebSocket connection.
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: JWT Access Token.
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+    HTTPException:
+      type: object
+      description: Standard error response structure returned by FastAPI HTTPException.
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          example: Invalid or expired authentication token
+
+    HTTPValidationError:
+      type: object
+      description: Request validation failure response returned by FastAPI when Pydantic validation fails.
+      required:
+        - detail
+      properties:
+        detail:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationError'
+
+    ValidationError:
+      type: object
+      description: Specific field-level validation issue.
+      required:
+        - loc
+        - msg
+        - type
+      properties:
+        loc:
+          type: array
+          items:
+            anyOf:
+              - type: string
+              - type: integer
+          example: ["body", "email"]
+        msg:
+          type: string
+          example: value is not a valid email address
+        type:
+          type: string
+          example: value_error.email

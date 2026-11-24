@@ -103,12 +103,17 @@ class ApiClient {
     return _send<PagedResult<T>>(
       () => _dio.get(path, queryParameters: query),
       (json, meta) {
-        if (json is! List) {
+        List<dynamic> itemsList;
+        if (json is List) {
+          itemsList = json;
+        } else if (json is Map<String, dynamic> && json['telemetry'] is List) {
+          itemsList = json['telemetry'] as List;
+        } else {
           throw AppError.malformedResponse(
             'Expected list data for paginated response, got ${json.runtimeType}',
           );
         }
-        final items = json.map(parseItem).toList();
+        final items = itemsList.map(parseItem).toList();
         return PagedResult<T>(
           items: items,
           pagination: meta?.pagination,
@@ -132,31 +137,36 @@ class ApiClient {
     }
 
     final data = response.data;
-    if (data is! Map<String, dynamic>) {
+    if (data is! Map<String, dynamic> && data is! List) {
       throw AppError.malformedResponse(
-        'Expected JSON map envelope, got ${data.runtimeType}',
+        'Expected JSON object or list, received unexpected response body: ${data.runtimeType}',
       );
     }
+    Object? payload;
+    ApiMeta? meta;
 
-    final success = data['success'] as bool? ?? false;
-    if (!success) {
-      final errorJson = data['error'] as Map<String, dynamic>?;
-      if (errorJson != null) {
-        throw AppError.fromApiResponseError(
-          errorJson,
-          httpStatus: response.statusCode,
+    if (data is Map<String, dynamic> && data.containsKey('success') && data['success'] is bool) {
+      final success = data['success'] as bool;
+      if (!success) {
+        final errorJson = data['error'] as Map<String, dynamic>?;
+        if (errorJson != null) {
+          throw AppError.fromApiResponseError(
+            errorJson,
+            httpStatus: response.statusCode,
+          );
+        }
+        throw AppError.malformedResponse(
+          'Response indicated failure but provided no error payload',
         );
       }
-      throw AppError.malformedResponse(
-        'Response indicated failure but provided no error payload',
-      );
+      payload = data['data'];
+      final rawMeta = data['meta'] as Map<String, dynamic>?;
+      meta = rawMeta != null ? ApiMeta.fromJson(rawMeta) : null;
+    } else {
+      payload = data;
     }
 
     try {
-      final payload = data['data'];
-      final rawMeta = data['meta'] as Map<String, dynamic>?;
-      final meta = rawMeta != null ? ApiMeta.fromJson(rawMeta) : null;
-
       return parse(payload, meta);
     } catch (e) {
       if (e is AppError) rethrow;
@@ -173,6 +183,36 @@ class ApiClient {
           errPayload,
           httpStatus: error.response?.statusCode,
         );
+      }
+
+      if (map.containsKey('detail')) {
+        final detail = map['detail'];
+        if (detail is String) {
+          return AppError(
+            code: ApiErrorCode.fromHttpStatus(error.response?.statusCode),
+            message: detail,
+            httpStatus: error.response?.statusCode,
+            retryable: (error.response?.statusCode ?? 500) >= 500,
+          );
+        } else if (detail is List) {
+          final details = <ApiErrorDetail>[];
+          final messages = <String>[];
+          for (final item in detail) {
+            if (item is Map<String, dynamic>) {
+              final loc = (item['loc'] as List?)?.join('.') ?? '';
+              final msg = item['msg'] as String? ?? '';
+              details.add(ApiErrorDetail(field: loc, issue: msg));
+              messages.add(msg.isNotEmpty ? '$loc: $msg' : loc);
+            }
+          }
+          return AppError(
+            code: ApiErrorCode.validationError,
+            message: messages.isNotEmpty ? messages.join(', ') : 'Validation error',
+            details: details,
+            httpStatus: error.response?.statusCode,
+            retryable: false,
+          );
+        }
       }
     }
 

@@ -138,11 +138,11 @@ void main() {
       expect(storage.refreshToken, equals('ref_reg'));
     });
 
-    test('currentUser calls GET /users/me and parses UserSummary', () async {
+    test('currentUser calls GET /auth/me and parses UserSummary', () async {
       final storage = FakeTokenStorage();
       final client = FakeApiClient(
         handler: (path, _) async {
-          expect(path, equals('/users/me'));
+          expect(path, equals('/auth/me'));
           return {
             'userId': 'usr_me',
             'name': 'Current User',

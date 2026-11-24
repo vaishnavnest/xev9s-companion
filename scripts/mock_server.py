@@ -80,7 +80,9 @@ vehicle_states = {
     },
 }
 
-state = vehicle_states["veh_mock_9s_01"]
+# Global in-memory list of command records
+mock_commands = []
+command_counter = 7730
 
 def _sync_to_ws_server(payload: dict):
     """Notify mock WebSocket servers (port 4012 for python, port 4011 for node) of state changes."""
@@ -215,6 +217,16 @@ class MockApiHandler(BaseHTTPRequestHandler):
         self._send_cors_headers()
         self.end_headers()
 
+    def _send_raw_json(self, status_code, body_dict):
+        body = json.dumps(body_dict).encode('utf-8')
+        self.send_response(status_code)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Connection', 'close')
+        self._send_cors_headers()
+        self.end_headers()
+        self.wfile.write(body)
+
     def _send_json(self, status_code, data=None, error=None, meta=None):
         if meta is None:
             meta = {"requestId": "mock_req_123", "timestamp": "2026-11-17T09:00:00Z"}
@@ -255,7 +267,16 @@ class MockApiHandler(BaseHTTPRequestHandler):
         path = self.path.split('?')[0]
         token = self._get_auth_token()
 
-        if path in ('/users/me', '/api/v1/users/me'):
+        if path in ('/auth/me', '/api/v1/auth/me'):
+            profile = user_profiles.get(token, user_profiles.get(DEFAULT_TOKEN))
+            self._send_raw_json(200, {
+                "id": profile["userId"],
+                "full_name": profile["name"],
+                "email": profile["email"],
+                "is_active": True,
+                "created_at": "2026-01-01T00:00:00Z"
+            })
+        elif path in ('/users/me', '/api/v1/users/me'):
             profile = user_profiles.get(token, user_profiles.get(DEFAULT_TOKEN))
             self._send_json(200, data={
                 "userId": profile["userId"],
@@ -275,7 +296,71 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 for v in veh_list:
                     s = _get_vehicle_state(v.get("vehicleId"))
                     v["connectivity"] = "ONLINE" if s["isOnline"] else "OFFLINE"
-            self._send_json(200, data=veh_list)
+            # Format as VehicleListResponse per openapi.yaml
+            formatted_vehicles = [
+                {
+                    "vehicle_id": v.get("vehicleId"),
+                    "model": v.get("model", "XEV 9S"),
+                    "association_status": "ACTIVE" if v.get("associationStatus") == "ASSOCIATED" else "ACTIVE"
+                }
+                for v in veh_list
+            ]
+            self._send_raw_json(200, {
+                "vehicles": formatted_vehicles,
+                "total": len(formatted_vehicles)
+            })
+        elif '/telemetry/latest' in path:
+            vehicle_id = _extract_vehicle_id(path)
+            with _state_lock:
+                s = dict(_get_vehicle_state(vehicle_id))
+            battery_pct = s["batteryPercent"]
+            now_iso = datetime.now(timezone.utc).isoformat()
+            loc = s.get("location", {"latitude": 12.9716, "longitude": 77.5946, "description": "MG Road, Bengaluru"})
+            self._send_raw_json(200, {
+                "vehicle_id": vehicle_id,
+                "timestamp": now_iso,
+                "battery_percentage": battery_pct,
+                "estimated_range_km": round(battery_pct * 4.8, 1),
+                "speed_kph": s.get("speedKmh", 0.0),
+                "odometer_km": s.get("odometerKm", 12874.3),
+                "latitude": loc["latitude"],
+                "longitude": loc["longitude"],
+                "is_locked": s.get("lockState") == "LOCKED",
+                "cabin_preconditioning_active": s.get("preconditioningState") == "ACTIVE",
+                "operating_state": s.get("vehicleState", "PARKED") if s.get("isOnline", True) else "OFFLINE",
+                "charging_status": "CHARGING" if s.get("chargingState") == "CHARGING" else "DISCONNECTED",
+                "charging_power_kw": s.get("powerKw", 0.0) if s.get("chargingState") == "CHARGING" else 0.0,
+                "received_at": now_iso
+            })
+        elif '/telemetry/history' in path:
+            vehicle_id = _extract_vehicle_id(path)
+            with _state_lock:
+                s = dict(_get_vehicle_state(vehicle_id))
+            battery_pct = s["batteryPercent"]
+            now_iso = datetime.now(timezone.utc).isoformat()
+            loc = s.get("location", {"latitude": 12.9716, "longitude": 77.5946, "description": "MG Road, Bengaluru"})
+            sample = {
+                "vehicle_id": vehicle_id,
+                "timestamp": now_iso,
+                "battery_percentage": battery_pct,
+                "estimated_range_km": round(battery_pct * 4.8, 1),
+                "speed_kph": s.get("speedKmh", 0.0),
+                "odometer_km": s.get("odometerKm", 12874.3),
+                "latitude": loc["latitude"],
+                "longitude": loc["longitude"],
+                "is_locked": s.get("lockState") == "LOCKED",
+                "cabin_preconditioning_active": s.get("preconditioningState") == "ACTIVE",
+                "operating_state": s.get("vehicleState", "PARKED") if s.get("isOnline", True) else "OFFLINE",
+                "charging_status": "CHARGING" if s.get("chargingState") == "CHARGING" else "DISCONNECTED",
+                "charging_power_kw": s.get("powerKw", 0.0) if s.get("chargingState") == "CHARGING" else 0.0,
+                "received_at": now_iso
+            }
+            self._send_raw_json(200, {
+                "telemetry": [sample],
+                "total": 1,
+                "limit": 50,
+                "offset": 0
+            })
         elif '/status' in path:
             vehicle_id = _extract_vehicle_id(path)
             with _state_lock:
@@ -357,6 +442,37 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 "reportedAt": datetime.now(timezone.utc).isoformat(),
                 "isCurrent": is_online,
             })
+        elif '/commands' in path:
+            vehicle_id = _extract_vehicle_id(path)
+            parts = [p for p in path.split('/') if p]
+            # Check if specific commandId was requested: /vehicles/{id}/commands/{commandId}
+            if len(parts) >= 4 and parts[0] == 'vehicles' and parts[2] == 'commands':
+                cmd_id = parts[3]
+                with _state_lock:
+                    found = next((c for c in mock_commands if c.get('commandId') == cmd_id), None)
+                if found:
+                    self._send_json(200, data=found)
+                else:
+                    self._send_json(404, error={
+                        "code": "NOT_FOUND",
+                        "message": f"Command {cmd_id} not found",
+                        "details": None,
+                        "retryable": False
+                    })
+                return
+
+            with _state_lock:
+                cmds = [dict(c) for c in mock_commands if c.get('vehicleId') == vehicle_id]
+                cmds.sort(key=lambda x: x.get('requestedAt', ''), reverse=True)
+            self._send_json(200, data=cmds, meta={
+                "pagination": {
+                    "total": len(cmds),
+                    "page": 1,
+                    "pageSize": 20,
+                    "hasMore": False,
+                }
+            })
+            return
         elif path in ('/control/state', '/api/v1/control/state'):
             # Read-only view of current mock state
             with _state_lock:
@@ -419,7 +535,7 @@ class MockApiHandler(BaseHTTPRequestHandler):
         token = self._get_auth_token()
 
         if path in ('/auth/register', '/api/v1/auth/register'):
-            name = body.get('name', 'Jane Doe')
+            name = body.get('full_name') or body.get('name', 'Jane Doe')
             email = body.get('email', 'jane@example.com')
             password = body.get('password', '')
             user_id = f"usr_{abs(hash(email)) % 1000000:06d}"
@@ -432,22 +548,31 @@ class MockApiHandler(BaseHTTPRequestHandler):
                     "email": email,
                 }
                 user_passwords[email] = password
-                # A brand new user starts with 0 vehicles!
                 user_vehicles[user_token] = []
 
-            self._send_json(201, data={
-                "accessToken": user_token,
-                "refreshToken": f"mock_refresh_{user_token}",
-                "tokenType": "Bearer",
-                "expiresIn": 900,
-                "user": {
-                    "userId": user_id,
-                    "name": name,
-                    "email": email
-                }
-            })
+            # If full_name is present, it's following openapi.yaml UserCreate schema
+            if 'full_name' in body:
+                self._send_raw_json(201, {
+                    "id": user_id,
+                    "full_name": name,
+                    "email": email,
+                    "is_active": True,
+                    "created_at": "2026-01-01T00:00:00Z"
+                })
+            else:
+                self._send_json(201, data={
+                    "accessToken": user_token,
+                    "refreshToken": f"mock_refresh_{user_token}",
+                    "tokenType": "Bearer",
+                    "expiresIn": 900,
+                    "user": {
+                        "userId": user_id,
+                        "name": name,
+                        "email": email
+                    }
+                })
         elif path in ('/auth/login', '/api/v1/auth/login'):
-            identifier = body.get('identifier', '').strip()
+            identifier = (body.get('email') or body.get('identifier', '')).strip()
             password = body.get('password', '')
 
             # Validate credentials
@@ -456,12 +581,15 @@ class MockApiHandler(BaseHTTPRequestHandler):
 
             # If user does not exist or password does not match -> 401 INVALID_CREDENTIALS
             if expected_password is None or expected_password != password:
-                self._send_json(401, error={
-                    "code": "INVALID_CREDENTIALS",
-                    "message": "Incorrect email or password.",
-                    "details": None,
-                    "retryable": True
-                })
+                if 'email' in body:
+                    self._send_raw_json(401, {"detail": "Incorrect email or password."})
+                else:
+                    self._send_json(401, error={
+                        "code": "INVALID_CREDENTIALS",
+                        "message": "Incorrect email or password.",
+                        "details": None,
+                        "retryable": True
+                    })
                 return
 
             # Find matching token or generate one
@@ -474,31 +602,100 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 matched_token = DEFAULT_TOKEN
 
             profile = user_profiles.get(matched_token, user_profiles[DEFAULT_TOKEN])
-            self._send_json(200, data={
-                "accessToken": matched_token,
-                "refreshToken": f"mock_refresh_{matched_token}",
-                "tokenType": "Bearer",
-                "expiresIn": 900,
-                "user": {
-                    "userId": profile["userId"],
-                    "name": profile["name"],
-                    "email": profile["email"]
-                }
-            })
+            if 'email' in body:
+                self._send_raw_json(200, {
+                    "access_token": matched_token,
+                    "refresh_token": f"mock_refresh_{matched_token}",
+                    "token_type": "bearer",
+                    "expires_in": 900
+                })
+            else:
+                self._send_json(200, data={
+                    "accessToken": matched_token,
+                    "refreshToken": f"mock_refresh_{matched_token}",
+                    "tokenType": "Bearer",
+                    "expiresIn": 900,
+                    "user": {
+                        "userId": profile["userId"],
+                        "name": profile["name"],
+                        "email": profile["email"]
+                    }
+                })
         elif path in ('/auth/refresh', '/api/v1/auth/refresh'):
-            self._send_json(200, data={
-                "accessToken": "mock_refreshed_access_token_987654321",
-                "refreshToken": "mock_jwt_refresh_token_123456789",
-                "tokenType": "Bearer",
-                "expiresIn": 900,
-                "user": {
-                    "userId": "usr_mock_001",
-                    "name": "Jane Doe",
-                    "email": "jane@example.com"
-                }
-            })
+            if 'refresh_token' in body:
+                self._send_raw_json(200, {
+                    "access_token": "mock_refreshed_access_token_987654321",
+                    "refresh_token": "mock_jwt_refresh_token_123456789",
+                    "token_type": "bearer",
+                    "expires_in": 900
+                })
+            else:
+                self._send_json(200, data={
+                    "accessToken": "mock_refreshed_access_token_987654321",
+                    "refreshToken": "mock_jwt_refresh_token_123456789",
+                    "tokenType": "Bearer",
+                    "expiresIn": 900,
+                    "user": {
+                        "userId": "usr_mock_001",
+                        "name": "Jane Doe",
+                        "email": "jane@example.com"
+                    }
+                })
         elif path in ('/auth/logout', '/api/v1/auth/logout'):
-            self._send_json(200, data={"message": "Logged out successfully"})
+            if 'refresh_token' in body:
+                self._send_raw_json(200, {"message": "Successfully logged out"})
+            else:
+                self._send_json(200, data={"message": "Logged out successfully"})
+        elif '/commands' in path:
+            vehicle_id = _extract_vehicle_id(path)
+            global command_counter
+            command_type = body.get('commandType', 'LOCK')
+            now_iso = datetime.now(timezone.utc).isoformat()
+            with _state_lock:
+                command_counter += 1
+                cmd_id = f"cmd_{command_counter}"
+                cmd_record = {
+                    "commandId": cmd_id,
+                    "vehicleId": vehicle_id,
+                    "commandType": command_type,
+                    "status": "SUBMITTED",
+                    "requestedAt": now_iso,
+                    "completedAt": None,
+                    "failureReason": None,
+                    "resultingState": None,
+                }
+                mock_commands.insert(0, cmd_record)
+
+            # Notify WebSocket server of new command
+            _sync_to_ws_server({
+                "vehicleId": vehicle_id,
+                "command": dict(cmd_record),
+            })
+
+            # Return 202 with status SUBMITTED per openapi.yaml
+            self._send_json(202, data=dict(cmd_record))
+            return
+        elif path in ('/vehicles/associate', '/api/v1/vehicles/associate'):
+            target_token = token if token and token in user_vehicles else DEFAULT_TOKEN
+            veh_id = body.get('vehicle_id') or body.get('vehicleIdentifier') or f"veh_mock_{int(datetime.now().timestamp())}"
+            with _state_lock:
+                if target_token not in user_vehicles:
+                    user_vehicles[target_token] = []
+
+                new_veh = {
+                    "vehicleId": veh_id,
+                    "name": "XEV 9S",
+                    "model": "XEV 9S",
+                    "identifier": veh_id,
+                    "associationStatus": "ASSOCIATED",
+                    "connectivity": "ONLINE"
+                }
+                user_vehicles[target_token].append(new_veh)
+            self._send_raw_json(200, {
+                "vehicle_id": veh_id,
+                "association_status": "ACTIVE",
+                "message": "Vehicle associated successfully"
+            })
         elif path in ('/vehicles', '/api/v1/vehicles'):
             target_token = token if token and token in user_vehicles else DEFAULT_TOKEN
             with _state_lock:
