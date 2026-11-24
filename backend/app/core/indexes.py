@@ -38,3 +38,11 @@ def ensure_database_indexes(database) -> None:
         ],
         name="idx_user_vehicles_associated_at",
     )
+
+    database["vehicle_telemetry"].create_index(
+        [
+            ("vehicle_id", ASCENDING),
+            ("timestamp", DESCENDING),
+        ],
+        name="idx_vehicle_telemetry_vehicle_timestamp",
+    )

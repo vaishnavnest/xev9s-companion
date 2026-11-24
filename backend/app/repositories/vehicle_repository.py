@@ -1,4 +1,4 @@
-﻿
+
 from datetime import UTC, datetime
 
 from backend.app.core.exceptions import (
@@ -55,6 +55,16 @@ class VehicleRepository:
         """Find a vehicle using its identifier."""
 
         return self.vehicles.find_one({"vehicle_id": vehicle_id})
+
+    def get_active_vehicle_by_id(self, vehicle_id: str) -> dict | None:
+        """Find an active vehicle using its identifier."""
+
+        return self.vehicles.find_one(
+            {
+                "vehicle_id": vehicle_id,
+                "is_active": True,
+            }
+        )
 
     def associate_vehicle(
         self,

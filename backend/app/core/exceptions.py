@@ -4,3 +4,11 @@ class InvalidPairingCodeError(Exception):
 
 class VehicleAlreadyAssociatedError(Exception):
     """Raised when a vehicle is already associated with the user's account."""
+
+
+class VehicleNotActiveError(Exception):
+    """Raised when telemetry comes from an unknown or inactive vehicle."""
+
+
+class VehicleAccessDeniedError(Exception):
+    """Raised when a user attempts to access another user's vehicle data."""
