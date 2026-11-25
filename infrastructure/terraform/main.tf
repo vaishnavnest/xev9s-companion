@@ -35,6 +35,8 @@ provider "aws" {
 }
 
 # 1. S3 Bucket for storing generated vehicle trip & energy reports
+# (SSE-S3 AES256 is configured below; KMS CMK is not enabled in sqs,s3-only LocalStack)
+#trivy:ignore:AVD-AWS-0132
 resource "aws_s3_bucket" "reports" {
   bucket        = var.report_bucket_name
   force_destroy = true
@@ -46,10 +48,33 @@ resource "aws_s3_bucket" "reports" {
   }
 }
 
+# Block all public access to the S3 reports bucket (Trivy AWS-0086/0087/0091/0093)
+resource "aws_s3_bucket_public_access_block" "reports" {
+  bucket = aws_s3_bucket.reports.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Enable SSE-S3 encryption at rest (KMS CMK not used in sqs,s3-only LocalStack simulation)
+#trivy:ignore:AVD-AWS-0132
+resource "aws_s3_bucket_server_side_encryption_configuration" "reports" {
+  bucket = aws_s3_bucket.reports.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
 # 2. Dead-Letter Queue (receives messages that fail processing max_receive_count times)
 resource "aws_sqs_queue" "report_dlq" {
   name                      = var.report_dlq_name
   message_retention_seconds = 1209600 # 14 days
+  sqs_managed_sse_enabled   = true    # Trivy AWS-0096
 
   tags = {
     Project     = "xev9s-companion"
@@ -64,6 +89,7 @@ resource "aws_sqs_queue" "report_queue" {
   visibility_timeout_seconds = 60
   message_retention_seconds  = 86400 # 1 day
   receive_wait_time_seconds  = 10    # Enable long polling
+  sqs_managed_sse_enabled    = true  # Trivy AWS-0096
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.report_dlq.arn
