@@ -146,6 +146,36 @@ def _build_mock_trips():
 
 mock_trips = _build_mock_trips()
 
+
+def _get_vehicle_trips(vehicle_id: str):
+    """Returns mock trips for vehicle_id with trp_ongoing_01 reflecting live vehicleState."""
+    v_state = _get_vehicle_state(vehicle_id).get("vehicleState", "PARKED")
+    is_driving = v_state == "DRIVING"
+    result = []
+    for trip in mock_trips:
+        if trip.get("trip_id") == "trp_ongoing_01" and not is_driving:
+            started_dt = datetime.fromisoformat(trip["started_at"].replace("Z", "+00:00"))
+            ended_dt = started_dt + timedelta(minutes=14)
+            completed_trip = dict(trip)
+            completed_trip.update({
+                "status": "completed",
+                "ended_at": ended_dt.isoformat(),
+                "end_location": {
+                    "latitude": 12.9772,
+                    "longitude": 77.6032,
+                    "description": "Trinity Circle, Bengaluru",
+                },
+                "distance_km": 4.2,
+                "duration_seconds": 840,
+                "energy_consumed_kwh": 0.7,
+                "average_speed_kmh": 18.0,
+                "battery": {"start_percent": 82.0, "end_percent": 81.0},
+            })
+            result.append(completed_trip)
+        else:
+            result.append(trip)
+    return result
+
 vehicle_states = {
     "veh_mock_9s_01": {
         "vehicleId":            "veh_mock_9s_01",
@@ -516,15 +546,18 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 "isStale": not s["isOnline"],
             })
         elif '/trips/' in path:
+            vehicle_id = _extract_vehicle_id(path)
             trip_id = path.split('/trips/')[1].split('?')[0].strip('/')
             with _state_lock:
-                found = next((t for t in mock_trips if t.get("trip_id") == trip_id), None)
+                trips_for_vehicle = _get_vehicle_trips(vehicle_id)
+                found = next((t for t in trips_for_vehicle if t.get("trip_id") == trip_id), None)
             if found:
                 self._send_json(200, data=found)
             else:
                 self._send_json(404, error={"code": "NOT_FOUND", "message": f"Trip {trip_id} not found", "retryable": False})
             return
         elif path.endswith('/trips'):
+            vehicle_id = _extract_vehicle_id(path)
             parsed_q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             page = max(1, int(parsed_q.get("page", ["1"])[0]))
             raw_ps = parsed_q.get("pageSize", parsed_q.get("page_size", ["20"]))[0]
@@ -534,7 +567,7 @@ class MockApiHandler(BaseHTTPRequestHandler):
             to_f = parsed_q.get("to", [None])[0]
 
             with _state_lock:
-                filtered = list(mock_trips)
+                filtered = _get_vehicle_trips(vehicle_id)
             if status_f:
                 filtered = [t for t in filtered if t["status"].lower() == status_f.lower()]
             if from_f:
