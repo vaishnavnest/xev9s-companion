@@ -464,7 +464,50 @@ class ControlHandler(BaseHTTPRequestHandler):
             s = dict(s_target)
 
         # Build and broadcast the right event immediately
-        if event == "connectivity.changed":
+        if "command" in payload and isinstance(payload["command"], dict):
+            cmd = payload["command"]
+            cmd_id = cmd.get("commandId", "cmd_7731")
+            cmd_type = cmd.get("commandType", "LOCK")
+            req_at = cmd.get("requestedAt") or datetime.now(timezone.utc).isoformat()
+
+            def _run_command_lifecycle():
+                def _emit_cmd(status_val, completed_at=None, resulting=None):
+                    broadcast("command.updated", lambda vid: {
+                        "commandId": cmd_id,
+                        "vehicleId": vid,
+                        "commandType": cmd_type,
+                        "status": status_val,
+                        "requestedAt": req_at,
+                        "completedAt": completed_at,
+                        "failureReason": None,
+                        "resultingState": resulting,
+                    }, vehicle_id=target_vid)
+
+                time.sleep(0.8)
+                _emit_cmd("ACCEPTED")
+                time.sleep(0.8)
+                _emit_cmd("EXECUTING")
+                time.sleep(1.0)
+                with state_lock:
+                    vs = _get_vehicle_state(target_vid)
+                    if cmd_type == "LOCK":
+                        vs["lockState"] = "LOCKED"
+                    elif cmd_type == "UNLOCK":
+                        vs["lockState"] = "UNLOCKED"
+                    elif cmd_type == "START_PRECONDITIONING":
+                        vs["preconditioningState"] = "ACTIVE"
+                    elif cmd_type == "STOP_PRECONDITIONING":
+                        vs["preconditioningState"] = "INACTIVE"
+                    resulting = {
+                        "lockState": vs["lockState"],
+                        "preconditioningState": vs["preconditioningState"],
+                    }
+                    snap = dict(vs)
+                _emit_cmd("SUCCEEDED", datetime.now(timezone.utc).isoformat(), resulting)
+                broadcast("vehicle.status", lambda vid: _build_status_payload(snap, vehicle_id=vid), vehicle_id=target_vid)
+
+            threading.Thread(target=_run_command_lifecycle, daemon=True).start()
+        elif event == "connectivity.changed":
             broadcast("connectivity.changed", lambda vid: {
                 "status": "ONLINE" if s["isOnline"] else "OFFLINE",
                 "lastCommunicationAt": datetime.now(timezone.utc).isoformat(),

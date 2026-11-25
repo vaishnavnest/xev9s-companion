@@ -876,6 +876,49 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 "command": dict(cmd_record),
             })
 
+            def _progress_command(cid, vid, ctype):
+                time.sleep(0.8)
+                with _state_lock:
+                    rec = next((c for c in mock_commands if c.get("commandId") == cid), None)
+                    if rec:
+                        rec["status"] = "ACCEPTED"
+                time.sleep(0.8)
+                with _state_lock:
+                    rec = next((c for c in mock_commands if c.get("commandId") == cid), None)
+                    if rec:
+                        rec["status"] = "EXECUTING"
+                time.sleep(1.0)
+                with _state_lock:
+                    vs = _get_vehicle_state(vid)
+                    if ctype == "LOCK":
+                        vs["lockState"] = "LOCKED"
+                    elif ctype == "UNLOCK":
+                        vs["lockState"] = "UNLOCKED"
+                    elif ctype == "START_PRECONDITIONING":
+                        vs["preconditioningState"] = "ACTIVE"
+                    elif ctype == "STOP_PRECONDITIONING":
+                        vs["preconditioningState"] = "INACTIVE"
+                    resulting = {
+                        "lockState": vs["lockState"],
+                        "preconditioningState": vs["preconditioningState"],
+                    }
+                    rec = next((c for c in mock_commands if c.get("commandId") == cid), None)
+                    if rec:
+                        rec["status"] = "SUCCEEDED"
+                        rec["completedAt"] = datetime.now(timezone.utc).isoformat()
+                        rec["resultingState"] = resulting
+                _sync_to_ws_server({
+                    "vehicleId": vid,
+                    "lockState": resulting["lockState"],
+                    "preconditioningState": resulting["preconditioningState"],
+                })
+
+            threading.Thread(
+                target=_progress_command,
+                args=(cmd_id, vehicle_id, command_type),
+                daemon=True,
+            ).start()
+
             # Return 202 with status SUBMITTED per openapi.yaml
             self._send_json(202, data=dict(cmd_record))
             return
