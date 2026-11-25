@@ -211,3 +211,16 @@ The following questions have been identified during implementation and verificat
 4. **Failure Reason Localization**: Are `failureReason` strings on `Command` intended to be machine-readable error codes (e.g. `VEHICLE_MOVING`, `BATTERY_TOO_LOW`) or localized user-facing sentences? (Client currently displays raw reason codes with user-friendly fallbacks).
 5. **Simultaneous Multi-Vehicle Command Concurrency**: Can an account issue simultaneous commands across two distinct vehicles (e.g. unlock Vehicle A while preconditioning Vehicle B)? (Client supports independent per-vehicle tracking sessions).
 6. **Command Timeout Durations**: What are the exact server-side timeout boundaries before the vehicle telematics gateway marks an in-flight command as `TIMED_OUT`? (Client displays a soft wait warning at 60s and hard tracking cap at 10 minutes).
+
+---
+
+## 8. Trips & History (UC-06) Backend & Realtime Confirmation Items
+
+Please confirm the following contract and behaviour details for `GET /vehicles/{vehicle_id}/trips` and `GET /vehicles/{vehicle_id}/trips/{trip_id}`:
+
+1. **Ongoing Trips in List:** Do active/in-progress trips appear in `GET /vehicles/{vehicle_id}/trips` with status `ongoing` (or `ONGOING`) and `null` end fields (`ended_at`, `end_location`, `duration_seconds`, `energy_consumed_kwh`)?
+2. **Route Ordering & Limits:** Are `route` points guaranteed to be ordered chronologically, what is the maximum number of points returned per trip, and does the list endpoint ever return `route` arrays?
+3. **UTC Filtering:** Are `from` and `to` query parameters interpreted as UTC instants and filtered against `started_at`?
+4. **Units:** Confirm that `distance_km` is in kilometers (`km`), `energy_consumed_kwh` is in kilowatt-hours (`kWh`), and `average_speed_kmh` is in `km/h`.
+5. **Trip Detection Rules:** What are the trip start/end detection rules (e.g., minimum distance, minimum duration, or ignition/gear transitions)?
+6. **Realtime Events for Trips:** Will a dedicated realtime WebSocket event (e.g. `trip.started` / `trip.completed`) be added later, or should the client continue relying on `vehicle.status` (`DRIVING` $\to$ non-driving) and `onResync`?
