@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:xev9s_app/core/network/api_exception.dart';
+import 'package:xev9s_app/core/theme/app_theme.dart';
 import 'package:xev9s_app/features/auth/application/auth_controller.dart';
 import 'package:xev9s_app/features/auth/presentation/splash_page.dart';
 
@@ -97,6 +98,48 @@ void main() {
 
       expect(find.byType(XevEmblemVector), findsOneWidget);
       expect(find.byType(CustomPaint), findsWidgets);
+    });
+
+    testWidgets('adapts splash background to light and dark AppTheme', (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authControllerProvider.overrideWith(
+              () => FakeAuthController(initialState: const AuthUnknown()),
+            ),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+            themeMode: ThemeMode.light,
+            home: const SplashPage(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final lightScaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+      expect(lightScaffold.backgroundColor, const Color(0xFFF9FBFC));
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authControllerProvider.overrideWith(
+              () => FakeAuthController(initialState: const AuthUnknown()),
+            ),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+            themeMode: ThemeMode.dark,
+            home: const SplashPage(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final darkScaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+      expect(darkScaffold.backgroundColor, const Color(0xFF030D11));
     });
   });
 }

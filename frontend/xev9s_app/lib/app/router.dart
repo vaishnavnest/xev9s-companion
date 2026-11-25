@@ -4,6 +4,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../features/analytics/presentation/analytics_page.dart';
 import '../features/auth/application/auth_controller.dart';
+import '../features/auth/presentation/help_support_page.dart';
+import '../features/auth/presentation/legal_document_page.dart';
 import '../features/auth/presentation/login_page.dart';
 import '../features/auth/presentation/register_page.dart';
 import '../features/auth/presentation/splash_page.dart';
@@ -60,9 +62,13 @@ GoRouter createAppRouter({
         return loc == '/splash' ? null : '/splash';
       }
 
-      // 2. Unauthenticated -> allow /login and /register, otherwise force /login
+      // 2. Unauthenticated -> allow /login, /register, /terms, /privacy, and /help, otherwise force /login
       if (authState is AuthUnauthenticated) {
-        final isAuthRoute = loc == '/login' || loc == '/register';
+        final isAuthRoute = loc == '/login' ||
+            loc == '/register' ||
+            loc == '/terms' ||
+            loc == '/privacy' ||
+            loc == '/help';
         return isAuthRoute ? null : '/login';
       }
 
@@ -77,10 +83,14 @@ GoRouter createAppRouter({
         }
 
         // If authenticated without a selected vehicle, force /vehicles
-        // (except when already on /vehicles, /vehicles/add, or /profile)
+        // (except when already on /vehicles, /vehicles/add, /profile, or public info routes)
         if (!hasVehicle) {
-          final isAllowedWithoutVehicle =
-              loc == '/vehicles' || loc == '/vehicles/add' || loc == '/profile';
+          final isAllowedWithoutVehicle = loc == '/vehicles' ||
+              loc == '/vehicles/add' ||
+              loc == '/profile' ||
+              loc == '/terms' ||
+              loc == '/privacy' ||
+              loc == '/help';
           if (!isAllowedWithoutVehicle) {
             return '/vehicles';
           }
@@ -101,6 +111,18 @@ GoRouter createAppRouter({
       GoRoute(
         path: '/register',
         builder: (context, state) => const RegisterPage(),
+      ),
+      GoRoute(
+        path: '/terms',
+        builder: (context, state) => const TermsOfServicePage(),
+      ),
+      GoRoute(
+        path: '/privacy',
+        builder: (context, state) => const PrivacyPolicyPage(),
+      ),
+      GoRoute(
+        path: '/help',
+        builder: (context, state) => const HelpSupportPage(),
       ),
       GoRoute(
         path: '/vehicles',

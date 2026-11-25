@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/error_view.dart';
 import '../../../shared/widgets/xev_logo.dart';
 import '../application/auth_controller.dart';
@@ -17,9 +18,13 @@ class SplashPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authControllerProvider);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF020305),
+      backgroundColor: isDark
+          ? const Color(0xFF030D11)
+          : const Color(0xFFF9FBFC),
       body: switch (authState) {
         AuthStartupFailed(:final error) => ErrorView(
             title: "Couldn't load your account",
@@ -79,75 +84,126 @@ class _SplashContentState extends State<_SplashContent>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final sheenAccent = isDark
+        ? AppTheme.accentColor.withValues(alpha: 0.42)
+        : AppTheme.primaryColor.withValues(alpha: 0.35);
+
     return Container(
       width: double.infinity,
       height: double.infinity,
-      color: const Color(0xFF020305),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: isDark
+              ? const [
+                  Color(0xFF061E24),
+                  Color(0xFF030D11),
+                  Color(0xFF02080B),
+                ]
+              : const [
+                  Color(0xFFF9FBFC),
+                  Color(0xFFEAF5F4),
+                  Color(0xFFF4FAFA),
+                ],
+          stops: const [0.0, 0.52, 1.0],
+        ),
+      ),
       child: SafeArea(
-        child: Center(
-          child: FadeTransition(
-            opacity: _entranceFade,
-            child: AnimatedBuilder(
-              animation: _cycleController,
-              builder: (context, child) {
-                final progress = _cycleController.value;
-
-                // 1. Organic weightless float & subtle pulse (smooth cyclic sine wave)
-                final floatWave =
-                    (math.sin(progress * 2 * math.pi) + 1.0) / 2.0;
-                final scale = 0.97 + (0.05 * floatWave);
-                final floatY = -3.5 + (7.0 * floatWave);
-
-                // 2. Specular metallic sheen sweep across the emblem
-                // Sweeps across the logo during the first 45% of the cycle (~1.6s), then rests
-                const sheenWindow = 0.45;
-                final double sheenPosition;
-                final double sheenOpacity;
-
-                if (progress < sheenWindow) {
-                  final sheenT =
-                      Curves.easeInOutCubic.transform(progress / sheenWindow);
-                  sheenPosition = -1.5 + (sheenT * 3.0);
-                  sheenOpacity = 1.0;
-                } else {
-                  sheenPosition = 2.5;
-                  sheenOpacity = 0.0;
-                }
-
-                return Transform.translate(
-                  offset: Offset(0, floatY),
-                  child: Transform.scale(
-                    scale: scale,
-                    child: ShaderMask(
-                      blendMode: BlendMode.srcATop,
-                      shaderCallback: (Rect bounds) {
-                        if (sheenOpacity == 0.0) {
-                          return const LinearGradient(
-                            colors: [Colors.transparent, Colors.transparent],
-                          ).createShader(bounds);
-                        }
-
-                        return LinearGradient(
-                          begin: Alignment(sheenPosition - 0.45, -0.6),
-                          end: Alignment(sheenPosition + 0.45, 0.6),
-                          colors: [
-                            Colors.transparent,
-                            Colors.white.withValues(alpha: 0.15),
-                            Colors.white.withValues(alpha: 0.55),
-                            const Color(0xFF00E5BE).withValues(alpha: 0.40),
-                            Colors.white.withValues(alpha: 0.15),
-                            Colors.transparent,
-                          ],
-                          stops: const [0.0, 0.35, 0.50, 0.58, 0.75, 1.0],
-                        ).createShader(bounds);
-                      },
-                      child: const XevAppLogo(height: 80),
-                    ),
-                  ),
-                );
-              },
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Soft electric-teal ambient halo behind the emblem so the logo
+            // integrates naturally with the app theme.
+            Container(
+              width: 320,
+              height: 320,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: isDark
+                      ? [
+                          AppTheme.accentColor.withValues(alpha: 0.16),
+                          AppTheme.primaryColor.withValues(alpha: 0.10),
+                          Colors.transparent,
+                        ]
+                      : [
+                          AppTheme.primaryColor.withValues(alpha: 0.12),
+                          AppTheme.accentColor.withValues(alpha: 0.06),
+                          Colors.transparent,
+                        ],
+                  stops: const [0.0, 0.48, 1.0],
+                ),
+              ),
             ),
-          ),
+            Center(
+              child: FadeTransition(
+                opacity: _entranceFade,
+                child: AnimatedBuilder(
+                  animation: _cycleController,
+                  builder: (context, child) {
+                    final progress = _cycleController.value;
+
+                    // 1. Organic weightless float & subtle pulse (smooth cyclic sine wave)
+                    final floatWave =
+                        (math.sin(progress * 2 * math.pi) + 1.0) / 2.0;
+                    final scale = 0.97 + (0.05 * floatWave);
+                    final floatY = -3.5 + (7.0 * floatWave);
+
+                    // 2. Specular metallic sheen sweep across the emblem
+                    // Sweeps across the logo during the first 45% of the cycle (~1.6s), then rests
+                    const sheenWindow = 0.45;
+                    final double sheenPosition;
+                    final double sheenOpacity;
+
+                    if (progress < sheenWindow) {
+                      final sheenT = Curves.easeInOutCubic
+                          .transform(progress / sheenWindow);
+                      sheenPosition = -1.5 + (sheenT * 3.0);
+                      sheenOpacity = 1.0;
+                    } else {
+                      sheenPosition = 2.5;
+                      sheenOpacity = 0.0;
+                    }
+
+                    return Transform.translate(
+                      offset: Offset(0, floatY),
+                      child: Transform.scale(
+                        scale: scale,
+                        child: ShaderMask(
+                          blendMode: BlendMode.srcATop,
+                          shaderCallback: (Rect bounds) {
+                            if (sheenOpacity == 0.0) {
+                              return const LinearGradient(
+                                colors: [Colors.transparent, Colors.transparent],
+                              ).createShader(bounds);
+                            }
+
+                            return LinearGradient(
+                              begin: Alignment(sheenPosition - 0.45, -0.6),
+                              end: Alignment(sheenPosition + 0.45, 0.6),
+                              colors: [
+                                Colors.transparent,
+                                Colors.white.withValues(alpha: 0.15),
+                                Colors.white.withValues(alpha: 0.55),
+                                sheenAccent,
+                                Colors.white.withValues(alpha: 0.15),
+                                Colors.transparent,
+                              ],
+                              stops: const [0.0, 0.35, 0.50, 0.58, 0.75, 1.0],
+                            ).createShader(bounds);
+                          },
+                          child: const XevAppLogo(height: 80),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
