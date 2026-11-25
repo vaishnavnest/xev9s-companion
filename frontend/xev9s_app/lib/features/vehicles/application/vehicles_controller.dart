@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_exception.dart';
+import '../../auth/application/auth_controller.dart';
 import '../data/vehicle_repository.dart';
 import '../domain/association_status.dart';
 import '../domain/vehicle_summary.dart';
@@ -13,6 +14,14 @@ class VehiclesController extends AsyncNotifier<List<VehicleSummary>> {
   @override
   FutureOr<List<VehicleSummary>> build() async {
     _repository = ref.watch(vehicleRepositoryProvider);
+    final authState = ref.watch(authControllerProvider);
+
+    // If the user is unauthenticated or still in unknown startup phase,
+    // do not make unauthenticated API requests to /vehicles.
+    if (authState is! AuthAuthenticated) {
+      return const [];
+    }
+
     final vehicles = await _repository.listVehicles();
     Future.microtask(() => _handleAutoSelection(vehicles));
     return vehicles;
@@ -20,6 +29,12 @@ class VehiclesController extends AsyncNotifier<List<VehicleSummary>> {
 
   /// Reloads vehicle list without flashing a full-screen loading spinner.
   Future<void> refresh() async {
+    final authState = ref.read(authControllerProvider);
+    if (authState is! AuthAuthenticated) {
+      state = const AsyncData([]);
+      return;
+    }
+
     // Preserve current data while fetching
     // ignore: invalid_use_of_internal_member
     state = const AsyncLoading<List<VehicleSummary>>().copyWithPrevious(state);
@@ -29,6 +44,14 @@ class VehiclesController extends AsyncNotifier<List<VehicleSummary>> {
       return vehicles;
     });
   }
+
+  /// Resets the vehicle list state cleanly (e.g. on logout).
+  void reset() {
+    state = const AsyncData([]);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 
   /// Associates a new vehicle and updates the list with the returned updated list.
   Future<List<VehicleSummary>> associate({

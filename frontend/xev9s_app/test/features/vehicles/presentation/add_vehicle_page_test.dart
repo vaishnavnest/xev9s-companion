@@ -15,6 +15,9 @@ class MockAddVehiclesNotifier extends AsyncNotifier<List<VehicleSummary>>
       onAssociate;
 
   @override
+  void reset() {}
+
+  @override
   Future<List<VehicleSummary>> build() async => [];
 
   @override

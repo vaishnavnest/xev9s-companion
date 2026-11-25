@@ -54,7 +54,7 @@ class FakeAuthRepository implements AuthRepository {
   bool logoutCalled = false;
 
   @override
-  Future<UserSummary> currentUser() async {
+  Future<UserSummary> currentUser({String? accessToken}) async {
     if (currentUserError != null) throw currentUserError!;
     return currentUserResult!;
   }

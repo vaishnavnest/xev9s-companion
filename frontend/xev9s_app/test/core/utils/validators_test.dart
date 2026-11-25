@@ -63,6 +63,17 @@ void main() {
       expect(Validators.matches(null, 'secret', 'Mismatch'), equals('Mismatch'));
     });
 
+    test('alphanumeric validates letter and digit strings', () {
+      expect(Validators.alphanumeric(null), isNull);
+      expect(Validators.alphanumeric(''), isNull);
+      expect(Validators.alphanumeric('123456'), isNull);
+      expect(Validators.alphanumeric('ABC123'), isNull);
+      expect(Validators.alphanumeric('  abc123  '), isNull);
+      expect(Validators.alphanumeric('123-456'), equals('Must contain only letters and numbers.'));
+      expect(Validators.alphanumeric('12 34'), equals('Must contain only letters and numbers.'));
+      expect(Validators.alphanumeric('code#1'), equals('Must contain only letters and numbers.'));
+    });
+
     test('digitsOnly validates numeric strings', () {
       expect(Validators.digitsOnly(null), isNull);
       expect(Validators.digitsOnly(''), isNull);

@@ -7,23 +7,51 @@ This document captures the design, protocol contracts, backend assumptions, and 
 ## 1. WebSocket Endpoint & Handshake
 
 ### 1.1 Endpoint URI
-- **URL Pattern**: `GET /ws?token={accessToken}&vehicleId={vehicleId}`
-- **Scheme**: `ws://` (local development/mock) and `wss://` (production/staging)
-- **Base URL**: Injected via `--dart-define=WS_BASE_URL=...` (defaults to `ws://localhost:4011` in local development).
+- **URL Pattern**: `GET /ws/vehicles/{vehicle_id}` (with fallback support for `/ws?token={accessToken}&vehicleId={vehicleId}`)
+- **Scheme**: `ws://` (local development/mock/LAN) and `wss://` (production/staging)
+- **Base URL**: Injected via `--dart-define=WS_BASE_URL=...` (defaults to `ws://localhost:8000` for FastAPI backend or `ws://localhost:4011` for mock server).
 
-### 1.2 Authentication via Query Parameter
-- **Browser Limitation**: The browser-standard JavaScript `WebSocket` API does not permit custom HTTP request headers (such as `Authorization: Bearer <token>`) during the initial HTTP Upgrade handshake. Because XEV 9S Companion targets both Android and Web, authentication is transmitted via the `token` query parameter.
-- **Backend Logging Recommendation**: Web servers, ingress proxies, and API gateways (e.g., NGINX, Cloudflare, AWS ALB) must be configured to **redact or sanitize** the `token` parameter from access and request logs to avoid credential leakage.
+### 1.2 Authentication Mechanism
+- **Initial Auth Message Frame**:
+  - Immediately following the WebSocket HTTP upgrade handshake, the client sends an initial JSON message frame containing the access token:
+    ```json
+    {
+      "token": "<jwt_access_token>"
+    }
+    ```
+  - The server verifies the JWT; if invalid or missing, it terminates the connection with WebSocket close code **`1008` (Policy Violation)** or **`4001`**.
 - **Handshake Rejection & Close Codes**:
-  - If the token is invalid or expired at handshake time, the backend should reject the handshake with HTTP `401 Unauthorized` or immediately close the connection with WebSocket close code **`4001`** (or `4401`) and reason phrase `token_expired` or `unauthorized`.
-  - The client automatically catches these close codes, invokes token refresh via the authenticated REST client, and reconnects with a fresh token.
+  - `1008` (Policy Violation / Authentication Failure) or `4001`: Client treats as authentication failure, terminates reconnection loops, triggers token refresh / re-login, and notifies `AuthInterceptor`.
+- **Query Parameter Support**:
+  - The client also passes `?token={token}&vehicleId={vehicle_id}` during connection to maintain full backward compatibility with web proxies and older mock gateways. Web servers and reverse proxies (NGINX, Cloudflare, Traefik) must sanitize or redact the `token` parameter from access logs.
 
 ---
 
 ## 2. Inbound Push Events & Schemas
 
-The backend broadcasts JSON text frames matching the `WsEvent` envelope defined in `docs/openapi.yaml`:
+### 2.1 Backend Broadcast Formats
+The backend communicates vehicle telemetry across the WebSocket using flat snake_case `TelemetryResponse` JSON frames or standard envelope events:
 
+```json
+{
+  "vehicle_id": "veh_9S0001",
+  "timestamp": "2026-11-24T10:00:00.000Z",
+  "battery_percentage": 64.0,
+  "estimated_range_km": 307.2,
+  "speed_kph": 0.0,
+  "odometer_km": 12874.3,
+  "latitude": 12.9716,
+  "longitude": 77.5946,
+  "is_locked": true,
+  "cabin_preconditioning_active": false,
+  "operating_state": "PARKED",
+  "charging_status": "DISCONNECTED",
+  "charging_power_kw": 0.0,
+  "received_at": "2026-11-24T10:00:00.000Z"
+}
+```
+
+The Flutter client's `WebSocketRealtimeService` automatically maps these frames directly into `RealtimeEvent` (with `RealtimeEventType.vehicleStatus`), and falls back to decoding structured envelope frames:
 ```json
 {
   "event": "<event_name>",
@@ -33,15 +61,15 @@ The backend broadcasts JSON text frames matching the `WsEvent` envelope defined 
 }
 ```
 
-### 2.1 Supported Event Catalog
+### 2.2 Supported Event Catalog
 
-| Event Name | Payload Schema | Client Behavior |
-|------------|----------------|-----------------|
-| `vehicle.status` | `VehicleStatus` | Replaces active telemetry state if `lastUpdatedAt` is newer than current state. |
-| `vehicle.location` | `VehicleLocation` | Updates active vehicle location in `vehicleLocationProvider` if `reportedAt` is newer. |
-| `charging.updated` | `ChargingOverview` | Merges active charging state, power in kW, battery percentage, target percentage, schedule, and current session ID. Synchronizes with `vehicleStatusProvider` via `chargingViewProvider`. |
-| `command.updated` | `Command` | Realtime progress updates for remote lock/climate commands (lifecycle: `SUBMITTED` $\to$ `ACCEPTED` $\to$ `EXECUTING` $\to$ `SUCCEEDED` / `FAILED` / `TIMED_OUT`). Ignored if out of order or late. |
-| `notification.created` | `Notification` | Parsed safely; ready for Push Alerts. |
+| Event Name / Payload | Wire Type / Schema | Client Behavior |
+|----------------------|-------------------|-----------------|
+| Telemetry Stream | `TelemetryResponse` (flat snake_case) | Evaluates latest telemetry, updating battery, location, range, lock, and state. |
+| `vehicle.status` | `VehicleStatus` | Replaces active telemetry state if `lastUpdatedAt` or `timestamp` is newer. |
+| `vehicle.location` | `VehicleLocation` | Updates active vehicle location in `vehicleLocationProvider` if `reportedAt` or `timestamp` is newer. |
+| `charging.updated` | `ChargingOverview` | Merges active charging state, power in kW, battery percentage, target percentage, schedule, and current session ID. |
+| `command.updated` | `Command` | Realtime progress updates for remote lock/climate commands (lifecycle: `SUBMITTED` $\to$ `ACCEPTED` $\to$ `EXECUTING` $\to$ `SUCCEEDED` / `FAILED` / `TIMED_OUT`). |
 | `connectivity.changed` | `ConnectivityStatus` | Updates vehicle connectivity (`ONLINE` / `OFFLINE`), toggles `isStale`, and nulls live-only fields (speed, charging power). |
 
 ### 2.2 Vehicle Location Event (`vehicle.location`)
@@ -141,7 +169,7 @@ The client's JSON decoder is intentionally tolerant:
   - State machine transitions: `connected` $\to$ `reconnecting` $\to$ `connected` (or `disconnected` on manual logout/vehicle unselect).
 - **Synthetic Resync Signal**:
   - On every successful **reconnection**, the client emits an internal `onResync` signal.
-  - Downstream providers (including `vehicleStatusProvider`) immediately initiate a fresh `GET /vehicles/{id}/status` REST call to catch up on any state changes that occurred during the disconnected window.
+  - Downstream providers (including `vehicleStatusProvider`) immediately initiate a fresh `GET /vehicles/{id}/telemetry/latest` REST call to catch up on any state changes that occurred during the disconnected window.
 
 ---
 
@@ -149,7 +177,7 @@ The client's JSON decoder is intentionally tolerant:
 
 To avoid race conditions and fragmented telemetry across features:
 > **All screens read `vehicleStatusProvider`.**
-> No screen or widget should ever call `GET /vehicles/{id}/status` directly or subscribe directly to the raw WebSocket stream.
+> No screen or widget should ever call `GET /vehicles/{id}/telemetry/latest` directly or subscribe directly to the raw WebSocket stream.
 > Both initial REST loads, background polling, and live push frames converge into `vehicleStatusProvider`.
 
 ---

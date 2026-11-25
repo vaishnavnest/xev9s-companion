@@ -80,10 +80,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       _isClearingPassword = true;
       _passwordController.clear();
       _isClearingPassword = false;
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        _generalError = 'Something went wrong. Please try again.';
+        _generalError = 'Something went wrong: $e';
       });
       _isClearingPassword = true;
       _passwordController.clear();

@@ -42,10 +42,11 @@ class ApiClient {
   Future<T> get<T>(
     String path, {
     Map<String, dynamic>? query,
+    Map<String, dynamic>? headers,
     required T Function(Object? json) parse,
   }) async {
     return _send<T>(
-      () => _dio.get(path, queryParameters: query),
+      () => _dio.get(path, queryParameters: query, options: Options(headers: headers)),
       (json, _) => parse(json),
     );
   }
@@ -188,8 +189,9 @@ class ApiClient {
       if (map.containsKey('detail')) {
         final detail = map['detail'];
         if (detail is String) {
+          final code = ApiErrorCode.fromHttpStatus(error.response?.statusCode, detail);
           return AppError(
-            code: ApiErrorCode.fromHttpStatus(error.response?.statusCode),
+            code: code,
             message: detail,
             httpStatus: error.response?.statusCode,
             retryable: (error.response?.statusCode ?? 500) >= 500,

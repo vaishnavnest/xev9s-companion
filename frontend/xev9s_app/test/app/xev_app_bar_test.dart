@@ -21,6 +21,9 @@ class FakeVehiclesController extends AsyncNotifier<List<VehicleSummary>>
   final List<VehicleSummary> _vehicles;
 
   @override
+  void reset() {}
+
+  @override
   Future<List<VehicleSummary>> build() async => _vehicles;
 
   @override
