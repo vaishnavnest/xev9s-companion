@@ -27,26 +27,14 @@ class ControlsPage extends ConsumerWidget {
     final statusAsync = ref.watch(vehicleStatusProvider);
 
     if (vehicleId == null || vehicleId.isEmpty) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Remote Controls')),
-        body: const Center(
+      return const Scaffold(
+        body: Center(
           child: Text('No vehicle selected'),
         ),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Remote Controls'),
-        actions: [
-          IconButton(
-            key: const Key('command-history-button'),
-            tooltip: 'Command history',
-            icon: const Icon(Icons.history),
-            onPressed: () => context.go('/controls/history'),
-          ),
-        ],
-      ),
       body: RefreshIndicator(
         onRefresh: () => ref.read(vehicleStatusProvider.notifier).refresh(),
         child: AsyncValueView<VehicleStatus?>(
