@@ -27,6 +27,7 @@ class AppMapController extends ChangeNotifier {
   void Function(LatLng? target)? _recenterCallback;
   VoidCallback? _zoomInCallback;
   VoidCallback? _zoomOutCallback;
+  void Function(List<LatLng> points, EdgeInsets padding)? _fitBoundsCallback;
 
   /// Invoked when a manual user pan gesture is detected on the map.
   void onUserPan() {
@@ -41,6 +42,14 @@ class AppMapController extends ChangeNotifier {
     _isAutoFollow = true;
     notifyListeners();
     _recenterCallback?.call(target);
+  }
+
+  /// Fits the camera to show all [points] with sensible zoom limits.
+  void fitBounds(
+    List<LatLng> points, {
+    EdgeInsets padding = const EdgeInsets.all(40),
+  }) {
+    _fitBoundsCallback?.call(points, padding);
   }
 
   /// Triggers a step zoom in on the map.
@@ -58,10 +67,12 @@ class AppMapController extends ChangeNotifier {
     required void Function(LatLng? target) onRecenter,
     required VoidCallback onZoomIn,
     required VoidCallback onZoomOut,
+    void Function(List<LatLng> points, EdgeInsets padding)? onFitBounds,
   }) {
     _recenterCallback = onRecenter;
     _zoomInCallback = onZoomIn;
     _zoomOutCallback = onZoomOut;
+    _fitBoundsCallback = onFitBounds;
   }
 
   /// Detaches active map handlers when unmounted.
@@ -69,6 +80,7 @@ class AppMapController extends ChangeNotifier {
     _recenterCallback = null;
     _zoomInCallback = null;
     _zoomOutCallback = null;
+    _fitBoundsCallback = null;
   }
 }
 
@@ -153,6 +165,7 @@ class _AppMapState extends ConsumerState<AppMap>
       onRecenter: (target) => _animateTo(target ?? widget.center),
       onZoomIn: _handleZoomIn,
       onZoomOut: _handleZoomOut,
+      onFitBounds: _handleFitBounds,
     );
   }
 
@@ -172,6 +185,7 @@ class _AppMapState extends ConsumerState<AppMap>
         onRecenter: (target) => _animateTo(target ?? widget.center),
         onZoomIn: _handleZoomIn,
         onZoomOut: _handleZoomOut,
+        onFitBounds: _handleFitBounds,
       );
     }
 
@@ -232,6 +246,33 @@ class _AppMapState extends ConsumerState<AppMap>
     final current = _mapController.camera.zoom;
     final next = (current - 1.0).clamp(_minZoom, _maxZoom);
     _animateTo(_mapController.camera.center, zoom: next);
+  }
+
+  void _handleFitBounds(List<LatLng> points, EdgeInsets padding) {
+    if (!mounted || points.isEmpty) return;
+
+    final first = points.first;
+    final allIdentical = points.every(
+      (p) => p.latitude == first.latitude && p.longitude == first.longitude,
+    );
+    if (points.length == 1 || allIdentical) {
+      _animateTo(first, zoom: 15.0);
+      return;
+    }
+
+    try {
+      final bounds = LatLngBounds.fromPoints(points);
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: bounds,
+          padding: padding,
+          maxZoom: 16.5,
+          minZoom: _minZoom,
+        ),
+      );
+    } catch (_) {
+      // Fallback if map camera is not yet laid out.
+    }
   }
 
   Widget _buildDefaultMarker(BuildContext context, AppMapMarker marker) {

@@ -46,3 +46,25 @@ def ensure_database_indexes(database) -> None:
         ],
         name="idx_vehicle_telemetry_vehicle_timestamp",
     )
+
+    database["commands"].create_index(
+        [("command_id", ASCENDING)],
+        unique=True,
+        name="uq_commands_command_id",
+    )
+
+    database["commands"].create_index(
+        [
+            ("vehicle_id", ASCENDING),
+            ("requested_at", DESCENDING),
+        ],
+        name="idx_commands_vehicle_history",
+    )
+
+    database["commands"].create_index(
+        [
+            ("user_id", ASCENDING),
+            ("vehicle_id", ASCENDING),
+        ],
+        name="idx_commands_user_vehicle",
+    )

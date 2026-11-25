@@ -42,10 +42,11 @@ class ApiClient {
   Future<T> get<T>(
     String path, {
     Map<String, dynamic>? query,
+    Map<String, dynamic>? headers,
     required T Function(Object? json) parse,
   }) async {
     return _send<T>(
-      () => _dio.get(path, queryParameters: query),
+      () => _dio.get(path, queryParameters: query, options: Options(headers: headers)),
       (json, _) => parse(json),
     );
   }
@@ -104,10 +105,41 @@ class ApiClient {
       () => _dio.get(path, queryParameters: query),
       (json, meta) {
         List<dynamic> itemsList;
+        Pagination? pagination = meta?.pagination;
         if (json is List) {
           itemsList = json;
-        } else if (json is Map<String, dynamic> && json['telemetry'] is List) {
-          itemsList = json['telemetry'] as List;
+        } else if (json is Map<String, dynamic>) {
+          final rawList = json['items'] ?? json['telemetry'] ?? json['sessions'];
+          if (rawList is! List) {
+            throw AppError.malformedResponse(
+              'Expected list data for paginated response, got ${json.runtimeType}',
+            );
+          }
+          itemsList = rawList;
+          if (pagination == null) {
+            final pagMap = json['pagination'] is Map<String, dynamic>
+                ? json['pagination'] as Map<String, dynamic>
+                : json;
+            if (pagMap.containsKey('page') ||
+                pagMap.containsKey('totalPages') ||
+                pagMap.containsKey('total_pages')) {
+              pagination = Pagination(
+                page: (pagMap['page'] as num?)?.toInt() ?? 1,
+                pageSize: ((pagMap['pageSize'] ?? pagMap['page_size']) as num?)
+                        ?.toInt() ??
+                    20,
+                totalItems: ((pagMap['totalItems'] ??
+                            pagMap['total_items'] ??
+                            pagMap['total']) as num?)
+                        ?.toInt() ??
+                    itemsList.length,
+                totalPages:
+                    ((pagMap['totalPages'] ?? pagMap['total_pages']) as num?)
+                            ?.toInt() ??
+                        1,
+              );
+            }
+          }
         } else {
           throw AppError.malformedResponse(
             'Expected list data for paginated response, got ${json.runtimeType}',
@@ -116,7 +148,7 @@ class ApiClient {
         final items = itemsList.map(parseItem).toList();
         return PagedResult<T>(
           items: items,
-          pagination: meta?.pagination,
+          pagination: pagination,
         );
       },
     );
@@ -188,8 +220,9 @@ class ApiClient {
       if (map.containsKey('detail')) {
         final detail = map['detail'];
         if (detail is String) {
+          final code = ApiErrorCode.fromHttpStatus(error.response?.statusCode, detail);
           return AppError(
-            code: ApiErrorCode.fromHttpStatus(error.response?.statusCode),
+            code: code,
             message: detail,
             httpStatus: error.response?.statusCode,
             retryable: (error.response?.statusCode ?? 500) >= 500,

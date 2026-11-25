@@ -22,6 +22,9 @@ class MockVehiclesNotifier extends AsyncNotifier<List<VehicleSummary>>
   final AsyncValue<List<VehicleSummary>> initialValue;
 
   @override
+  void reset() {}
+
+  @override
   Future<List<VehicleSummary>> build() async {
     return initialValue.requireValue;
   }
@@ -41,6 +44,9 @@ class MockVehiclesNotifier extends AsyncNotifier<List<VehicleSummary>>
 class MockVehiclesErrorNotifier extends AsyncNotifier<List<VehicleSummary>>
     implements VehiclesController {
   @override
+  void reset() {}
+
+  @override
   Future<List<VehicleSummary>> build() async {
     throw AppError.noConnection();
   }
@@ -59,6 +65,8 @@ class MockVehiclesErrorNotifier extends AsyncNotifier<List<VehicleSummary>>
 
 class MockVehiclesLoadingNotifier extends AsyncNotifier<List<VehicleSummary>>
     implements VehiclesController {
+  @override
+  void reset() {}
   @override
   Future<List<VehicleSummary>> build() => Completer<List<VehicleSummary>>().future;
 

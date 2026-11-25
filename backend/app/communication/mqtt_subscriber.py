@@ -7,7 +7,8 @@ from collections.abc import Callable
 from typing import Any
 
 import paho.mqtt.client as mqtt
-from backend.app.core.exceptions import VehicleNotActiveError
+from backend.app.communication.mqtt_command_handler import MQTTCommandHandler
+from backend.app.core.exceptions import MQTTUnavailableError, VehicleNotActiveError
 from backend.app.schemas.telemetry import TelemetryPayload
 from backend.app.services.telemetry_service import TelemetryService
 from dotenv import load_dotenv
@@ -18,13 +19,11 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 TELEMETRY_TOPIC = "xev9s/vehicles/+/telemetry"
-TOPIC_PATTERN = re.compile(
-    r"^xev9s/vehicles/([A-Za-z0-9_-]+)/telemetry$"
-)
+TOPIC_PATTERN = re.compile(r"^xev9s/vehicles/([A-Za-z0-9_-]+)/telemetry$")
 
 
 class MQTTSubscriber:
-    """Receive vehicle telemetry and persist validated messages."""
+    """Receive telemetry and remote command responses."""
 
     def __init__(
         self,
@@ -35,6 +34,7 @@ class MQTTSubscriber:
         self.telemetry_service = telemetry_service
         self.on_connect_callback = on_connect_callback
         self.on_telemetry = on_telemetry
+        self.command_handler: MQTTCommandHandler | None = None
         self.host = os.getenv("MQTT_BROKER_HOST", "127.0.0.1")
         self.port = int(os.getenv("MQTT_BROKER_PORT", "1884"))
         self.keepalive = int(os.getenv("MQTT_KEEPALIVE", "60"))
@@ -47,7 +47,6 @@ class MQTTSubscriber:
             raise ValueError("MQTT keepalive must be positive")
 
         self._connected = False
-
         self.client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             client_id="xev9s-backend-telemetry",
@@ -70,22 +69,26 @@ class MQTTSubscriber:
         reason_code: mqtt.ReasonCode,
         properties: mqtt.Properties | None,
     ) -> None:
-        """Subscribe to telemetry after a successful connection."""
+        """Subscribe to telemetry and command responses."""
         self._connected = False
-
         if reason_code.is_failure:
             logger.error("MQTT connection rejected: %s", reason_code)
             return
 
         result, _ = client.subscribe(TELEMETRY_TOPIC, qos=0)
-
         if result != mqtt.MQTT_ERR_SUCCESS:
             logger.error("Failed to subscribe to %s", TELEMETRY_TOPIC)
             return
 
-        self._connected = True
         logger.info("Subscribed to %s", TELEMETRY_TOPIC)
+        if self.command_handler is not None:
+            try:
+                self.command_handler.subscribe_responses()
+            except MQTTUnavailableError:
+                logger.exception("Failed to subscribe to command responses")
+                return
 
+        self._connected = True
         if self.on_connect_callback is not None:
             try:
                 self.on_connect_callback()
@@ -110,67 +113,52 @@ class MQTTSubscriber:
         userdata: object,
         message: mqtt.MQTTMessage,
     ) -> None:
-        """Validate and persist an incoming telemetry message."""
-        topic_match = TOPIC_PATTERN.fullmatch(message.topic)
-
-        if topic_match is None:
-            logger.warning(
-                "Ignoring invalid telemetry topic: %s",
-                message.topic,
-            )
+        """Route incoming telemetry and command responses."""
+        if message.topic.endswith("/responses"):
+            if self.command_handler is not None:
+                self.command_handler.handle_response(
+                    message.topic, message.payload
+                )
             return
 
-        topic_vehicle_id = topic_match.group(1)
+        match = TOPIC_PATTERN.fullmatch(message.topic)
+        if match is None:
+            logger.warning("Ignoring invalid telemetry topic: %s", message.topic)
+            return
 
+        vehicle_id = match.group(1)
         try:
             payload = json.loads(message.payload)
             telemetry = TelemetryPayload.model_validate(payload)
-
-            if telemetry.vehicle_id != topic_vehicle_id:
+            if telemetry.vehicle_id != vehicle_id:
                 logger.warning(
                     "Telemetry vehicle ID does not match topic: %s",
                     message.topic,
                 )
                 return
 
-            saved_telemetry = self.telemetry_service.ingest_telemetry(
-                telemetry
-            )
-
+            saved = self.telemetry_service.ingest_telemetry(telemetry)
             if self.on_telemetry is not None:
                 try:
-                    self.on_telemetry(saved_telemetry)
+                    self.on_telemetry(saved)
                 except Exception:
-                    logger.exception(
-                        "Failed to notify WebSocket clients about telemetry"
-                    )
+                    logger.exception("Failed to notify WebSocket clients")
 
-        except (
-            json.JSONDecodeError,
-            ValidationError,
-            UnicodeDecodeError,
-        ):
+        except (json.JSONDecodeError, ValidationError, UnicodeDecodeError):
             logger.warning(
                 "Rejected invalid telemetry message on %s",
                 message.topic,
                 exc_info=True,
             )
         except VehicleNotActiveError:
-            logger.warning(
-                "Rejected telemetry from inactive vehicle: %s",
-                topic_vehicle_id,
-            )
+            logger.warning("Rejected telemetry from inactive vehicle: %s", vehicle_id)
         except Exception:
-            logger.exception(
-                "Failed to process telemetry from vehicle %s",
-                topic_vehicle_id,
-            )
+            logger.exception("Failed to process telemetry from vehicle %s", vehicle_id)
 
     def start(self) -> None:
         """Connect to the broker and start its network loop."""
         if self.client.is_connected():
             return
-
         self.client.connect(self.host, self.port, self.keepalive)
         self.client.loop_start()
 
@@ -178,6 +166,5 @@ class MQTTSubscriber:
         """Disconnect from the broker and stop its network loop."""
         if self.client.is_connected():
             self.client.disconnect()
-
         self.client.loop_stop()
         self._connected = False

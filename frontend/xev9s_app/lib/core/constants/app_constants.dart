@@ -43,4 +43,16 @@ class AppConstants {
 
   /// Default page size for remote commands history pagination (UC-05).
   static const int commandsPageSize = 20;
+
+  /// Default page size for trips history pagination (UC-06).
+  static const int tripsPageSize = 20;
+
+  /// Maximum number of route points rendered on the trip detail map (UC-06).
+  static const int routeMaxRenderPoints = 500;
+
+  /// Auto-refresh interval in seconds while an ongoing trip is active (UC-06).
+  static const int ongoingTripRefreshSeconds = 15;
+
+  /// Available date preset windows for trip filtering (UC-06).
+  static const List<String> tripDatePresets = ['today', 'last_7_days', 'last_30_days'];
 }

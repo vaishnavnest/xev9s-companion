@@ -15,8 +15,8 @@ abstract class AuthRepository {
   /// Saves access and refresh tokens locally on success.
   Future<AuthSession> register(String name, String email, String password);
 
-  /// Fetches current user profile from GET /users/me.
-  Future<UserSummary> currentUser();
+  /// Fetches current user profile from GET /auth/me.
+  Future<UserSummary> currentUser({String? accessToken});
 
   /// Best-effort logout with POST /auth/logout.
   /// Always clears local tokens regardless of network outcome.
@@ -71,7 +71,7 @@ class ApiAuthRepository implements AuthRepository {
     if (tokenData['user'] is Map<String, dynamic>) {
       user = UserSummary.fromJson(tokenData['user'] as Map<String, dynamic>);
     } else {
-      user = await currentUser();
+      user = await currentUser(accessToken: accessToken);
     }
 
     return AuthSession(
@@ -134,9 +134,11 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<UserSummary> currentUser() async {
+  Future<UserSummary> currentUser({String? accessToken}) async {
+    final headers = accessToken != null ? {'Authorization': 'Bearer $accessToken'} : null;
     return apiClient.get<UserSummary>(
       '/auth/me',
+      headers: headers,
       parse: (json) {
         if (json is! Map<String, dynamic>) {
           throw const FormatException('Expected JSON map for UserProfile');
