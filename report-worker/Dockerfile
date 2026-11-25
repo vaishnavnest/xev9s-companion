@@ -16,6 +16,11 @@ FROM python:3.13-slim AS runner
 
 WORKDIR /app
 
+# Upgrade OS packages in runtime image to patch fixed Debian CVEs (e.g. libzstd1)
+RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
+
 # Create non-root system user
 RUN groupadd -g 10001 appgroup && \
     useradd -u 10001 -g appgroup -s /sbin/nologin -d /app appuser
