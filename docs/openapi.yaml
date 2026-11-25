@@ -38,7 +38,6 @@ info:
     * **Charging Management (UC-04):** `GET /vehicles/{id}/charging`, target setting, recurring schedules, and charging sessions are not implemented.
     * **User Profile & Preferences (UC-09):** `PATCH /users/me`, notification preferences, and unit preferences are not implemented.
     * **Standalone Vehicle Location (UC-03):** `GET /vehicles/{id}/location` is not implemented (GPS coordinates are returned inside telemetry records).
-    * **Trips & History (UC-06):** `GET /vehicles/{id}/trips` is not implemented.
     * **Driving & Energy Analytics (UC-07):** `GET /vehicles/{id}/analytics` is not implemented.
     * **In-App Notifications (UC-08):** `GET/PATCH /notifications` is not implemented.
     * **PDF/CSV Reports:** Report generation workers and download endpoints are not implemented.
@@ -59,6 +58,8 @@ tags:
     description: Vehicle association and retrieval of associated vehicles.
   - name: Vehicle Telemetry
     description: Querying latest and historical telemetry records for associated vehicles.
+  - name: Trips
+    description: Querying paginated trip history and detailed trip routes for associated vehicles (UC-06).
   - name: Realtime (WebSocket)
     description: Realtime streaming of vehicle telemetry via WebSocket.
   - name: Internal (MQTT)
@@ -484,6 +485,164 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+
+  /vehicles/{vehicle_id}/trips:
+    get:
+      tags: [Trips]
+      summary: List vehicle trips (UC-06)
+      description: |
+        Retrieves a paginated list of trips for an associated vehicle, ordered newest first by default (`sort=-started_at`).
+        Supports filtering by trip status (`ongoing` / `completed`) and UTC `started_at` time window (`from` / `to`).
+        Null values in ongoing trips (such as `ended_at`, `end_location`, `duration_seconds`, `energy_consumed_kwh`) are returned as `null`.
+      operationId: listVehicleTrips
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: vehicle_id
+          in: path
+          required: true
+          description: Identifier of the vehicle.
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          description: 1-based page number.
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          required: false
+          description: Number of trips per page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: sort
+          in: query
+          required: false
+          description: Sort field and direction (default `-started_at` for newest first).
+          schema:
+            type: string
+            default: -started_at
+        - name: from
+          in: query
+          required: false
+          description: Inclusive start of the UTC `started_at` filter window (ISO-8601).
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Inclusive end of the UTC `started_at` filter window (ISO-8601).
+          schema:
+            type: string
+            format: date-time
+        - name: status
+          in: query
+          required: false
+          description: Filter by trip status.
+          schema:
+            $ref: '#/components/schemas/TripStatus'
+      responses:
+        '200':
+          description: Paginated list of trips.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TripListResponse'
+        '400':
+          description: Invalid filter or pagination parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '401':
+          description: Invalid or expired authentication token.
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '403':
+          description: Access denied (vehicle is not associated with this user).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '404':
+          description: Vehicle not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '422':
+          description: Request validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /vehicles/{vehicle_id}/trips/{trip_id}:
+    get:
+      tags: [Trips]
+      summary: Get vehicle trip detail (UC-06)
+      description: |
+        Retrieves full details for a single trip, including summary metrics, battery start/end range, and GPS route points.
+      operationId: getVehicleTripDetail
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: vehicle_id
+          in: path
+          required: true
+          description: Identifier of the vehicle.
+          schema:
+            type: string
+        - name: trip_id
+          in: path
+          required: true
+          description: Identifier of the trip.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Detailed trip record with route points.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TripDetail'
+        '401':
+          description: Invalid or expired authentication token.
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+                example: Bearer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '403':
+          description: Access denied (vehicle is not associated with this user).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
+        '404':
+          description: Vehicle or trip not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPException'
 
   /ws/vehicles/{vehicle_id}:
     get:
@@ -960,3 +1119,190 @@ components:
         type:
           type: string
           example: value_error.email
+
+    TripStatus:
+      type: string
+      enum: [ongoing, completed]
+      description: Lifecycle status of a vehicle trip.
+      example: completed
+
+    NamedLocation:
+      type: object
+      description: Geographic coordinates with an optional human-readable address or landmark description.
+      properties:
+        latitude:
+          type: number
+          format: float
+          minimum: -90
+          maximum: 90
+          nullable: true
+          example: 12.9716
+        longitude:
+          type: number
+          format: float
+          minimum: -180
+          maximum: 180
+          nullable: true
+          example: 77.5946
+        description:
+          type: string
+          nullable: true
+          example: MG Road, Bengaluru
+
+    RoutePoint:
+      type: object
+      description: Single GPS sample recorded along a trip route.
+      required:
+        - latitude
+        - longitude
+      properties:
+        latitude:
+          type: number
+          format: float
+          minimum: -90
+          maximum: 90
+          example: 12.9716
+        longitude:
+          type: number
+          format: float
+          minimum: -180
+          maximum: 180
+          example: 77.5946
+        timestamp:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-11-24T09:00:00Z'
+        speed_kmh:
+          type: number
+          format: float
+          minimum: 0
+          nullable: true
+          example: 42.5
+
+    BatteryRange:
+      type: object
+      description: State-of-charge percentage at the start and end of a trip.
+      properties:
+        start_percent:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+          nullable: true
+          example: 72.0
+        end_percent:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+          nullable: true
+          example: 68.0
+
+    Pagination:
+      type: object
+      description: Pagination metadata for list responses.
+      required:
+        - page
+        - page_size
+        - total_items
+        - total_pages
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        page_size:
+          type: integer
+          minimum: 1
+          example: 20
+        total_items:
+          type: integer
+          minimum: 0
+          example: 26
+        total_pages:
+          type: integer
+          minimum: 1
+          example: 2
+
+    Trip:
+      type: object
+      description: Summary of a single vehicle trip.
+      required:
+        - trip_id
+        - status
+        - started_at
+        - start_location
+      properties:
+        trip_id:
+          type: string
+          example: trp_0105
+        status:
+          $ref: '#/components/schemas/TripStatus'
+        started_at:
+          type: string
+          format: date-time
+          example: '2026-11-24T09:00:00Z'
+        ended_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-11-24T09:34:00Z'
+        start_location:
+          $ref: '#/components/schemas/NamedLocation'
+        end_location:
+          allOf:
+            - $ref: '#/components/schemas/NamedLocation'
+          nullable: true
+        distance_km:
+          type: number
+          format: float
+          minimum: 0
+          nullable: true
+          example: 14.8
+        duration_seconds:
+          type: integer
+          minimum: 0
+          nullable: true
+          example: 2040
+        energy_consumed_kwh:
+          type: number
+          format: float
+          minimum: 0
+          nullable: true
+          example: 2.6
+
+    TripDetail:
+      allOf:
+        - $ref: '#/components/schemas/Trip'
+        - type: object
+          description: Detailed trip record including average speed, battery range, and GPS route.
+          properties:
+            average_speed_kmh:
+              type: number
+              format: float
+              minimum: 0
+              nullable: true
+              example: 26.1
+            battery:
+              allOf:
+                - $ref: '#/components/schemas/BatteryRange'
+              nullable: true
+            route:
+              type: array
+              items:
+                $ref: '#/components/schemas/RoutePoint'
+
+    TripListResponse:
+      type: object
+      description: Paginated collection of trips.
+      required:
+        - trips
+        - pagination
+      properties:
+        trips:
+          type: array
+          items:
+            $ref: '#/components/schemas/Trip'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
