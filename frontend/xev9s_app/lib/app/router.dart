@@ -16,6 +16,7 @@ import '../features/dashboard/presentation/dashboard_page.dart';
 import '../features/location/presentation/location_page.dart';
 import '../features/notifications/presentation/notifications_page.dart';
 import '../features/profile/presentation/profile_page.dart';
+import '../features/trips/presentation/trip_detail_page.dart';
 import '../features/trips/presentation/trips_page.dart';
 import '../features/vehicles/presentation/add_vehicle_page.dart';
 import '../features/vehicles/presentation/vehicles_page.dart';
@@ -175,6 +176,15 @@ GoRouter createAppRouter({
               GoRoute(
                 path: '/trips',
                 builder: (context, state) => const TripsPage(),
+                routes: [
+                  GoRoute(
+                    path: ':tripId',
+                    builder: (context, state) {
+                      final tripId = state.pathParameters['tripId'] ?? '';
+                      return TripDetailPage(tripId: tripId);
+                    },
+                  ),
+                ],
               ),
             ],
           ),
