@@ -13,13 +13,138 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 PORT = 4010
 
 # ── Shared mutable state (updated via POST /control) ─────────────────────────
 _state_lock = threading.Lock()
+
+_SAMPLE_ROUTE = [
+    {"latitude": 12.9716, "longitude": 77.5946, "speed_kmh": 18.0},
+    {"latitude": 12.9724, "longitude": 77.5958, "speed_kmh": 34.5},
+    {"latitude": 12.9735, "longitude": 77.5975, "speed_kmh": 46.2},
+    {"latitude": 12.9748, "longitude": 77.5992, "speed_kmh": 38.0},
+    {"latitude": 12.9759, "longitude": 77.6010, "speed_kmh": 24.4},
+    {"latitude": 12.9772, "longitude": 77.6032, "speed_kmh": 0.0},
+]
+
+
+def _build_mock_trips():
+    now = datetime.now(timezone.utc)
+    trips = []
+
+    ongoing_start = now - timedelta(minutes=14)
+    trips.append({
+        "trip_id": "trp_ongoing_01",
+        "status": "ongoing",
+        "started_at": ongoing_start.isoformat(),
+        "ended_at": None,
+        "start_location": {
+            "latitude": 12.9716,
+            "longitude": 77.5946,
+            "description": "MG Road, Bengaluru",
+        },
+        "end_location": None,
+        "distance_km": 4.2,
+        "duration_seconds": None,
+        "energy_consumed_kwh": None,
+        "average_speed_kmh": None,
+        "battery": {"start_percent": 82.0, "end_percent": None},
+        "route": [
+            {**pt, "timestamp": (ongoing_start + timedelta(minutes=idx * 3)).isoformat()}
+            for idx, pt in enumerate(_SAMPLE_ROUTE[:4])
+        ],
+    })
+
+    empty_start = now - timedelta(hours=3)
+    trips.append({
+        "trip_id": "trp_empty_route",
+        "status": "completed",
+        "started_at": empty_start.isoformat(),
+        "ended_at": (empty_start + timedelta(minutes=18)).isoformat(),
+        "start_location": {
+            "latitude": 12.9352,
+            "longitude": 77.6245,
+            "description": "Koramangala 4th Block, Bengaluru",
+        },
+        "end_location": {
+            "latitude": 12.9784,
+            "longitude": 77.6408,
+            "description": "Indiranagar 100ft Road, Bengaluru",
+        },
+        "distance_km": 6.4,
+        "duration_seconds": 1080,
+        "energy_consumed_kwh": 1.1,
+        "average_speed_kmh": 21.3,
+        "battery": {"start_percent": 78.0, "end_percent": 76.0},
+        "route": [],
+    })
+
+    null_start = now - timedelta(hours=28)
+    trips.append({
+        "trip_id": "trp_null_fields",
+        "status": "completed",
+        "started_at": null_start.isoformat(),
+        "ended_at": (null_start + timedelta(minutes=25)).isoformat(),
+        "start_location": {
+            "latitude": 12.9716,
+            "longitude": 77.5946,
+            "description": "Cubbon Park, Bengaluru",
+        },
+        "end_location": None,
+        "distance_km": 9.8,
+        "duration_seconds": 1500,
+        "energy_consumed_kwh": None,
+        "average_speed_kmh": 23.5,
+        "battery": {"start_percent": 70.0, "end_percent": None},
+        "route": [
+            {**pt, "timestamp": (null_start + timedelta(minutes=idx * 4)).isoformat()}
+            for idx, pt in enumerate(_SAMPLE_ROUTE)
+        ],
+    })
+
+    for i in range(1, 26):
+        days_ago = (i - 1) // 2
+        start = now - timedelta(days=days_ago, hours=2 + (i % 5))
+        duration_sec = 900 + i * 120
+        end = start + timedelta(seconds=duration_sec)
+        dist = round(5.2 + i * 1.15, 1)
+        energy = round(dist * 0.17, 1)
+        avg_speed = round((dist / duration_sec) * 3600, 1)
+        trips.append({
+            "trip_id": f"trp_{100 + i:04d}",
+            "status": "completed",
+            "started_at": start.isoformat(),
+            "ended_at": end.isoformat(),
+            "start_location": {
+                "latitude": 12.9716,
+                "longitude": 77.5946,
+                "description": "Whitefield Main Rd, Bengaluru" if i % 2 == 0 else "MG Road, Bengaluru",
+            },
+            "end_location": {
+                "latitude": 12.9772,
+                "longitude": 77.6032,
+                "description": "Hebbal Flyover, Bengaluru" if i % 2 == 0 else "Trinity Circle, Bengaluru",
+            },
+            "distance_km": dist,
+            "duration_seconds": duration_sec,
+            "energy_consumed_kwh": energy,
+            "average_speed_kmh": avg_speed,
+            "battery": {"start_percent": 80.0, "end_percent": round(80.0 - energy * 1.3, 1)},
+            "route": [
+                {**pt, "timestamp": (start + timedelta(seconds=idx * (duration_sec // len(_SAMPLE_ROUTE)))).isoformat()}
+                for idx, pt in enumerate(_SAMPLE_ROUTE)
+            ],
+        })
+
+    trips.sort(key=lambda t: t["started_at"], reverse=True)
+    return trips
+
+
+mock_trips = _build_mock_trips()
 
 vehicle_states = {
     "veh_mock_9s_01": {
@@ -390,6 +515,52 @@ class MockApiHandler(BaseHTTPRequestHandler):
                 "lastUpdatedAt": datetime.now(timezone.utc).isoformat(),
                 "isStale": not s["isOnline"],
             })
+        elif '/trips/' in path:
+            trip_id = path.split('/trips/')[1].split('?')[0].strip('/')
+            with _state_lock:
+                found = next((t for t in mock_trips if t.get("trip_id") == trip_id), None)
+            if found:
+                self._send_json(200, data=found)
+            else:
+                self._send_json(404, error={"code": "NOT_FOUND", "message": f"Trip {trip_id} not found", "retryable": False})
+            return
+        elif path.endswith('/trips'):
+            parsed_q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            page = max(1, int(parsed_q.get("page", ["1"])[0]))
+            raw_ps = parsed_q.get("pageSize", parsed_q.get("page_size", ["20"]))[0]
+            page_size = max(1, min(100, int(raw_ps)))
+            status_f = parsed_q.get("status", [None])[0]
+            from_f = parsed_q.get("from", [None])[0]
+            to_f = parsed_q.get("to", [None])[0]
+
+            with _state_lock:
+                filtered = list(mock_trips)
+            if status_f:
+                filtered = [t for t in filtered if t["status"].lower() == status_f.lower()]
+            if from_f:
+                from_dt = datetime.fromisoformat(from_f.replace("Z", "+00:00"))
+                filtered = [t for t in filtered if datetime.fromisoformat(t["started_at"].replace("Z", "+00:00")) >= from_dt]
+            if to_f:
+                to_dt = datetime.fromisoformat(to_f.replace("Z", "+00:00"))
+                filtered = [t for t in filtered if datetime.fromisoformat(t["started_at"].replace("Z", "+00:00")) <= to_dt]
+
+            total_items = len(filtered)
+            total_pages = max(1, (total_items + page_size - 1) // page_size)
+            offset = (page - 1) * page_size
+            page_items = [
+                {k: v for k, v in t.items() if k not in ("average_speed_kmh", "battery", "route")}
+                for t in filtered[offset:offset + page_size]
+            ]
+            self._send_json(200, data={
+                "trips": page_items,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_items": total_items,
+                    "total_pages": total_pages,
+                },
+            })
+            return
         elif '/charging/sessions/' in path:
             session_id = path.split('/charging/sessions/')[1].split('?')[0]
             with _state_lock:

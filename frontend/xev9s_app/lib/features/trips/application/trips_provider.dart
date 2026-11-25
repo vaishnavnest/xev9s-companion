@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/realtime/realtime_providers.dart';
@@ -112,12 +113,19 @@ class TripsNotifier extends AsyncNotifier<TripsState> {
     if (authState is! AuthAuthenticated ||
         vehicleId == null ||
         vehicleId.isEmpty) {
+      debugPrint('[TripsNotifier] build skipped: unauthenticated or no vehicle selected');
       return const TripsState(hasMore: false);
     }
 
-    final initial = await _fetchFirstPage(vehicleId);
-    _syncOngoingTimer(initial);
-    return initial;
+    try {
+      final initial = await _fetchFirstPage(vehicleId);
+      debugPrint('[TripsNotifier] build loaded ${initial.items.length} trips');
+      _syncOngoingTimer(initial);
+      return initial;
+    } catch (e) {
+      debugPrint('[TripsNotifier] build failed: ${e.runtimeType}');
+      rethrow;
+    }
   }
 
   /// Marks whether the trips list screen is currently visible so ongoing
@@ -182,6 +190,7 @@ class TripsNotifier extends AsyncNotifier<TripsState> {
     if (vehicleId == null || vehicleId.isEmpty) return;
     final authState = ref.read(authControllerProvider);
     if (authState is! AuthAuthenticated) return;
+    if (_isFetchingPage) return;
 
     final current = state.asData?.value;
     final currentStatus = current?.statusFilter;
