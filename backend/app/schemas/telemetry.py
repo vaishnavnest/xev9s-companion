@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 OperatingState = Literal[
     "parked",
@@ -41,6 +41,15 @@ class TelemetryPayload(BaseModel):
     charging_power_kw: float = Field(ge=0)
     cabin_preconditioning_active: bool
 
+    @field_validator("timestamp")
+    @classmethod
+    def validate_timestamp_timezone(cls, value: datetime) -> datetime:
+        """Require timezone-aware telemetry timestamps."""
+
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("Telemetry timestamp must include a timezone")
+        return value
+
     @model_validator(mode="after")
     def validate_coordinates(self):
         """Require both GPS coordinates or neither."""
@@ -49,9 +58,9 @@ class TelemetryPayload(BaseModel):
                 "Latitude and longitude must both be provided"
             )
         return self
+
 class TelemetryResponse(BaseModel):
     """Represent a stored vehicle telemetry record."""
-
     model_config = ConfigDict(extra="ignore")
 
     vehicle_id: str

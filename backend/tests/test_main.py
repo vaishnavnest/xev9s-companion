@@ -93,6 +93,7 @@ def test_ensure_database_indexes():
         "vehicles": MagicMock(),
         "user_vehicles": MagicMock(),
         "vehicle_telemetry": MagicMock(),
+        "commands": MagicMock(),
     }
 
     ensure_database_indexes(mock_db)
