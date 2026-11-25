@@ -1,0 +1,6 @@
+target-version = "py313"
+line-length = 100
+
+[lint]
+# Windows Docker bind-mounts expose files as executable (+x) inside Linux containers
+ignore = ["EXE002"]
