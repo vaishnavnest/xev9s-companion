@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart' hide LockState;
 import '../../../core/network/api_exception.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/async_value_view.dart';
 import '../../../shared/widgets/confirm_dialog.dart';
 import '../../../shared/widgets/stale_banner.dart';
@@ -128,7 +129,9 @@ class _ControlsBody extends ConsumerWidget {
           context,
           ref,
           theme,
+          status,
           availability,
+          isOffline,
           isCommandActive,
         );
 
@@ -160,11 +163,38 @@ class _ControlsBody extends ConsumerWidget {
 
         final historyLink = Align(
           alignment: Alignment.center,
-          child: TextButton.icon(
-            key: const Key('view-history-button'),
-            icon: const Icon(Icons.history),
-            label: const Text('View command history'),
-            onPressed: () => context.go('/controls/history'),
+          child: Material(
+            color: theme.colorScheme.surfaceContainerLow,
+            elevation: 2,
+            shadowColor: theme.shadowColor.withValues(alpha: 0.14),
+            shape: const StadiumBorder(),
+            child: InkWell(
+              key: const Key('view-history-button'),
+              customBorder: const StadiumBorder(),
+              onTap: () => context.go('/controls/history'),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.history_rounded,
+                      size: 20,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'View command history',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         );
 
@@ -172,7 +202,7 @@ class _ControlsBody extends ConsumerWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1000),
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               children: [
                 if (isOffline) const StaleBanner(),
                 errorBanner,
@@ -184,16 +214,17 @@ class _ControlsBody extends ConsumerWidget {
                         child: Column(
                           children: [
                             stateCard,
+                            const SizedBox(height: 12),
                             activeCard,
                           ],
                         ),
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 20),
                       Expanded(
                         child: Column(
                           children: [
                             controlsCard,
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 24),
                             historyLink,
                           ],
                         ),
@@ -202,11 +233,12 @@ class _ControlsBody extends ConsumerWidget {
                   ),
                 ] else ...[
                   stateCard,
+                  const SizedBox(height: 12),
                   activeCard,
-                  const SizedBox(height: 8),
                   controlsCard,
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 28),
                   historyLink,
+                  const SizedBox(height: 16),
                 ],
               ],
             ),
@@ -228,7 +260,7 @@ class _ControlsBody extends ConsumerWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: theme.colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         children: [
@@ -268,26 +300,57 @@ class _ControlsBody extends ConsumerWidget {
         ControlsViewModel.climateStateLabel(status.preconditioningState);
 
     final isLocked = status.lockState == LockState.locked;
-
+    final isClimateOn =
+        status.preconditioningState == PreconditioningState.active;
     final isOffline = status.connectivity == VehicleConnectivity.offline ||
         status.vehicleState == VehicleState.offline;
 
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: theme.shadowColor.withValues(alpha: 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Vehicle State',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isOffline
+                            ? AppTheme.errorColor
+                            : AppTheme.successColor,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'VEHICLE STATE',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        letterSpacing: 1.2,
+                        fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
                 StatusChip(
                   label: isOffline ? 'Offline' : 'Online',
@@ -302,132 +365,24 @@ class _ControlsBody extends ConsumerWidget {
             Row(
               children: [
                 Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 4,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  isLocked ? Icons.lock : Icons.lock_open,
-                                  size: 20,
-                                  color: theme.colorScheme.primary,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Doors',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (isLockUpdating)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.primaryContainer,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  'Updating...',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color:
-                                        theme.colorScheme.onPrimaryContainer,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          lockLabel,
-                          key: const Key('displayed-lock-state'),
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
+                  child: _StateMetricTile(
+                    title: 'DOORS',
+                    value: lockLabel,
+                    valueKey: const Key('displayed-lock-state'),
+                    icon: isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                    isHighlighted: isLocked,
+                    isUpdating: isLockUpdating,
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 4,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.ac_unit,
-                                  size: 20,
-                                  color: theme.colorScheme.primary,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Climate',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (isClimateUpdating)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.primaryContainer,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  'Updating...',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color:
-                                        theme.colorScheme.onPrimaryContainer,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          climateLabel,
-                          key: const Key('displayed-climate-state'),
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
+                  child: _StateMetricTile(
+                    title: 'CLIMATE',
+                    value: climateLabel,
+                    valueKey: const Key('displayed-climate-state'),
+                    icon: Icons.ac_unit_rounded,
+                    isHighlighted: isClimateOn,
+                    isUpdating: isClimateUpdating,
                   ),
                 ),
               ],
@@ -442,74 +397,156 @@ class _ControlsBody extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     ThemeData theme,
+    VehicleStatus status,
     dynamic availability,
+    bool isOffline,
     bool isCommandActive,
   ) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    final isLocked = status.lockState == LockState.locked;
+    final isClimateOn =
+        status.preconditioningState == PreconditioningState.active;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: theme.shadowColor.withValues(alpha: 0.1),
+            blurRadius: 22,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              'Controls',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Paired Control 1: Lock / Unlock
+            // Key-fob header: FOB-433Mhz | Controls | SIGNAL dot
             Row(
               children: [
                 Expanded(
-                  child: Semantics(
-                    button: true,
-                    label: 'Lock vehicle',
-                    child: SizedBox(
-                      height: 48,
-                      child: FilledButton.tonalIcon(
-                        key: const Key('control-lock'),
-                        icon: const Icon(Icons.lock),
-                        label: const Text('Lock'),
-                        onPressed: availability.canLock && !isCommandActive
-                            ? () => _handleAction(
-                                  context,
-                                  ref,
-                                  CommandType.lock,
-                                )
-                            : null,
-                      ),
+                  child: Text(
+                    'FOB-433Mhz',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      letterSpacing: 0.8,
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                Text(
+                  'Controls',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 Expanded(
-                  child: Semantics(
-                    button: true,
-                    label: 'Unlock vehicle',
-                    child: SizedBox(
-                      height: 48,
-                      child: FilledButton.tonalIcon(
-                        key: const Key('control-unlock'),
-                        icon: const Icon(Icons.lock_open),
-                        label: const Text('Unlock'),
-                        onPressed: availability.canUnlock && !isCommandActive
-                            ? () => _handleAction(
-                                  context,
-                                  ref,
-                                  CommandType.unlock,
-                                )
-                            : null,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Text(
+                        'SIGNAL',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          letterSpacing: 0.8,
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 6),
+                      _PulsingSignalDot(
+                        isOffline: isOffline,
+                        isTransmitting: isCommandActive,
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
+            const SizedBox(height: 16),
+            // Recessed key-fob housing with dual vertical rocker switches
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color:
+                      theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _RockerSwitchPair(
+                      activeTop: isLocked,
+                      topKey: const Key('control-lock'),
+                      topIcon: Icons.lock_rounded,
+                      topLabel: 'Lock',
+                      topSemantics: 'Lock vehicle',
+                      onTopPressed: availability.canLock && !isCommandActive
+                          ? () => _handleAction(
+                                context,
+                                ref,
+                                CommandType.lock,
+                              )
+                          : null,
+                      bottomKey: const Key('control-unlock'),
+                      bottomIcon: Icons.lock_open_rounded,
+                      bottomLabel: 'Unlock',
+                      bottomSemantics: 'Unlock vehicle',
+                      onBottomPressed:
+                          availability.canUnlock && !isCommandActive
+                              ? () => _handleAction(
+                                    context,
+                                    ref,
+                                    CommandType.unlock,
+                                  )
+                              : null,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: _RockerSwitchPair(
+                      activeTop: isClimateOn,
+                      topKey: const Key('control-climate-start'),
+                      topIcon: Icons.power_settings_new_rounded,
+                      topLabel: 'Start climate',
+                      topSemantics: 'Start climate control',
+                      onTopPressed:
+                          availability.canStartClimate && !isCommandActive
+                              ? () => _handleAction(
+                                    context,
+                                    ref,
+                                    CommandType.startPreconditioning,
+                                  )
+                              : null,
+                      bottomKey: const Key('control-climate-stop'),
+                      bottomIcon: Icons.stop_circle_outlined,
+                      bottomLabel: 'Stop climate',
+                      bottomSemantics: 'Stop climate control',
+                      onBottomPressed:
+                          availability.canStopClimate && !isCommandActive
+                              ? () => _handleAction(
+                                    context,
+                                    ref,
+                                    CommandType.stopPreconditioning,
+                                  )
+                              : null,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            _FobIndicatorBars(isTransmitting: isCommandActive),
             if (availability.lockDisabledReason != null) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: 12),
               Text(
                 availability.lockDisabledReason!,
                 key: const Key('lock-disabled-reason'),
@@ -518,58 +555,9 @@ class _ControlsBody extends ConsumerWidget {
                 ),
               ),
             ],
-            const SizedBox(height: 20),
-            // Paired Control 2: Start Climate / Stop Climate
-            Row(
-              children: [
-                Expanded(
-                  child: Semantics(
-                    button: true,
-                    label: 'Start climate control',
-                    child: SizedBox(
-                      height: 48,
-                      child: FilledButton.tonalIcon(
-                        key: const Key('control-climate-start'),
-                        icon: const Icon(Icons.power_settings_new),
-                        label: const Text('Start climate'),
-                        onPressed: availability.canStartClimate &&
-                                !isCommandActive
-                            ? () => _handleAction(
-                                  context,
-                                  ref,
-                                  CommandType.startPreconditioning,
-                                )
-                            : null,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Semantics(
-                    button: true,
-                    label: 'Stop climate control',
-                    child: SizedBox(
-                      height: 48,
-                      child: FilledButton.tonalIcon(
-                        key: const Key('control-climate-stop'),
-                        icon: const Icon(Icons.stop_circle_outlined),
-                        label: const Text('Stop climate'),
-                        onPressed:
-                            availability.canStopClimate && !isCommandActive
-                                ? () => _handleAction(
-                                      context,
-                                      ref,
-                                      CommandType.stopPreconditioning,
-                                    )
-                                : null,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (availability.climateDisabledReason != null) ...[
+            if (availability.climateDisabledReason != null &&
+                availability.climateDisabledReason !=
+                    availability.lockDisabledReason) ...[
               const SizedBox(height: 6),
               Text(
                 availability.climateDisabledReason!,
@@ -580,12 +568,12 @@ class _ControlsBody extends ConsumerWidget {
               ),
             ],
             if (availability.drivingHint != null) ...[
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
                   children: [
@@ -608,6 +596,389 @@ class _ControlsBody extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _StateMetricTile extends StatelessWidget {
+  const _StateMetricTile({
+    required this.title,
+    required this.value,
+    required this.valueKey,
+    required this.icon,
+    required this.isHighlighted,
+    required this.isUpdating,
+  });
+
+  final String title;
+  final String value;
+  final Key valueKey;
+  final IconData icon;
+  final bool isHighlighted;
+  final bool isUpdating;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isHighlighted
+            ? theme.colorScheme.primaryContainer.withValues(alpha: 0.32)
+            : theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isHighlighted
+              ? theme.colorScheme.primary.withValues(alpha: 0.5)
+              : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    letterSpacing: 0.9,
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 280),
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                  border: Border.all(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  child: Icon(
+                    icon,
+                    key: ValueKey(icon),
+                    size: 16,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            transitionBuilder: (child, anim) =>
+                FadeTransition(opacity: anim, child: child),
+            child: Text(
+              value,
+              key: valueKey,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (isUpdating) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                'Updating...',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: theme.colorScheme.onPrimaryContainer,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Vertical rocker-switch housing with a sliding animated toggle highlight
+/// between the top and bottom [FilledButton] controls.
+class _RockerSwitchPair extends StatelessWidget {
+  const _RockerSwitchPair({
+    required this.activeTop,
+    required this.topKey,
+    required this.topIcon,
+    required this.topLabel,
+    required this.topSemantics,
+    required this.onTopPressed,
+    required this.bottomKey,
+    required this.bottomIcon,
+    required this.bottomLabel,
+    required this.bottomSemantics,
+    required this.onBottomPressed,
+  });
+
+  final bool activeTop;
+  final Key topKey;
+  final IconData topIcon;
+  final String topLabel;
+  final String topSemantics;
+  final VoidCallback? onTopPressed;
+
+  final Key bottomKey;
+  final IconData bottomIcon;
+  final String bottomLabel;
+  final String bottomSemantics;
+  final VoidCallback? onBottomPressed;
+
+  static const double _halfHeight = 68;
+  static const double _totalHeight = _halfHeight * 2;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final highlightFill = isDark
+        ? theme.colorScheme.primary.withValues(alpha: 0.24)
+        : theme.colorScheme.primaryContainer.withValues(alpha: 0.65);
+
+    return Container(
+      height: _totalHeight,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: theme.shadowColor.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Sliding animated rocker highlight
+          AnimatedAlign(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+            alignment: activeTop ? Alignment.topCenter : Alignment.bottomCenter,
+            child: Container(
+              height: _halfHeight,
+              decoration: BoxDecoration(
+                color: highlightFill,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: theme.colorScheme.primary,
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.16),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Column(
+            children: [
+              _RockerHalfButton(
+                buttonKey: topKey,
+                icon: topIcon,
+                label: topLabel,
+                semanticsLabel: topSemantics,
+                isHighlighted: activeTop,
+                onPressed: onTopPressed,
+              ),
+              _RockerHalfButton(
+                buttonKey: bottomKey,
+                icon: bottomIcon,
+                label: bottomLabel,
+                semanticsLabel: bottomSemantics,
+                isHighlighted: !activeTop,
+                onPressed: onBottomPressed,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RockerHalfButton extends StatelessWidget {
+  const _RockerHalfButton({
+    required this.buttonKey,
+    required this.icon,
+    required this.label,
+    required this.semanticsLabel,
+    required this.isHighlighted,
+    required this.onPressed,
+  });
+
+  final Key buttonKey;
+  final IconData icon;
+  final String label;
+  final String semanticsLabel;
+  final bool isHighlighted;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isEnabled = onPressed != null;
+    final fgColor = isHighlighted
+        ? theme.colorScheme.primary
+        : isEnabled
+            ? theme.colorScheme.onSurface
+            : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55);
+
+    return Expanded(
+      child: Semantics(
+        button: true,
+        label: semanticsLabel,
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton(
+            key: buttonKey,
+            onPressed: onPressed,
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.transparent,
+              disabledBackgroundColor: Colors.transparent,
+              foregroundColor: fgColor,
+              disabledForegroundColor: fgColor,
+              shadowColor: Colors.transparent,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            child: AnimatedScale(
+              duration: const Duration(milliseconds: 220),
+              scale: isHighlighted ? 1.03 : 0.97,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 20, color: fgColor),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: fgColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PulsingSignalDot extends StatelessWidget {
+  const _PulsingSignalDot({
+    required this.isOffline,
+    required this.isTransmitting,
+  });
+
+  final bool isOffline;
+  final bool isTransmitting;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final baseColor = isOffline
+        ? AppTheme.errorColor
+        : isTransmitting
+            ? AppTheme.warningColor
+            : theme.colorScheme.primary;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      width: isTransmitting ? 11 : 9,
+      height: isTransmitting ? 11 : 9,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: baseColor,
+        boxShadow: [
+          BoxShadow(
+            color: baseColor.withValues(alpha: isTransmitting ? 0.65 : 0.4),
+            blurRadius: isTransmitting ? 10 : 4,
+            spreadRadius: isTransmitting ? 2 : 0.5,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FobIndicatorBars extends StatelessWidget {
+  const _FobIndicatorBars({required this.isTransmitting});
+
+  final bool isTransmitting;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final inactive = theme.colorScheme.outlineVariant;
+    final active = theme.colorScheme.primary;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          width: 18,
+          height: 3.5,
+          decoration: BoxDecoration(
+            color: isTransmitting ? active.withValues(alpha: 0.5) : inactive,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 6),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          width: isTransmitting ? 34 : 26,
+          height: 3.5,
+          decoration: BoxDecoration(
+            color: isTransmitting ? active : inactive,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 6),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          width: 18,
+          height: 3.5,
+          decoration: BoxDecoration(
+            color: isTransmitting ? active.withValues(alpha: 0.5) : inactive,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      ],
     );
   }
 }
