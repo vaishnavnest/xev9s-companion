@@ -10,6 +10,8 @@ import 'package:xev9s_app/features/vehicles/selected_vehicle_provider.dart';
 
 class MockSwitcherNotifier extends AsyncNotifier<List<VehicleSummary>>
     implements VehiclesController {
+  @override
+  void reset() {}
   MockSwitcherNotifier(this.vehicles);
   final List<VehicleSummary> vehicles;
 

@@ -195,6 +195,8 @@ class FakeAuthController extends Notifier<AuthState> implements AuthController {
 class FakeVehiclesController extends AsyncNotifier<List<VehicleSummary>>
     implements VehiclesController {
   @override
+  void reset() {}
+  @override
   Future<List<VehicleSummary>> build() async => [];
 
   @override

@@ -3,12 +3,40 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xev9s_app/core/network/api_exception.dart';
 import 'package:xev9s_app/core/network/error_codes.dart';
+import 'package:xev9s_app/features/auth/application/auth_controller.dart';
+import 'package:xev9s_app/features/auth/domain/user_summary.dart';
 import 'package:xev9s_app/features/vehicles/application/vehicles_controller.dart';
 import 'package:xev9s_app/features/vehicles/data/vehicle_repository.dart';
 import 'package:xev9s_app/features/vehicles/domain/association_status.dart';
 import 'package:xev9s_app/features/vehicles/domain/vehicle_connectivity.dart';
 import 'package:xev9s_app/features/vehicles/domain/vehicle_summary.dart';
 import 'package:xev9s_app/features/vehicles/selected_vehicle_provider.dart';
+
+class FakeAuthController extends Notifier<AuthState> implements AuthController {
+  FakeAuthController([AuthState? initial]) : _initial = initial ?? const AuthAuthenticated(UserSummary(userId: 'u1', name: 'User 1', email: 'u1@test.com'));
+  final AuthState _initial;
+
+  @override
+  AuthState build() => _initial;
+
+  @override
+  Future<void> checkSession() async {}
+
+  @override
+  Future<void> login(String identifier, String password) async {}
+
+  @override
+  Future<void> register(String name, String email, String password) async {}
+
+  @override
+  Future<void> logout() async {}
+
+  @override
+  Future<void> handleSessionExpired() async {}
+
+  @override
+  void consumeSessionExpiredReason() {}
+}
 
 class FakeVehicleRepository implements VehicleRepository {
   List<VehicleSummary> vehiclesResult = [];
@@ -70,6 +98,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          authControllerProvider.overrideWith(() => FakeAuthController()),
           vehicleRepositoryProvider.overrideWithValue(repo),
         ],
       );
@@ -88,6 +117,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          authControllerProvider.overrideWith(() => FakeAuthController()),
           vehicleRepositoryProvider.overrideWithValue(repo),
         ],
       );
@@ -104,6 +134,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          authControllerProvider.overrideWith(() => FakeAuthController()),
           vehicleRepositoryProvider.overrideWithValue(repo),
         ],
       );
@@ -122,6 +153,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          authControllerProvider.overrideWith(() => FakeAuthController()),
           vehicleRepositoryProvider.overrideWithValue(repo),
         ],
       );
@@ -161,6 +193,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          authControllerProvider.overrideWith(() => FakeAuthController()),
           vehicleRepositoryProvider.overrideWithValue(repo),
         ],
       );
@@ -178,6 +211,21 @@ void main() {
 
       await refreshFuture;
       expect(container.read(vehiclesControllerProvider).value, equals([v1]));
+    });
+
+    test('returns empty list when user is unauthenticated', () async {
+      final repo = FakeVehicleRepository()..vehiclesResult = [v1];
+
+      final container = ProviderContainer(
+        overrides: [
+          authControllerProvider.overrideWith(() => FakeAuthController(const AuthUnauthenticated())),
+          vehicleRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final list = await container.read(vehiclesControllerProvider.future);
+      expect(list, isEmpty);
     });
   });
 }

@@ -6,7 +6,6 @@ import '../../../core/network/auth_interceptor.dart';
 import '../../../core/network/error_codes.dart';
 import '../../../core/providers.dart';
 import '../../../core/storage/token_storage.dart';
-import '../../vehicles/application/vehicles_controller.dart';
 import '../../vehicles/selected_vehicle_provider.dart';
 import '../data/auth_repository.dart';
 import '../domain/user_summary.dart';
@@ -87,25 +86,32 @@ class AuthController extends Notifier<AuthState> {
   Future<void> checkSession() async {
     try {
       final token = await _tokenStorage.getAccessToken();
+      if (!ref.mounted) return;
       if (token == null || token.isEmpty) {
         state = const AuthUnauthenticated();
         return;
       }
 
       final user = await _authRepository.currentUser();
+      if (!ref.mounted) return;
       state = AuthAuthenticated(user);
     } on AppError catch (e) {
+      if (!ref.mounted) return;
       if (e.code == ApiErrorCode.tokenExpired ||
           e.code == ApiErrorCode.unauthenticated) {
         await _tokenStorage.clearTokens();
-        await ref.read(selectedVehicleProvider.notifier).clear();
-        state = const AuthUnauthenticated(UnauthenticatedReason.sessionExpired);
+        if (ref.mounted) {
+          await ref.read(selectedVehicleProvider.notifier).clear();
+          state = const AuthUnauthenticated(UnauthenticatedReason.sessionExpired);
+        }
       } else {
         // Network error, timeout, or 5xx: DO NOT log out.
         state = AuthStartupFailed(e);
       }
     } catch (_) {
-      state = const AuthUnauthenticated();
+      if (ref.mounted) {
+        state = const AuthUnauthenticated();
+      }
     }
   }
 
@@ -113,7 +119,6 @@ class AuthController extends Notifier<AuthState> {
   Future<void> login(String identifier, String password) async {
     try {
       final session = await _authRepository.login(identifier, password);
-      ref.invalidate(vehiclesControllerProvider);
       state = AuthAuthenticated(session.user);
     } on AppError {
       rethrow;
@@ -126,7 +131,6 @@ class AuthController extends Notifier<AuthState> {
       final session = await _authRepository.register(name, email, password);
       await ref.read(selectedVehicleProvider.notifier).clear();
       state = AuthAuthenticated(session.user);
-      ref.invalidate(vehiclesControllerProvider);
     } on AppError {
       rethrow;
     }
@@ -138,7 +142,6 @@ class AuthController extends Notifier<AuthState> {
       await _authRepository.logout();
     } finally {
       await ref.read(selectedVehicleProvider.notifier).clear();
-      ref.invalidate(vehiclesControllerProvider);
       state = const AuthUnauthenticated(UnauthenticatedReason.none);
     }
   }
@@ -147,7 +150,6 @@ class AuthController extends Notifier<AuthState> {
   Future<void> handleSessionExpired() async {
     await _tokenStorage.clearTokens();
     await ref.read(selectedVehicleProvider.notifier).clear();
-    ref.invalidate(vehiclesControllerProvider);
     state = const AuthUnauthenticated(UnauthenticatedReason.sessionExpired);
   }
 
