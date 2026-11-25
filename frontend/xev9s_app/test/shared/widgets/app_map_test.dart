@@ -228,5 +228,44 @@ void main() {
 
       expect(controller.isAutoFollow, isTrue);
     });
+
+    testWidgets('fitBounds handles empty, single, identical, and multi-point routes safely', (tester) async {
+      final controller = AppMapController(autoFollow: false);
+      const center = LatLng(12.9716, 77.5946);
+
+      await tester.pumpWidget(buildTestMap(
+        center: center,
+        controller: controller,
+        polyline: const [
+          LatLng(12.9716, 77.5946),
+          LatLng(12.9780, 77.6050),
+        ],
+      ));
+      await tester.pumpAndSettle();
+
+      // Empty route -> no crash
+      controller.fitBounds(const []);
+      await tester.pump();
+
+      // Single point -> no crash
+      controller.fitBounds(const [LatLng(12.9716, 77.5946)]);
+      await tester.pumpAndSettle();
+
+      // Identical points -> no crash
+      controller.fitBounds(const [
+        LatLng(12.9716, 77.5946),
+        LatLng(12.9716, 77.5946),
+      ]);
+      await tester.pumpAndSettle();
+
+      // Multi-point bounds -> fits camera cleanly
+      controller.fitBounds(const [
+        LatLng(12.9716, 77.5946),
+        LatLng(12.9780, 77.6050),
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AppMap), findsOneWidget);
+    });
   });
 }
