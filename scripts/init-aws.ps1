@@ -43,6 +43,10 @@ if (-not $Ready) {
 
 Write-Host "LocalStack is healthy. Running Terraform..." -ForegroundColor Green
 
+# Provide LocalStack dummy credentials via environment variables (no hardcoded keys in .tf)
+if (-not $env:AWS_ACCESS_KEY_ID) { $env:AWS_ACCESS_KEY_ID = "test" } # gitleaks:allow
+if (-not $env:AWS_SECRET_ACCESS_KEY) { $env:AWS_SECRET_ACCESS_KEY = "test" } # gitleaks:allow
+
 Push-Location $TerraformDir
 try {
     terraform init -input=false

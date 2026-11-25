@@ -18,11 +18,9 @@ terraform {
 }
 
 # Configure the AWS provider to talk to LocalStack instead of real AWS.
-# "test" credentials are standard LocalStack dummy values (not real secrets).
+# Credentials are supplied via AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars.
 provider "aws" {
   region                      = var.aws_region
-  access_key                  = "test" # gitleaks:allow
-  secret_key                  = "test" # gitleaks:allow
   skip_credentials_validation = true
   skip_metadata_api_check     = true
   skip_requesting_account_id  = true

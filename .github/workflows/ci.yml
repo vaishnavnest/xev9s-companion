@@ -235,7 +235,99 @@ jobs:
           path: htmlcov
 
 
-  # 3. Security Scans
+  # 3. Report Worker Validation
+  report-worker-verify:
+    name: Report Worker Lint & Test
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Check if report-worker changed
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            report_worker:
+              - 'report-worker/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Setup Python
+        if: steps.filter.outputs.report_worker == 'true'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: report-worker/requirements.txt
+
+      - name: Install Report Worker Dependencies
+        if: steps.filter.outputs.report_worker == 'true'
+        run: |
+          python -m pip install -r report-worker/requirements.txt
+          python -m pip install pytest==9.2.0 pytest-cov==7.1.0 ruff==0.17.6
+
+      - name: Enforce 200-Line Limit
+        if: steps.filter.outputs.report_worker == 'true'
+        run: |
+          FAILED=0
+
+          while IFS= read -r -d '' file; do
+            LINES=$(wc -l < "$file")
+
+            if [ "$LINES" -gt 200 ]; then
+              echo "$file has $LINES lines (limit is 200)"
+              FAILED=1
+            fi
+          done < <(find report-worker -maxdepth 1 -name "*.py" -print0)
+
+          if [ "$FAILED" -eq 1 ]; then
+            exit 1
+          fi
+
+          echo "All report-worker Python files are within 200 lines."
+
+      - name: Lint Python Code
+        if: steps.filter.outputs.report_worker == 'true'
+        working-directory: report-worker
+        run: ruff check .
+
+      - name: Run Report Worker Tests with 70% Coverage Gate
+        if: steps.filter.outputs.report_worker == 'true'
+        working-directory: report-worker
+        run: |
+          pytest tests \
+            --cov=generator \
+            --cov=processor \
+            --cov=main \
+            --cov-report=term-missing \
+            --cov-report=html:htmlcov \
+            --cov-report=json:coverage.json \
+            -v
+
+          COVERAGE=$(python -c "import json; data=json.load(open('coverage.json')); print(f\"{data['totals']['percent_covered']:.1f}\")")
+
+          echo "### Report Worker Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Line Coverage:** ${COVERAGE}%" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Required Threshold:** 70.0%" >> "$GITHUB_STEP_SUMMARY"
+
+          python -c "
+          cov = float('$COVERAGE')
+          if cov < 70.0:
+              print(f'Report worker coverage {cov}% is below the 70.0% threshold!')
+              exit(1)
+          print(f'Report worker coverage check passed ({cov}% >= 70.0%)')
+          "
+
+      - name: Upload Report Worker HTML Coverage Report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.filter.outputs.report_worker == 'true' && hashFiles('report-worker/htmlcov/index.html') != ''
+        with:
+          name: report-worker-html-coverage-report
+          path: report-worker/htmlcov
+
+
+  # 4. Security Scans
   security-scan:
     name: Security Scans (Gitleaks, Semgrep, Trivy)
     runs-on: ubuntu-24.04
@@ -281,7 +373,7 @@ jobs:
             .
 
 
-  # 4. Mandatory CI Gate
+  # 5. Mandatory CI Gate
   ci-gate:
     name: Mandatory CI Gate
     runs-on: ubuntu-24.04
@@ -289,6 +381,7 @@ jobs:
     needs:
       - flutter-verify
       - backend-verify
+      - report-worker-verify
       - security-scan
 
     if: always()
@@ -298,10 +391,12 @@ jobs:
         env:
           FLUTTER_RESULT: ${{ needs.flutter-verify.result }}
           BACKEND_RESULT: ${{ needs.backend-verify.result }}
+          REPORT_WORKER_RESULT: ${{ needs.report-worker-verify.result }}
           SECURITY_RESULT: ${{ needs.security-scan.result }}
         run: |
           echo "Flutter result: $FLUTTER_RESULT"
           echo "Backend result: $BACKEND_RESULT"
+          echo "Report worker result: $REPORT_WORKER_RESULT"
           echo "Security result: $SECURITY_RESULT"
 
           if [[ "$FLUTTER_RESULT" != "success" && "$FLUTTER_RESULT" != "skipped" ]]; then
@@ -311,6 +406,11 @@ jobs:
 
           if [[ "$BACKEND_RESULT" != "success" && "$BACKEND_RESULT" != "skipped" ]]; then
             echo "Backend checks failed!"
+            exit 1
+          fi
+
+          if [[ "$REPORT_WORKER_RESULT" != "success" && "$REPORT_WORKER_RESULT" != "skipped" ]]; then
+            echo "Report worker checks failed!"
             exit 1
           fi
 

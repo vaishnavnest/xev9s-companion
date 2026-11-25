@@ -15,8 +15,10 @@ from typing import Any
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
-from processor import process_report_job
 from pymongo import MongoClient
+from pymongo.errors import PyMongoError
+
+from processor import process_report_job
 
 logging.basicConfig(
     level=logging.INFO,
@@ -81,7 +83,7 @@ def poll_once(
                 ReceiptHandle=receipt_handle,
             )
             processed += 1
-        except Exception as exc:
+        except (json.JSONDecodeError, ValueError, KeyError, BotoCoreError, ClientError, PyMongoError) as exc:
             logger.warning(
                 "Message %s left in queue for retry/DLQ due to error: %s",
                 message.get("MessageId"),
@@ -108,8 +110,8 @@ def main() -> None:
             except (BotoCoreError, ClientError) as exc:
                 logger.warning("SQS poll error (retrying in %ss): %s", POLL_INTERVAL, exc)
                 time.sleep(POLL_INTERVAL)
-            except Exception as exc:
-                logger.exception("Unexpected worker error: %s", exc)
+            except (PyMongoError, OSError):
+                logger.exception("Unexpected worker error")
                 time.sleep(POLL_INTERVAL)
     finally:
         mongo_client.close()

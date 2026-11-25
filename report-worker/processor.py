@@ -4,8 +4,9 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from generator import generate_report_bytes
 from pymongo.database import Database
+
+from generator import generate_report_bytes
 
 logger = logging.getLogger("report-worker")
 
