@@ -55,6 +55,7 @@ let secondCarTargetPercent = 90;
 let isOffline = false;
 let isCharging = false;
 let isDriving = false;
+let drivingReturnTimer = null;
 let lockState = 'LOCKED';
 let preconditioningState = 'INACTIVE';
 
@@ -508,11 +509,22 @@ if (process.stdin.isTTY) {
     } else if (key === 'x') {
       simulateLateExecuting();
     } else if (key === 'd') {
-      isDriving = !isDriving;
-      if (isDriving) isCharging = false;
+      if (drivingReturnTimer) {
+        clearTimeout(drivingReturnTimer);
+        drivingReturnTimer = null;
+      }
+      isDriving = true;
+      isCharging = false;
       sendVehicleStatus('veh_9S0001');
       sendVehicleLocation('veh_9S0001');
-      console.log(`[MockWS] Toggled driving -> ${isDriving ? 'DRIVING (speed: 42 km/h, moving route)' : 'PARKED (speed: 0 km/h, stationary)'}`);
+      console.log('[MockWS] Driving started -> DRIVING (will return to PARKED in 20s)');
+      drivingReturnTimer = setTimeout(() => {
+        isDriving = false;
+        sendVehicleStatus('veh_9S0001');
+        sendVehicleLocation('veh_9S0001');
+        console.log('[MockWS] Driving finished -> PARKED');
+        drivingReturnTimer = null;
+      }, 20000);
     } else if (key === 'o') {
       sendConnectivity('OFFLINE');
     } else if (key === 'n') {
