@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 from contextlib import asynccontextmanager
@@ -14,6 +13,7 @@ from backend.app.repositories.vehicle_repository import VehicleRepository
 from backend.app.routes.auth import router as auth_router
 from backend.app.routes.charging import router as charging_router
 from backend.app.routes.commands import router as commands_router
+from backend.app.routes.location import router as location_router
 from backend.app.routes.telemetry import router as telemetry_router
 from backend.app.routes.vehicles import router as vehicles_router
 from backend.app.routes.websocket import router as websocket_router
@@ -25,6 +25,7 @@ from backend.app.services.charging_runtime import (
 from backend.app.services.command_response_service import CommandResponseService
 from backend.app.services.command_service import CommandService
 from backend.app.services.command_timeout_manager import CommandTimeoutManager
+from backend.app.services.location_service import LocationService
 from backend.app.services.telemetry_service import TelemetryService
 from fastapi import FastAPI, HTTPException, Request
 from pymongo.errors import PyMongoError
@@ -50,9 +51,7 @@ async def lifespan(app: FastAPI):
             database["vehicles"], database["user_vehicles"]
         )
         command_repository = CommandRepository(database["commands"])
-        telemetry_service = TelemetryService(
-            telemetry_repository, vehicle_repository
-        )
+        telemetry_service = TelemetryService(telemetry_repository, vehicle_repository)
 
         timeout_manager = CommandTimeoutManager(command_repository)
 
@@ -79,9 +78,9 @@ async def lifespan(app: FastAPI):
         )
 
         def notify_websocket_clients(telemetry: dict) -> None:
-            message = TelemetryResponse.model_validate(
-                telemetry
-            ).model_dump(mode="json")
+            message = TelemetryResponse.model_validate(telemetry).model_dump(
+                mode="json"
+            )
             future = asyncio.run_coroutine_threadsafe(
                 websocket_manager.broadcast(message["vehicle_id"], message),
                 event_loop,
@@ -117,6 +116,10 @@ async def lifespan(app: FastAPI):
             command_handler.publish_command,
             timeout_manager,
         )
+        location_service = LocationService(
+            vehicle_repository,
+            telemetry_repository,
+        )
 
         app.state.telemetry_service = telemetry_service
         app.state.command_repository = command_repository
@@ -124,6 +127,7 @@ async def lifespan(app: FastAPI):
         app.state.command_response_service = command_response_service
         app.state.command_timeout_manager = timeout_manager
         app.state.charging_event_service = charging_event_service
+        app.state.location_service = location_service
         app.state.mqtt_subscriber = mqtt_subscriber
 
         mqtt_subscriber.start()
@@ -157,6 +161,7 @@ app.include_router(vehicles_router)
 app.include_router(commands_router)
 app.include_router(telemetry_router)
 app.include_router(charging_router)
+app.include_router(location_router)
 app.include_router(websocket_router)
 
 
