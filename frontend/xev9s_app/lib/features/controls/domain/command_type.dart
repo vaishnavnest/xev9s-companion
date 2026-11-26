@@ -22,6 +22,22 @@ enum CommandType {
     }
   }
 
+  /// Serializes the enum to the FastAPI backend `RemoteOperation` value.
+  String toBackendOperation() {
+    switch (this) {
+      case CommandType.lock:
+        return 'lock';
+      case CommandType.unlock:
+        return 'unlock';
+      case CommandType.startPreconditioning:
+        return 'start_cabin_preconditioning';
+      case CommandType.stopPreconditioning:
+        return 'stop_cabin_preconditioning';
+      case CommandType.unknown:
+        return 'unknown';
+    }
+  }
+
   /// Parses wire strings safely without throwing on unknown values.
   static CommandType fromApi(String? value) {
     if (value == null || value.trim().isEmpty) return CommandType.unknown;
@@ -32,8 +48,10 @@ enum CommandType {
       case 'UNLOCK':
         return CommandType.unlock;
       case 'START_PRECONDITIONING':
+      case 'START_CABIN_PRECONDITIONING':
         return CommandType.startPreconditioning;
       case 'STOP_PRECONDITIONING':
+      case 'STOP_CABIN_PRECONDITIONING':
         return CommandType.stopPreconditioning;
       default:
         return CommandType.unknown;

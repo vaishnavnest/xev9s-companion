@@ -17,11 +17,11 @@
 /// flutter run -d <device-id> --dart-define=API_BASE_URL=http://192.168.x.x:4010
 /// ```
 ///
-/// The mock server (Prism) serves all paths from the root, so the base URL
-/// does NOT include `/api/v1`. When pointing at the real backend, include
-/// the full path prefix:
+/// The mock server (Prism) and the FastAPI backend both serve routes from the
+/// root (without `/api/v1`). For the local FastAPI backend:
 /// ```
-/// --dart-define=API_BASE_URL=http://localhost:8080/api/v1
+/// --dart-define=API_BASE_URL=http://localhost:8000
+/// --dart-define=WS_BASE_URL=ws://localhost:8000
 /// ```
 class AppConfig {
   AppConfig._();

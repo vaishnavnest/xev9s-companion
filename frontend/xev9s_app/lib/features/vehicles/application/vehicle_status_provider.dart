@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/realtime/realtime_providers.dart';
+import '../../controls/application/command_session.dart';
+import '../../controls/application/command_tracker_provider.dart';
 import '../data/vehicle_status_repository.dart';
 import '../domain/realtime_event.dart';
 import '../domain/vehicle_status.dart';
@@ -77,7 +79,22 @@ class VehicleStatusNotifier extends AsyncNotifier<VehicleStatus?> {
         if (incoming != null) {
           // Out-of-date events are safely ignored
           if (!incoming.lastUpdatedAt.isBefore(current.lastUpdatedAt)) {
-            state = AsyncData(current.merge(incoming));
+            var merged = current.merge(incoming);
+            // Do not update lock/climate state while a remote command is still
+            // in progress; wait until the command finishes and refreshes state.
+            final session = _currentVehicleId != null
+                ? ref.read(commandTrackerProvider)[_currentVehicleId!]
+                : null;
+            final isCommandInFlight = session != null &&
+                (session.phase == CommandPhase.submitting ||
+                    session.phase == CommandPhase.tracking);
+            if (isCommandInFlight) {
+              merged = merged.copyWith(
+                lockState: current.lockState,
+                preconditioningState: current.preconditioningState,
+              );
+            }
+            state = AsyncData(merged);
           }
         }
         break;

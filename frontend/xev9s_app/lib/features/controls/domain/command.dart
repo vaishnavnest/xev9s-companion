@@ -14,14 +14,13 @@ class CommandResultingState extends Equatable {
   final PreconditioningState? preconditioningState;
 
   factory CommandResultingState.fromJson(Map<String, dynamic> json) {
+    final rawLock = (json['lockState'] ?? json['lock_state']) as String?;
+    final rawPrecon =
+        (json['preconditioningState'] ?? json['preconditioning_state']) as String?;
     return CommandResultingState(
-      lockState: json['lockState'] != null
-          ? LockState.fromString(json['lockState'] as String?)
-          : null,
-      preconditioningState: json['preconditioningState'] != null
-          ? PreconditioningState.fromString(
-              json['preconditioningState'] as String?)
-          : null,
+      lockState: rawLock != null ? LockState.fromString(rawLock) : null,
+      preconditioningState:
+          rawPrecon != null ? PreconditioningState.fromString(rawPrecon) : null,
     );
   }
 
@@ -59,31 +58,33 @@ class Command extends Equatable {
   final String? failureReason;
   final CommandResultingState? resultingState;
 
-  /// Tolerant JSON deserialization.
+  /// Tolerant JSON deserialization supporting both OpenAPI camelCase and
+  /// FastAPI backend snake_case payloads.
   /// Throws [FormatException] ONLY if required fields (commandId, vehicleId,
-  /// commandType, status, requestedAt) are missing or invalid dates.
+  /// commandType/operation, status, requestedAt) are missing or invalid dates.
   factory Command.fromJson(Map<String, dynamic> json) {
-    final rawCommandId = json['commandId'];
+    final rawCommandId = json['commandId'] ?? json['command_id'];
     if (rawCommandId is! String || rawCommandId.trim().isEmpty) {
       throw const FormatException('Missing or invalid commandId');
     }
 
-    final rawVehicleId = json['vehicleId'];
+    final rawVehicleId = json['vehicleId'] ?? json['vehicle_id'];
     if (rawVehicleId is! String || rawVehicleId.trim().isEmpty) {
       throw const FormatException('Missing or invalid vehicleId');
     }
 
-    if (!json.containsKey('commandType') || json['commandType'] == null) {
+    final rawCommandType = json['commandType'] ?? json['operation'];
+    if (rawCommandType == null) {
       throw const FormatException('Missing commandType');
     }
-    final commandType = CommandType.fromApi(json['commandType'] as String?);
+    final commandType = CommandType.fromApi(rawCommandType as String?);
 
     if (!json.containsKey('status') || json['status'] == null) {
       throw const FormatException('Missing status');
     }
     final status = CommandStatus.fromApi(json['status'] as String?);
 
-    final rawRequestedAt = json['requestedAt'];
+    final rawRequestedAt = json['requestedAt'] ?? json['requested_at'];
     if (rawRequestedAt is! String) {
       throw const FormatException('Missing or invalid requestedAt');
     }
@@ -93,18 +94,18 @@ class Command extends Equatable {
     }
 
     DateTime? completedAt;
-    final rawCompletedAt = json['completedAt'];
+    final rawCompletedAt = json['completedAt'] ?? json['completed_at'];
     if (rawCompletedAt is String) {
       completedAt = DateTime.tryParse(rawCompletedAt);
     }
 
-    final failureReason = json['failureReason'] as String?;
+    final failureReason =
+        (json['failureReason'] ?? json['failure_reason']) as String?;
 
     CommandResultingState? resultingState;
-    if (json['resultingState'] is Map<String, dynamic>) {
-      resultingState = CommandResultingState.fromJson(
-        json['resultingState'] as Map<String, dynamic>,
-      );
+    final rawResultingState = json['resultingState'] ?? json['resulting_state'];
+    if (rawResultingState is Map<String, dynamic>) {
+      resultingState = CommandResultingState.fromJson(rawResultingState);
     }
 
     return Command(

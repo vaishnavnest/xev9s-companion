@@ -50,7 +50,7 @@ class ApiCommandRepository implements CommandRepository {
         'Idempotency-Key': idempotencyKey,
       },
       body: {
-        'commandType': type.toApi(),
+        'operation': type.toBackendOperation(),
       },
       parse: (json) {
         if (json is! Map<String, dynamic>) {
