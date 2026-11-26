@@ -94,6 +94,9 @@ def test_ensure_database_indexes():
         "user_vehicles": MagicMock(),
         "vehicle_telemetry": MagicMock(),
         "commands": MagicMock(),
+        "charging_preferences": MagicMock(),
+        "charging_sessions": MagicMock(),
+        "charging_events": MagicMock(),
     }
 
     ensure_database_indexes(mock_db)

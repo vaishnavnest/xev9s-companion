@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import paho.mqtt.client as mqtt
 import pytest
+from backend.app.communication.mqtt_charging_handler import CHARGING_EVENTS_TOPIC
 from backend.app.communication.mqtt_subscriber import (
     TELEMETRY_TOPIC,
     MQTTSubscriber,
@@ -69,7 +70,9 @@ def test_successful_connection_subscribes(setup):
 
     subscriber._on_connect(client, None, MagicMock(), reason, None)
 
-    client.subscribe.assert_called_once_with(TELEMETRY_TOPIC, qos=0)
+    assert client.subscribe.call_count == 2
+    client.subscribe.assert_any_call(TELEMETRY_TOPIC, qos=0)
+    client.subscribe.assert_any_call(CHARGING_EVENTS_TOPIC, qos=0)
     assert subscriber.is_connected
 
 
