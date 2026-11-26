@@ -1,4 +1,3 @@
-
 from datetime import datetime
 
 from backend.app.models.telemetry import create_telemetry_document
@@ -39,14 +38,30 @@ class TelemetryRepository:
     ) -> list[dict]:
         """Retrieve telemetry records within a time range."""
 
-        cursor = self.collection.find(
-            {
-                "vehicle_id": vehicle_id,
-                "timestamp": {
-                    "$gte": start_time,
-                    "$lte": end_time,
-                },
-            }
-        ).sort("timestamp", DESCENDING).limit(limit)
+        cursor = (
+            self.collection.find(
+                {
+                    "vehicle_id": vehicle_id,
+                    "timestamp": {
+                        "$gte": start_time,
+                        "$lte": end_time,
+                    },
+                }
+            )
+            .sort("timestamp", DESCENDING)
+            .limit(limit)
+        )
 
         return list(cursor)
+
+    def get_latest_valid_location(self, vehicle_id: str) -> dict | None:
+        """Retrieve the latest telemetry record with valid GPS coordinates."""
+
+        return self.collection.find_one(
+            {
+                "vehicle_id": vehicle_id,
+                "latitude": {"$exists": True, "$ne": None},
+                "longitude": {"$exists": True, "$ne": None},
+            },
+            sort=[("timestamp", DESCENDING)],
+        )
