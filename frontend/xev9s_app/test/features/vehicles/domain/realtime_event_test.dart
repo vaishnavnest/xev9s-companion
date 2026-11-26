@@ -82,6 +82,25 @@ void main() {
       expect(event.type, RealtimeEventType.commandUpdated);
     });
 
+    test('parses flat backend command_updated event', () {
+      final json = {
+        'event': 'command_updated',
+        'command_id': 'cmd_123',
+        'vehicle_id': 'XEV-DEMO-001',
+        'operation': 'lock',
+        'status': 'succeeded',
+        'requested_at': '2026-11-24T12:00:00Z',
+        'completed_at': '2026-11-24T12:00:03Z',
+        'failure_reason': null,
+      };
+
+      final event = RealtimeEvent.fromJson(json);
+      expect(event.type, RealtimeEventType.commandUpdated);
+      expect(event.vehicleId, 'XEV-DEMO-001');
+      expect(event.rawData, isNotNull);
+      expect(event.rawData?['command_id'], 'cmd_123');
+    });
+
     test('parses notification.created event', () {
       final json = {
         'event': 'notification.created',

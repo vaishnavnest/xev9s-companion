@@ -17,6 +17,9 @@ enum RealtimeEventType {
   static RealtimeEventType fromString(String? value) {
     if (value == null || value.trim().isEmpty) return RealtimeEventType.unknown;
     final normalized = value.trim();
+    if (normalized == 'command_updated') {
+      return RealtimeEventType.commandUpdated;
+    }
     for (final type in RealtimeEventType.values) {
       if (type.wireValue == normalized) return type;
     }
@@ -96,19 +99,25 @@ class RealtimeEvent extends Equatable {
   factory RealtimeEvent.fromJson(Map<String, dynamic> json) {
     final rawEvent = json['event'] as String?;
     final type = RealtimeEventType.fromString(rawEvent);
-    final vehicleId = json['vehicleId'] as String? ?? '';
+    final vehicleId = (json['vehicleId'] ?? json['vehicle_id']) as String? ?? '';
 
     DateTime parsedTime;
-    final rawTimestamp = json['timestamp'] as String?;
+    final rawTimestamp =
+        (json['timestamp'] ?? json['completed_at'] ?? json['requested_at'])
+            as String?;
     if (rawTimestamp != null) {
       parsedTime = DateTime.tryParse(rawTimestamp) ?? DateTime.now();
     } else {
       parsedTime = DateTime.now();
     }
 
-    final rawData = json['data'] is Map<String, dynamic>
-        ? json['data'] as Map<String, dynamic>
-        : null;
+    Map<String, dynamic>? rawData;
+    if (json['data'] is Map<String, dynamic>) {
+      rawData = json['data'] as Map<String, dynamic>;
+    } else if (type == RealtimeEventType.commandUpdated &&
+        (json.containsKey('command_id') || json.containsKey('commandId'))) {
+      rawData = json;
+    }
 
     return RealtimeEvent(
       type: type,

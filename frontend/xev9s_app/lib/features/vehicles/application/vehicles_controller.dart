@@ -9,7 +9,7 @@ import '../selected_vehicle_provider.dart';
 
 /// AsyncNotifier managing the user's vehicles list and auto-selection logic.
 class VehiclesController extends AsyncNotifier<List<VehicleSummary>> {
-  late final VehicleRepository _repository;
+  late VehicleRepository _repository;
 
   @override
   FutureOr<List<VehicleSummary>> build() async {

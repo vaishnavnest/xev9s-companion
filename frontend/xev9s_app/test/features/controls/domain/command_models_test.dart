@@ -19,6 +19,13 @@ void main() {
           CommandType.startPreconditioning);
       expect(CommandType.fromApi('stop_preconditioning'),
           CommandType.stopPreconditioning);
+      expect(CommandType.fromApi('start_cabin_preconditioning'),
+          CommandType.startPreconditioning);
+      expect(CommandType.fromApi('stop_cabin_preconditioning'),
+          CommandType.stopPreconditioning);
+      expect(CommandType.lock.toBackendOperation(), 'lock');
+      expect(CommandType.startPreconditioning.toBackendOperation(),
+          'start_cabin_preconditioning');
       expect(CommandType.fromApi('NON_EXISTENT'), CommandType.unknown);
       expect(CommandType.fromApi(null), CommandType.unknown);
       expect(CommandType.fromApi(''), CommandType.unknown);
@@ -99,6 +106,27 @@ void main() {
       expect(cmd.resultingState?.lockState, LockState.locked);
       expect(cmd.resultingState?.preconditioningState,
           PreconditioningState.inactive);
+    });
+
+    test('parses backend snake_case CommandResponse json', () {
+      final json = {
+        'command_id': 'cmd_backend_1',
+        'vehicle_id': 'XEV-DEMO-001',
+        'operation': 'start_cabin_preconditioning',
+        'status': 'succeeded',
+        'requested_at': '2026-11-24T12:00:00Z',
+        'completed_at': '2026-11-24T12:00:05Z',
+        'failure_reason': null,
+      };
+
+      final cmd = Command.fromJson(json);
+      expect(cmd.commandId, 'cmd_backend_1');
+      expect(cmd.vehicleId, 'XEV-DEMO-001');
+      expect(cmd.commandType, CommandType.startPreconditioning);
+      expect(cmd.status, CommandStatus.succeeded);
+      expect(cmd.requestedAt, now);
+      expect(cmd.completedAt, DateTime.parse('2026-11-24T12:00:05Z'));
+      expect(cmd.failureReason, isNull);
     });
 
     test('tolerates unknown enum strings without throwing', () {

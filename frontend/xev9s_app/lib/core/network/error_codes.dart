@@ -50,11 +50,20 @@ enum ApiErrorCode {
       }
       return ApiErrorCode.unauthenticated;
     }
+    if (status == 409) {
+      final lower = message?.toLowerCase() ?? '';
+      if (lower.contains('offline') || lower.contains('telemetry')) {
+        return ApiErrorCode.vehicleOffline;
+      }
+      if (lower.contains('command') || lower.contains('progress')) {
+        return ApiErrorCode.commandInProgress;
+      }
+      return ApiErrorCode.duplicateEmail;
+    }
     return switch (status) {
       400 => ApiErrorCode.validationError,
       403 => ApiErrorCode.forbidden,
       404 => ApiErrorCode.notFound,
-      409 => ApiErrorCode.duplicateEmail,
       422 => ApiErrorCode.validationError,
       503 => ApiErrorCode.serviceUnavailable,
       _ => ApiErrorCode.unknown,

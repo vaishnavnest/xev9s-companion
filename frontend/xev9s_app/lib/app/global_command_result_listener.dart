@@ -1,5 +1,4 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import '../features/controls/application/command_session.dart';
 import '../features/controls/application/command_tracker_provider.dart';
@@ -98,16 +97,21 @@ class _GlobalCommandResultListenerState
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (messenger == null) return;
 
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        action: SnackBarAction(
-          label: 'View',
-          onPressed: () {
-            context.go('/controls');
-          },
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 4),
+          showCloseIcon: true,
+          action: SnackBarAction(
+            label: 'View',
+            onPressed: () {
+              messenger.hideCurrentSnackBar();
+              ref.read(routerProvider).go('/controls');
+            },
+          ),
         ),
-      ),
-    );
+      );
   }
 }
