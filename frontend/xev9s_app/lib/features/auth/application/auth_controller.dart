@@ -59,8 +59,8 @@ class AuthStartupFailed extends AuthState {
 
 /// Controller managing global authentication state and user session.
 class AuthController extends Notifier<AuthState> {
-  late final AuthRepository _authRepository;
-  late final TokenStorage _tokenStorage;
+  late AuthRepository _authRepository;
+  late TokenStorage _tokenStorage;
 
   @override
   AuthState build() {
@@ -141,16 +141,17 @@ class AuthController extends Notifier<AuthState> {
     try {
       await _authRepository.logout();
     } finally {
-      await ref.read(selectedVehicleProvider.notifier).clear();
       state = const AuthUnauthenticated(UnauthenticatedReason.none);
+      await ref.read(selectedVehicleProvider.notifier).clear();
     }
   }
 
   /// Handles forced session expiry (e.g. from 401 refresh failure).
   Future<void> handleSessionExpired() async {
+    if (state is AuthUnauthenticated) return;
+    state = const AuthUnauthenticated(UnauthenticatedReason.sessionExpired);
     await _tokenStorage.clearTokens();
     await ref.read(selectedVehicleProvider.notifier).clear();
-    state = const AuthUnauthenticated(UnauthenticatedReason.sessionExpired);
   }
 
   /// Clears one-time session-expired reason once presented to user.

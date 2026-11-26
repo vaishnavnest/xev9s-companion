@@ -137,6 +137,7 @@ void main() {
         ),
       );
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
       final darkScaffold = tester.widget<Scaffold>(find.byType(Scaffold));
       expect(darkScaffold.backgroundColor, const Color(0xFF030D11));
