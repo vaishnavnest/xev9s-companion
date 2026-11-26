@@ -40,11 +40,13 @@ COPY . .
 
 # Build argument for API endpoint injection at compile time
 ARG API_BASE_URL=http://localhost:8000
+ARG WS_BASE_URL=ws://localhost:8000
 
 # Compile Flutter web release bundle
 # Output is generated in /app/build/web/
 RUN flutter build web --release \
-    --dart-define=API_BASE_URL=${API_BASE_URL}
+    --dart-define=API_BASE_URL=${API_BASE_URL} \
+    --dart-define=WS_BASE_URL=${WS_BASE_URL}
 
 # ==============================================================================
 # Stage 2: Serve compiled assets via non-root Nginx (Trivy DS-0002 compliant)

@@ -24,7 +24,7 @@ services:
     container_name: xev9s-mosquitto
     restart: unless-stopped
     ports:
-      - "1883:1883"
+      - "1884:1884"
     volumes:
       - ./infrastructure/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     networks:
@@ -46,7 +46,7 @@ services:
       JWT_SECRET_KEY: dev_secret_key_minimum_32_characters_for_xev9s_auth
       VEHICLE_PAIRING_PEPPER: dev_vehicle_pairing_pepper_secret_min_32_chars
       MQTT_BROKER_HOST: mosquitto
-      MQTT_BROKER_PORT: 1883
+      MQTT_BROKER_PORT: 1884
     depends_on:
       mongodb:
         condition: service_healthy
@@ -68,6 +68,7 @@ services:
       dockerfile: Dockerfile
       args:
         API_BASE_URL: http://localhost:8000
+        WS_BASE_URL: ws://localhost:8000
     image: xev9s-flutter-web:latest
     container_name: xev9s-frontend
     restart: unless-stopped
@@ -87,10 +88,11 @@ services:
     image: xev9s-vehicle-simulator:latest
     container_name: xev9s-simulator
     restart: unless-stopped
+    command: ["python", "mqtt_main.py"]
     environment:
-      VEHICLE_ID: xev9s-001
+      VEHICLE_ID: XEV-DEMO-001
       MQTT_BROKER_HOST: mosquitto
-      MQTT_BROKER_PORT: 1883
+      MQTT_BROKER_PORT: 1884
       TELEMETRY_INTERVAL: 5
     depends_on:
       mosquitto:
@@ -100,7 +102,26 @@ services:
     networks:
       - xev9s-network
 
-  # 6. Background Report Worker (Async Report Processing)
+  # 6. LocalStack (Simulated AWS SQS & S3 for Target 1)
+  localstack:
+    image: localstack/localstack:3.8
+    container_name: xev9s-localstack
+    restart: unless-stopped
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: sqs,s3
+      DEFAULT_REGION: us-east-1
+    networks:
+      - xev9s-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # 7. Background Report Worker (Async Report Processing)
   report-worker:
     build:
       context: ./report-worker
@@ -111,12 +132,17 @@ services:
     environment:
       AWS_ENDPOINT_URL: http://localstack:4566
       AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test # gitleaks:allow
+      AWS_SECRET_ACCESS_KEY: test # gitleaks:allow
+      REPORT_QUEUE_URL: http://localstack:4566/000000000000/xev9s-report-queue
       REPORT_BUCKET_NAME: xev9s-reports
       MONGODB_URI: mongodb://mongodb:27017
       MONGODB_DATABASE: Xev9s_db
       POLL_INTERVAL: 5
     depends_on:
       mongodb:
+        condition: service_healthy
+      localstack:
         condition: service_healthy
     networks:
       - xev9s-network
