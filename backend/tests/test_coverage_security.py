@@ -3,7 +3,13 @@ from backend.app.core import security
 from backend.app.core.security import hash_pairing_code
 
 
-def test_hash_pairing_code_valid():
+def test_hash_pairing_code_valid(monkeypatch):
+    monkeypatch.setattr(
+        security,
+        "VEHICLE_PAIRING_PEPPER",
+        "test_pepper_value_32_characters_minimum_valid",
+    )
+
     code = "XEV482913"
     result = hash_pairing_code(code)
 
