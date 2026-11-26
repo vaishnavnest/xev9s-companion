@@ -27,3 +27,19 @@ class MQTTUnavailableError(Exception):
 
 class InvalidCommandResponseError(Exception):
     """Raised when a simulator response does not match its command."""
+
+
+class ChargingSessionNotFoundError(Exception):
+    """Raised when a charging session cannot be found."""
+
+
+class InvalidChargingTransitionError(Exception):
+    """Raised when a charging event violates lifecycle rules."""
+
+
+class DuplicateChargingEventError(Exception):
+    """Raised when a charging event has already been processed."""
+
+
+class ChargingSessionAlreadyActiveError(Exception):
+    """Raised when a vehicle already has an active charging session."""

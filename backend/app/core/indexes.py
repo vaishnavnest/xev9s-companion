@@ -68,3 +68,37 @@ def ensure_database_indexes(database) -> None:
         ],
         name="idx_commands_user_vehicle",
     )
+
+    database["charging_preferences"].create_index(
+        [("vehicle_id", ASCENDING)],
+        unique=True,
+        name="uq_charging_preferences_vehicle",
+    )
+
+    database["charging_sessions"].create_index(
+        [("session_id", ASCENDING)],
+        unique=True,
+        name="uq_charging_sessions_session_id",
+    )
+
+    database["charging_sessions"].create_index(
+        [
+            ("vehicle_id", ASCENDING),
+            ("started_at", DESCENDING),
+        ],
+        name="idx_charging_sessions_vehicle_history",
+    )
+
+    database["charging_events"].create_index(
+        [("event_id", ASCENDING)],
+        unique=True,
+        name="uq_charging_events_event_id",
+    )
+
+    database["charging_events"].create_index(
+        [
+            ("vehicle_id", ASCENDING),
+            ("timestamp", DESCENDING),
+        ],
+        name="idx_charging_events_vehicle_timestamp",
+    )
