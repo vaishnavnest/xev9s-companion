@@ -1,6 +1,5 @@
 
 import pytest
-
 from simulator.vehicle.state import ChargingStatus, OperatingState, VehicleState
 from simulator.vehicle.state_manager import VehicleStateManager
 

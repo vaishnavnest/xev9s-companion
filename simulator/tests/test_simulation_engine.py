@@ -2,7 +2,6 @@
 from datetime import UTC, datetime
 
 import pytest
-
 from simulator.vehicle.simulation_engine import (
     SimulationConfig,
     SimulationEngine,

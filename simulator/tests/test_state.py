@@ -2,7 +2,6 @@
 from datetime import datetime
 
 import pytest
-
 from simulator.vehicle.state import (
     ChargingStatus,
     OperatingState,
