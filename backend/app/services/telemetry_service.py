@@ -1,4 +1,3 @@
-
 from datetime import datetime
 
 from backend.app.core.exceptions import (
@@ -19,9 +18,11 @@ class TelemetryService:
         self,
         telemetry_repository: TelemetryRepository,
         vehicle_repository: VehicleRepository,
+        trip_service: object | None = None,
     ):
         self.telemetry_repository = telemetry_repository
         self.vehicle_repository = vehicle_repository
+        self.trip_service = trip_service
 
     def ingest_telemetry(self, telemetry: TelemetryPayload) -> dict:
         """Validate vehicle status and persist incoming telemetry."""
@@ -31,22 +32,21 @@ class TelemetryService:
         if not vehicle_id:
             raise ValueError("Vehicle identifier cannot be empty")
 
-        vehicle = self.vehicle_repository.get_active_vehicle_by_id(
-            vehicle_id
-        )
+        vehicle = self.vehicle_repository.get_active_vehicle_by_id(vehicle_id)
 
         if vehicle is None:
-            raise VehicleNotActiveError(
-                "Vehicle is not registered or active"
-            )
+            raise VehicleNotActiveError("Vehicle is not registered or active")
 
-        normalized_telemetry = telemetry.model_copy(
-            update={"vehicle_id": vehicle_id}
-        )
+        normalized_telemetry = telemetry.model_copy(update={"vehicle_id": vehicle_id})
 
-        return self.telemetry_repository.save_telemetry(
-            normalized_telemetry
-        )
+        saved = self.telemetry_repository.save_telemetry(normalized_telemetry)
+
+        if self.trip_service is not None and hasattr(
+            self.trip_service, "process_telemetry"
+        ):
+            self.trip_service.process_telemetry(normalized_telemetry)
+
+        return saved
 
     def get_latest_telemetry(
         self,
@@ -64,13 +64,9 @@ class TelemetryService:
             user_id,
             normalized_vehicle_id,
         ):
-            raise VehicleAccessDeniedError(
-                "You do not have access to this vehicle"
-            )
+            raise VehicleAccessDeniedError("You do not have access to this vehicle")
 
-        return self.telemetry_repository.get_latest_telemetry(
-            normalized_vehicle_id
-        )
+        return self.telemetry_repository.get_latest_telemetry(normalized_vehicle_id)
 
     def get_telemetry_history(
         self,
@@ -97,9 +93,7 @@ class TelemetryService:
             user_id,
             normalized_vehicle_id,
         ):
-            raise VehicleAccessDeniedError(
-                "You do not have access to this vehicle"
-            )
+            raise VehicleAccessDeniedError("You do not have access to this vehicle")
 
         return self.telemetry_repository.get_telemetry_history(
             normalized_vehicle_id,

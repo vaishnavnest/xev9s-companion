@@ -33,7 +33,7 @@ class AppConstants {
   static const int commandPollIntervalSeconds = 2;
 
   /// Silence duration on websocket stream before falling back to safety polling (UC-05).
-  static const int commandSilenceBeforeSafetyPollSeconds = 8;
+  static const int commandSilenceBeforeSafetyPollSeconds = 2;
 
   /// Time after which UI indicates a command is taking longer than expected (UC-05).
   static const int commandClientWaitLimitSeconds = 60;

@@ -79,6 +79,16 @@ class MQTTClient:
         """Return this vehicle's telemetry publication topic."""
         return f"xev9s/vehicles/{self.vehicle_id}/telemetry"
 
+    @property
+    def charging_events_topic(self) -> str:
+        """Return this vehicle's charging events publication topic."""
+        return f"xev9s/vehicles/{self.vehicle_id}/charging/events"
+
+    @property
+    def charging_preferences_topic(self) -> str:
+        """Return this vehicle's charging preferences subscription topic."""
+        return f"xev9s/vehicles/{self.vehicle_id}/charging/preferences"
+
     def _on_connect(
         self,
         client: mqtt.Client,

@@ -7,6 +7,7 @@ enum RealtimeEventType {
   vehicleLocation('vehicle.location'),
   chargingUpdated('charging.updated'),
   commandUpdated('command.updated'),
+  tripCompleted('trip.completed'),
   notificationCreated('notification.created'),
   connectivityChanged('connectivity.changed'),
   unknown('unknown');
@@ -17,6 +18,12 @@ enum RealtimeEventType {
   static RealtimeEventType fromString(String? value) {
     if (value == null || value.trim().isEmpty) return RealtimeEventType.unknown;
     final normalized = value.trim();
+    if (normalized == 'command_updated') {
+      return RealtimeEventType.commandUpdated;
+    }
+    if (normalized == 'charging_update') {
+      return RealtimeEventType.chargingUpdated;
+    }
     for (final type in RealtimeEventType.values) {
       if (type.wireValue == normalized) return type;
     }
@@ -37,12 +44,34 @@ class ChargingOverviewLite extends Equatable {
   final double? batteryPercent;
 
   factory ChargingOverviewLite.fromJson(Map<String, dynamic> json) {
+    final eventMap = json['event'] is Map<String, dynamic>
+        ? json['event'] as Map<String, dynamic>
+        : null;
+    final sessionMap = json['session'] is Map<String, dynamic>
+        ? json['session'] as Map<String, dynamic>
+        : null;
+
+    final rawState = (json['state'] ??
+            sessionMap?['status'] ??
+            eventMap?['event_type'] ??
+            json['charging_status'])
+        as String?;
+    final power = (json['powerKw'] ??
+            json['charging_power_kw'] ??
+            eventMap?['charging_power_kw'] ??
+            sessionMap?['charging_power_kw']) as num?;
+    final battery = (json['batteryPercent'] ??
+            json['battery_percentage'] ??
+            eventMap?['battery_percentage'] ??
+            sessionMap?['ending_battery_percentage'] ??
+            sessionMap?['starting_battery_percentage']) as num?;
+
     return ChargingOverviewLite(
-      state: json['state'] != null
-          ? ChargingState.fromString(json['state'] as String?)
+      state: rawState != null
+          ? ChargingState.fromString(rawState)
           : ChargingState.unknown,
-      powerKw: (json['powerKw'] as num?)?.toDouble(),
-      batteryPercent: (json['batteryPercent'] as num?)?.toDouble(),
+      powerKw: power?.toDouble(),
+      batteryPercent: battery?.toDouble(),
     );
   }
 
@@ -94,21 +123,38 @@ class RealtimeEvent extends Equatable {
   final Map<String, dynamic>? rawData;
 
   factory RealtimeEvent.fromJson(Map<String, dynamic> json) {
-    final rawEvent = json['event'] as String?;
+    final rawEvent = json['event'] is String
+        ? json['event'] as String
+        : (json['type'] as String?);
     final type = RealtimeEventType.fromString(rawEvent);
-    final vehicleId = json['vehicleId'] as String? ?? '';
+    final vehicleId = (json['vehicleId'] ?? json['vehicle_id']) as String? ?? '';
+
+    final eventObj = json['event'] is Map<String, dynamic>
+        ? json['event'] as Map<String, dynamic>
+        : null;
 
     DateTime parsedTime;
-    final rawTimestamp = json['timestamp'] as String?;
+    final rawTimestamp = (json['timestamp'] ??
+            eventObj?['timestamp'] ??
+            json['completed_at'] ??
+            json['requested_at'])
+        as String?;
     if (rawTimestamp != null) {
       parsedTime = DateTime.tryParse(rawTimestamp) ?? DateTime.now();
     } else {
       parsedTime = DateTime.now();
     }
 
-    final rawData = json['data'] is Map<String, dynamic>
-        ? json['data'] as Map<String, dynamic>
-        : null;
+    Map<String, dynamic>? rawData;
+    if (json['data'] is Map<String, dynamic>) {
+      rawData = json['data'] as Map<String, dynamic>;
+    } else if (type == RealtimeEventType.chargingUpdated &&
+        (eventObj != null || json['session'] is Map<String, dynamic>)) {
+      rawData = json;
+    } else if (type == RealtimeEventType.commandUpdated &&
+        (json.containsKey('command_id') || json.containsKey('commandId'))) {
+      rawData = json;
+    }
 
     return RealtimeEvent(
       type: type,

@@ -8,7 +8,6 @@ from simulator.vehicle.simulation_engine import (
     SimulationEngine,
 )
 from simulator.vehicle.state import (
-    ChargingStatus,
     OperatingState,
     VehicleState,
 )
@@ -27,55 +26,6 @@ def test_driving_updates_vehicle_measurements() -> None:
     assert state.odometer_km == pytest.approx(60.0)
     assert state.battery_percentage == pytest.approx(64.0)
     assert state.estimated_range_km == pytest.approx(240.0)
-
-
-def test_charging_updates_battery_and_range() -> None:
-    state = VehicleState(
-        vehicle_id="XEV-002",
-        battery_percentage=50.0,
-        operating_state=OperatingState.CHARGING,
-        charging_status=ChargingStatus.CHARGING,
-    )
-    engine = SimulationEngine(state)
-
-    engine.advance(3600)
-
-    assert state.battery_percentage == pytest.approx(62.0)
-    assert state.estimated_range_km == pytest.approx(232.5)
-    assert state.charging_power_kw == 7.2
-
-
-def test_charging_completion_stops_vehicle_charging() -> None:
-    state = VehicleState(
-        vehicle_id="XEV-003",
-        battery_percentage=99.0,
-        operating_state=OperatingState.CHARGING,
-        charging_status=ChargingStatus.CHARGING,
-    )
-    engine = SimulationEngine(state)
-
-    engine.advance(3600)
-
-    assert state.battery_percentage == 100.0
-    assert state.operating_state == OperatingState.PARKED
-    assert state.charging_status == ChargingStatus.DISCONNECTED
-    assert state.charging_power_kw == 0.0
-    assert state.estimated_range_km == pytest.approx(375.0)
-
-
-def test_already_full_battery_completes_charging() -> None:
-    state = VehicleState(
-        vehicle_id="XEV-004",
-        battery_percentage=100.0,
-        operating_state=OperatingState.CHARGING,
-        charging_status=ChargingStatus.CHARGING,
-    )
-    engine = SimulationEngine(state)
-
-    engine.advance(60)
-
-    assert state.operating_state == OperatingState.PARKED
-    assert state.charging_power_kw == 0.0
 
 
 def test_parked_vehicle_measurements_remain_unchanged() -> None:

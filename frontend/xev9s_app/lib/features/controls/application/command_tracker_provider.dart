@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/error_codes.dart';
 import '../../../core/realtime/realtime_providers.dart';
 import '../../../core/realtime/realtime_service.dart';
 import '../../../core/utils/id_generator.dart';
@@ -26,6 +27,8 @@ class CommandTrackerNotifier extends Notifier<Map<String, CommandSession>> {
   late IdGenerator _idGenerator;
 
   final Map<String, Timer> _trackingTimers = {};
+  final Map<String, Timer> _autoDismissTimers = {};
+  final Map<String, Timer> _postSuccessRefreshTimers = {};
   final Map<String, DateTime> _lastEventTimes = {};
   final Map<String, DateTime> _lastPollTimes = {};
   final Map<String, bool> _isPolling = {};
@@ -85,6 +88,14 @@ class CommandTrackerNotifier extends Notifier<Map<String, CommandSession>> {
       timer.cancel();
     }
     _trackingTimers.clear();
+    for (final timer in _autoDismissTimers.values) {
+      timer.cancel();
+    }
+    _autoDismissTimers.clear();
+    for (final timer in _postSuccessRefreshTimers.values) {
+      timer.cancel();
+    }
+    _postSuccessRefreshTimers.clear();
     _lastEventTimes.clear();
     _lastPollTimes.clear();
     _isPolling.clear();
@@ -93,9 +104,28 @@ class CommandTrackerNotifier extends Notifier<Map<String, CommandSession>> {
   void _disposeTimer(String vehicleId) {
     _trackingTimers[vehicleId]?.cancel();
     _trackingTimers.remove(vehicleId);
+    _autoDismissTimers[vehicleId]?.cancel();
+    _autoDismissTimers.remove(vehicleId);
+    _postSuccessRefreshTimers[vehicleId]?.cancel();
+    _postSuccessRefreshTimers.remove(vehicleId);
     _lastEventTimes.remove(vehicleId);
     _lastPollTimes.remove(vehicleId);
     _isPolling.remove(vehicleId);
+  }
+
+  void _scheduleAutoDismiss(String vehicleId, String commandId) {
+    _autoDismissTimers[vehicleId]?.cancel();
+    _autoDismissTimers[vehicleId] = Timer(const Duration(seconds: 5), () {
+      _autoDismissTimers.remove(vehicleId);
+      final current = state[vehicleId];
+      if (current != null &&
+          current.phase == CommandPhase.finished &&
+          current.command?.commandId == commandId &&
+          current.command?.status == CommandStatus.succeeded &&
+          !current.refreshFailed) {
+        dismiss(vehicleId);
+      }
+    });
   }
 
   /// Submits a new user remote command.
@@ -158,7 +188,11 @@ class CommandTrackerNotifier extends Notifier<Map<String, CommandSession>> {
     final session = state[vehicleId] ?? const CommandSession();
 
     if (e is AppError) {
-      if (e.httpStatus == 409) {
+      final isCommandInProgress = e.code == ApiErrorCode.commandInProgress ||
+          (e.httpStatus == 409 &&
+              e.code != ApiErrorCode.vehicleOffline &&
+              !e.message.toLowerCase().contains('offline'));
+      if (isCommandInProgress) {
         // 409 COMMAND_IN_PROGRESS: phase = idle, error set; resync latest command
         state = {
           ...state,
@@ -332,6 +366,10 @@ class CommandTrackerNotifier extends Notifier<Map<String, CommandSession>> {
         ...state,
         vehicleId: session.copyWith(refreshFailed: hasRefreshError),
       };
+      if (!hasRefreshError &&
+          session.command?.status == CommandStatus.succeeded) {
+        _scheduleAutoDismiss(vehicleId, session.command!.commandId);
+      }
     } catch (_) {
       state = {
         ...state,
@@ -390,7 +428,7 @@ class CommandTrackerNotifier extends Notifier<Map<String, CommandSession>> {
 
     // Polling checks
     final isPollingMode = AppConfig.realtimeMode == RealtimeMode.polling;
-    final connState = ref.read(realtimeConnectionStateProvider).value;
+    final connState = ref.read(realtimeServiceProvider).currentConnectionState;
     final isDisconnected = connState != RealtimeConnectionState.connected;
 
     final lastPoll = _lastPollTimes[vehicleId] ?? now;
@@ -407,9 +445,7 @@ class CommandTrackerNotifier extends Notifier<Map<String, CommandSession>> {
       final silenceElapsed = now.difference(lastEvent).inSeconds;
 
       if (silenceElapsed >= AppConstants.commandSilenceBeforeSafetyPollSeconds) {
-        // Poll every commandPollIntervalSeconds * 2
-        final safetyPollInterval = AppConstants.commandPollIntervalSeconds * 2;
-        if (pollElapsed >= safetyPollInterval) {
+        if (pollElapsed >= AppConstants.commandPollIntervalSeconds) {
           _pollCommand(vehicleId, commandId);
         }
       }
@@ -506,6 +542,17 @@ class CommandTrackerNotifier extends Notifier<Map<String, CommandSession>> {
               refreshFailed: true,
             ),
           };
+        } else {
+          final refreshedStatus = ref.read(vehicleStatusProvider).value;
+          if (refreshedStatus != null &&
+              refreshedStatus.lastUpdatedAt.isBefore(finalCommand.requestedAt)) {
+            _schedulePostSuccessRefresh(
+              vehicleId,
+              finalCommand.commandId,
+              finalCommand.requestedAt,
+            );
+          }
+          _scheduleAutoDismiss(vehicleId, finalCommand.commandId);
         }
       } catch (_) {
         state = {
@@ -531,6 +578,44 @@ class CommandTrackerNotifier extends Notifier<Map<String, CommandSession>> {
     try {
       ref.read(commandHistoryProvider.notifier).refresh();
     } catch (_) {}
+  }
+
+  void _schedulePostSuccessRefresh(
+    String vehicleId,
+    String commandId,
+    DateTime requestedAt, {
+    int attempt = 1,
+  }) {
+    if (attempt > 3) return;
+    _postSuccessRefreshTimers[vehicleId]?.cancel();
+    _postSuccessRefreshTimers[vehicleId] =
+        Timer(const Duration(milliseconds: 1500), () async {
+      _postSuccessRefreshTimers.remove(vehicleId);
+      final currentSession = state[vehicleId];
+      if (currentSession == null ||
+          currentSession.phase != CommandPhase.finished ||
+          currentSession.command?.commandId != commandId) {
+        return;
+      }
+      final currentStatus = ref.read(vehicleStatusProvider).value;
+      if (currentStatus != null &&
+          !currentStatus.lastUpdatedAt.isBefore(requestedAt)) {
+        return;
+      }
+      try {
+        await ref.read(vehicleStatusProvider.notifier).refresh();
+        final updatedStatus = ref.read(vehicleStatusProvider).value;
+        if (updatedStatus != null &&
+            updatedStatus.lastUpdatedAt.isBefore(requestedAt)) {
+          _schedulePostSuccessRefresh(
+            vehicleId,
+            commandId,
+            requestedAt,
+            attempt: attempt + 1,
+          );
+        }
+      } catch (_) {}
+    });
   }
 }
 

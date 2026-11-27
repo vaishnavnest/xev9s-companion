@@ -28,7 +28,7 @@ void main() {
       requestedAt: DateTime.parse('2026-11-24T12:00:00Z'),
     );
 
-    test('submit dispatches POST with Idempotency-Key header and commandType body',
+    test('submit dispatches POST with Idempotency-Key header and operation body',
         () async {
       when(
         () => mockApiClient.post<Command>(
@@ -51,7 +51,7 @@ void main() {
         () => mockApiClient.post<Command>(
           '/vehicles/$vehicleId/commands',
           headers: {'Idempotency-Key': 'test-key-1234'},
-          body: {'commandType': 'LOCK'},
+          body: {'operation': 'lock'},
           parse: any(named: 'parse'),
         ),
       ).called(1);

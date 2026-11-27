@@ -66,8 +66,9 @@ void main() {
 
     expect(adapter.lastRequest?.path, '/vehicles/veh_1/trips');
     expect(adapter.lastRequest?.queryParameters['page'], 2);
+    expect(adapter.lastRequest?.queryParameters['page_size'], 20);
     expect(adapter.lastRequest?.queryParameters['status'], 'completed');
-    expect(adapter.lastRequest?.queryParameters['sort'], '-startedAt');
+    expect(adapter.lastRequest?.queryParameters['sort'], '-started_at');
     expect(result.items.length, 1);
     expect(result.items.first.tripId, 'trp_01');
     expect(result.pagination?.totalItems, 25);

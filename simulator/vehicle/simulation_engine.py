@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import isfinite
+from typing import Any
 
 from simulator.vehicle.state import (
     ChargingStatus,
@@ -42,6 +43,50 @@ class SimulationEngine:
     ) -> None:
         self.state = state
         self.config = config or SimulationConfig()
+        self.target_percentage: float = 100.0
+        self.stop_charging_at_target: bool = True
+        self.schedule_enabled: bool = False
+        self.scheduled_start_time: str | None = None
+        self.scheduled_end_time: str | None = None
+        self.scheduled_days: list[str] = []
+        self.timezone: str = "UTC"
+
+    def update_charging_preferences(self, preferences: dict[str, Any]) -> None:
+        """Apply incoming charging preferences to the simulation engine."""
+        if "target_percentage" in preferences:
+            target = preferences["target_percentage"]
+            if (
+                isinstance(target, bool)
+                or not isinstance(target, (int, float))
+                or not isfinite(target)
+                or not 0 <= target <= 100
+            ):
+                raise ValueError("target_percentage must be between 0 and 100")
+            self.target_percentage = float(target)
+
+        if "stop_charging_at_target" in preferences:
+            self.stop_charging_at_target = bool(
+                preferences["stop_charging_at_target"]
+            )
+
+        if "schedule_enabled" in preferences:
+            self.schedule_enabled = bool(preferences["schedule_enabled"])
+
+        if "scheduled_start_time" in preferences:
+            self.scheduled_start_time = preferences["scheduled_start_time"]
+
+        if "scheduled_end_time" in preferences:
+            self.scheduled_end_time = preferences["scheduled_end_time"]
+
+        if "scheduled_days" in preferences and isinstance(
+            preferences["scheduled_days"], list
+        ):
+            self.scheduled_days = list(preferences["scheduled_days"])
+
+        if "timezone" in preferences and isinstance(
+            preferences["timezone"], str
+        ):
+            self.timezone = preferences["timezone"]
 
     def advance(self, elapsed_seconds: float) -> VehicleState:
         """Advance vehicle measurements by the specified elapsed time."""
@@ -114,7 +159,11 @@ class SimulationEngine:
         self._update_timestamp()
 
     def _advance_charging(self, elapsed_seconds: float) -> None:
-        if self.state.battery_percentage >= 100:
+        effective_target = (
+            self.target_percentage if self.stop_charging_at_target else 100.0
+        )
+
+        if self.state.battery_percentage >= effective_target:
             self._complete_charging()
             return
 
@@ -125,8 +174,8 @@ class SimulationEngine:
             energy_added / self.config.battery_capacity_kwh * 100
         )
 
-        if battery_increase >= 100 - self.state.battery_percentage:
-            self.state.battery_percentage = 100.0
+        if battery_increase >= effective_target - self.state.battery_percentage:
+            self.state.battery_percentage = effective_target
             self._complete_charging()
             return
 
@@ -138,7 +187,6 @@ class SimulationEngine:
     def _complete_charging(self) -> None:
         """Finish charging and return the vehicle to parked state."""
 
-        self.state.battery_percentage = 100.0
         self.state.operating_state = OperatingState.PARKED
         self.state.charging_status = ChargingStatus.DISCONNECTED
         self.state.charging_power_kw = 0.0

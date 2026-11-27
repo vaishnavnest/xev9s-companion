@@ -94,7 +94,8 @@ class VehicleLocation extends Equatable {
       reportedAt = DateTime.tryParse(rawReported);
     }
 
-    final isCurrent = json['isCurrent'] as bool? ?? (json.containsKey('received_at') ? true : false);
+    final isCurrent = (json['isCurrent'] ?? json['is_current']) as bool? ??
+        (json.containsKey('received_at') ? true : false);
 
     return VehicleLocation(
       vehicleId: rawVehicleId.trim(),

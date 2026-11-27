@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/network/api_response.dart';
+import '../../../core/network/error_codes.dart';
 import '../../../core/providers.dart';
 import '../../vehicles/domain/vehicle_status.dart';
 import '../domain/charging_overview.dart';
@@ -43,25 +45,71 @@ class ApiChargingRepository implements ChargingRepository {
   ApiChargingRepository({required this.apiClient});
 
   final ApiClient apiClient;
+  final Map<String, ChargingOverview> _cachedOverviews = {};
 
   @override
   Future<ChargingOverview> getOverview(String vehicleId) async {
-    return apiClient.get<ChargingOverview>(
-      '/vehicles/$vehicleId/charging',
-      parse: (json) {
-        if (json is! Map<String, dynamic>) {
-          throw const FormatException('Expected JSON map for ChargingOverview');
-        }
-        return ChargingOverview.fromJson(json);
-      },
-    );
+    try {
+      final overview = await apiClient.get<ChargingOverview>(
+        '/vehicles/$vehicleId/charging',
+        parse: (json) {
+          if (json == null) {
+            return const ChargingOverview(state: ChargingState.notConnected);
+          }
+          if (json is! Map<String, dynamic>) {
+            throw const FormatException(
+                'Expected JSON map for ChargingOverview');
+          }
+          return ChargingOverview.fromJson(json);
+        },
+      );
+      _cachedOverviews[vehicleId] = overview;
+      return overview;
+    } on AppError catch (e) {
+      if (e.kind == AppErrorKind.malformed && e.message.contains('Null')) {
+        const empty = ChargingOverview(state: ChargingState.notConnected);
+        _cachedOverviews[vehicleId] = empty;
+        return empty;
+      }
+      rethrow;
+    }
+  }
+
+  Map<String, dynamic> _buildPreferencesPayload({
+    required int targetPercent,
+    required ChargingSchedule? schedule,
+    required String timezone,
+    required bool stopChargingAtTarget,
+  }) {
+    final scheduleEnabled = schedule?.enabled ?? false;
+    return {
+      'target_percentage': targetPercent.toDouble(),
+      'schedule_enabled': scheduleEnabled,
+      if (scheduleEnabled && schedule?.startTime != null)
+        'scheduled_start_time': schedule!.startTime!.toApi(),
+      if (scheduleEnabled && schedule?.endTime != null)
+        'scheduled_end_time': schedule!.endTime!.toApi(),
+      'scheduled_days': scheduleEnabled && schedule != null
+          ? schedule.daysOfWeek.map((d) => d.toBackendWeekday()).toList()
+          : <String>[],
+      'timezone': timezone,
+      'stop_charging_at_target': stopChargingAtTarget,
+    };
   }
 
   @override
   Future<ChargingOverview> setTarget(String vehicleId, int targetPercent) async {
-    return apiClient.put<ChargingOverview>(
-      '/vehicles/$vehicleId/charging/target',
-      body: {'targetPercent': targetPercent},
+    final current = _cachedOverviews[vehicleId];
+    final body = _buildPreferencesPayload(
+      targetPercent: targetPercent,
+      schedule: current?.schedule,
+      timezone: current?.timezone ?? 'UTC',
+      stopChargingAtTarget: current?.stopChargingAtTarget ?? true,
+    );
+
+    final updated = await apiClient.put<ChargingOverview>(
+      '/vehicles/$vehicleId/charging/preferences',
+      body: body,
       parse: (json) {
         if (json is! Map<String, dynamic>) {
           throw const FormatException('Expected JSON map for ChargingOverview');
@@ -69,6 +117,8 @@ class ApiChargingRepository implements ChargingRepository {
         return ChargingOverview.fromJson(json);
       },
     );
+    _cachedOverviews[vehicleId] = updated;
+    return updated;
   }
 
   @override
@@ -76,9 +126,17 @@ class ApiChargingRepository implements ChargingRepository {
     String vehicleId,
     ChargingSchedule schedule,
   ) async {
-    return apiClient.put<ChargingOverview>(
-      '/vehicles/$vehicleId/charging/schedule',
-      body: schedule.toJson(),
+    final current = _cachedOverviews[vehicleId];
+    final body = _buildPreferencesPayload(
+      targetPercent: current?.targetPercent ?? 80,
+      schedule: schedule,
+      timezone: current?.timezone ?? 'UTC',
+      stopChargingAtTarget: current?.stopChargingAtTarget ?? true,
+    );
+
+    final updated = await apiClient.put<ChargingOverview>(
+      '/vehicles/$vehicleId/charging/preferences',
+      body: body,
       parse: (json) {
         if (json is! Map<String, dynamic>) {
           throw const FormatException('Expected JSON map for ChargingOverview');
@@ -86,12 +144,23 @@ class ApiChargingRepository implements ChargingRepository {
         return ChargingOverview.fromJson(json);
       },
     );
+    _cachedOverviews[vehicleId] = updated;
+    return updated;
   }
 
   @override
   Future<ChargingOverview> deleteSchedule(String vehicleId) async {
-    return apiClient.delete<ChargingOverview>(
-      '/vehicles/$vehicleId/charging/schedule',
+    final current = _cachedOverviews[vehicleId];
+    final body = _buildPreferencesPayload(
+      targetPercent: current?.targetPercent ?? 80,
+      schedule: const ChargingSchedule(enabled: false),
+      timezone: current?.timezone ?? 'UTC',
+      stopChargingAtTarget: current?.stopChargingAtTarget ?? true,
+    );
+
+    final updated = await apiClient.put<ChargingOverview>(
+      '/vehicles/$vehicleId/charging/preferences',
+      body: body,
       parse: (json) {
         if (json is! Map<String, dynamic>) {
           throw const FormatException('Expected JSON map for ChargingOverview');
@@ -99,6 +168,8 @@ class ApiChargingRepository implements ChargingRepository {
         return ChargingOverview.fromJson(json);
       },
     );
+    _cachedOverviews[vehicleId] = updated;
+    return updated;
   }
 
   @override
@@ -111,21 +182,14 @@ class ApiChargingRepository implements ChargingRepository {
     DateTime? to,
     String? sort,
   }) async {
-    final query = <String, dynamic>{
-      'page': page ?? 1,
-      'pageSize': pageSize ?? AppConstants.sessionsPageSize,
-      'sort': sort ?? '-startedAt',
-    };
+    final limit = (pageSize ?? AppConstants.sessionsPageSize).clamp(1, 100);
+    final currentPage = (page ?? 1) < 1 ? 1 : (page ?? 1);
+    final offset = (currentPage - 1) * limit;
 
-    if (status != null && status != ChargingState.unknown) {
-      query['status'] = status.wireValue;
-    }
-    if (from != null) {
-      query['from'] = from.toUtc().toIso8601String();
-    }
-    if (to != null) {
-      query['to'] = to.toUtc().toIso8601String();
-    }
+    final query = <String, dynamic>{
+      'limit': limit,
+      'offset': offset,
+    };
 
     return apiClient.getPaged<ChargingSession>(
       '/vehicles/$vehicleId/charging/sessions',
@@ -141,14 +205,16 @@ class ApiChargingRepository implements ChargingRepository {
 
   @override
   Future<ChargingSession> getSession(String vehicleId, String sessionId) async {
-    return apiClient.get<ChargingSession>(
-      '/vehicles/$vehicleId/charging/sessions/$sessionId',
-      parse: (json) {
-        if (json is! Map<String, dynamic>) {
-          throw const FormatException('Expected JSON map for ChargingSession');
-        }
-        return ChargingSession.fromJson(json);
-      },
+    final paged = await listSessions(vehicleId, page: 1, pageSize: 100);
+    for (final session in paged.items) {
+      if (session.sessionId == sessionId) {
+        return session;
+      }
+    }
+    throw const AppError(
+      code: ApiErrorCode.notFound,
+      message: 'Charging session not found',
+      httpStatus: 404,
     );
   }
 }

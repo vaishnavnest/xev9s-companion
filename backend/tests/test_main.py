@@ -45,7 +45,6 @@ def test_database_health_check_failure():
     assert exc_info.value.detail == "Database connection unavailable"
 
 
-
 @pytest.mark.anyio
 async def test_lifespan_lifecycle():
     fake_app = MagicMock()
@@ -75,7 +74,6 @@ async def test_lifespan_lifecycle():
         mock_close.assert_called_once()
 
 
-
 def test_routes_registered_and_openapi():
     schema = app.openapi()
     assert "paths" in schema
@@ -94,6 +92,10 @@ def test_ensure_database_indexes():
         "user_vehicles": MagicMock(),
         "vehicle_telemetry": MagicMock(),
         "commands": MagicMock(),
+        "charging_preferences": MagicMock(),
+        "charging_sessions": MagicMock(),
+        "charging_events": MagicMock(),
+        "trips": MagicMock(),
     }
 
     ensure_database_indexes(mock_db)

@@ -7,6 +7,10 @@ from collections.abc import Callable
 from typing import Any
 
 import paho.mqtt.client as mqtt
+from backend.app.communication.mqtt_charging_handler import (
+    CHARGING_EVENTS_TOPIC,
+    MQTTChargingHandler,
+)
 from backend.app.communication.mqtt_command_handler import MQTTCommandHandler
 from backend.app.core.exceptions import MQTTUnavailableError, VehicleNotActiveError
 from backend.app.schemas.telemetry import TelemetryPayload
@@ -17,23 +21,24 @@ from pydantic import ValidationError
 load_dotenv()
 
 logger = logging.getLogger(__name__)
-
 TELEMETRY_TOPIC = "xev9s/vehicles/+/telemetry"
 TOPIC_PATTERN = re.compile(r"^xev9s/vehicles/([A-Za-z0-9_-]+)/telemetry$")
 
 
 class MQTTSubscriber:
-    """Receive telemetry and remote command responses."""
+    """Receive telemetry, charging events, and command responses."""
 
     def __init__(
         self,
         telemetry_service: TelemetryService,
         on_connect_callback: Callable[[], None] | None = None,
         on_telemetry: Callable[[dict[str, Any]], None] | None = None,
+        charging_handler: MQTTChargingHandler | None = None,
     ) -> None:
         self.telemetry_service = telemetry_service
         self.on_connect_callback = on_connect_callback
         self.on_telemetry = on_telemetry
+        self.charging_handler = charging_handler
         self.command_handler: MQTTCommandHandler | None = None
         self.host = os.getenv("MQTT_BROKER_HOST", "127.0.0.1")
         self.port = int(os.getenv("MQTT_BROKER_PORT", "1884"))
@@ -69,18 +74,19 @@ class MQTTSubscriber:
         reason_code: mqtt.ReasonCode,
         properties: mqtt.Properties | None,
     ) -> None:
-        """Subscribe to telemetry and command responses."""
+        """Subscribe to telemetry and charging topics."""
         self._connected = False
         if reason_code.is_failure:
             logger.error("MQTT connection rejected: %s", reason_code)
             return
 
-        result, _ = client.subscribe(TELEMETRY_TOPIC, qos=0)
-        if result != mqtt.MQTT_ERR_SUCCESS:
-            logger.error("Failed to subscribe to %s", TELEMETRY_TOPIC)
-            return
+        for topic in (TELEMETRY_TOPIC, CHARGING_EVENTS_TOPIC):
+            result, _ = client.subscribe(topic, qos=0)
+            if result != mqtt.MQTT_ERR_SUCCESS:
+                logger.error("Failed to subscribe to %s", topic)
+                return
+            logger.info("Subscribed to %s", topic)
 
-        logger.info("Subscribed to %s", TELEMETRY_TOPIC)
         if self.command_handler is not None:
             try:
                 self.command_handler.subscribe_responses()
@@ -113,14 +119,22 @@ class MQTTSubscriber:
         userdata: object,
         message: mqtt.MQTTMessage,
     ) -> None:
-        """Route incoming telemetry and command responses."""
+        """Route messages to their respective handlers."""
         if message.topic.endswith("/responses"):
             if self.command_handler is not None:
                 self.command_handler.handle_response(
                     message.topic, message.payload
                 )
-            return
+        elif message.topic.endswith("/charging/events"):
+            if self.charging_handler is not None:
+                self.charging_handler.handle_message(
+                    message.topic, message.payload
+                )
+        else:
+            self._handle_telemetry(message)
 
+    def _handle_telemetry(self, message: mqtt.MQTTMessage) -> None:
+        """Validate and persist vehicle telemetry."""
         match = TOPIC_PATTERN.fullmatch(message.topic)
         if match is None:
             logger.warning("Ignoring invalid telemetry topic: %s", message.topic)
@@ -128,13 +142,11 @@ class MQTTSubscriber:
 
         vehicle_id = match.group(1)
         try:
-            payload = json.loads(message.payload)
-            telemetry = TelemetryPayload.model_validate(payload)
+            telemetry = TelemetryPayload.model_validate(
+                json.loads(message.payload)
+            )
             if telemetry.vehicle_id != vehicle_id:
-                logger.warning(
-                    "Telemetry vehicle ID does not match topic: %s",
-                    message.topic,
-                )
+                logger.warning("Telemetry vehicle ID does not match topic")
                 return
 
             saved = self.telemetry_service.ingest_telemetry(telemetry)
@@ -143,7 +155,6 @@ class MQTTSubscriber:
                     self.on_telemetry(saved)
                 except Exception:
                     logger.exception("Failed to notify WebSocket clients")
-
         except (json.JSONDecodeError, ValidationError, UnicodeDecodeError):
             logger.warning(
                 "Rejected invalid telemetry message on %s",

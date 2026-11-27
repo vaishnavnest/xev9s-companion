@@ -17,29 +17,29 @@
 /// flutter run -d <device-id> --dart-define=API_BASE_URL=http://192.168.x.x:4010
 /// ```
 ///
-/// The mock server (Prism) serves all paths from the root, so the base URL
-/// does NOT include `/api/v1`. When pointing at the real backend, include
-/// the full path prefix:
+/// The mock server (Prism) and the FastAPI backend both serve routes from the
+/// root (without `/api/v1`). For the local FastAPI backend:
 /// ```
-/// --dart-define=API_BASE_URL=http://localhost:8080/api/v1
+/// --dart-define=API_BASE_URL=http://localhost:8000
+/// --dart-define=WS_BASE_URL=ws://localhost:8000
 /// ```
 class AppConfig {
   AppConfig._();
 
   /// Base URL for REST API calls.
   /// Injected at compile time via `--dart-define=API_BASE_URL=...`.
-  /// Default points to the local Prism mock server.
+  /// Default points to the local FastAPI backend server.
   static const apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://localhost:4010',
+    defaultValue: 'http://localhost:8000',
   );
 
   /// Base URL for WebSocket connections.
   /// Injected at compile time via `--dart-define=WS_BASE_URL=...`.
-  /// Default points to the local mock WebSocket server on port 4011.
+  /// Default points to the local FastAPI WebSocket server on port 8000.
   static const wsBaseUrl = String.fromEnvironment(
     'WS_BASE_URL',
-    defaultValue: 'ws://localhost:4011',
+    defaultValue: 'ws://localhost:8000',
   );
 
   /// Raw realtime communication mode: 'ws' (WebSocket) or 'polling'.

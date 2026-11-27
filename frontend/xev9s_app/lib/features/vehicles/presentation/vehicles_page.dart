@@ -32,6 +32,15 @@ class VehiclesPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen<String?>(selectedVehicleProvider, (previous, next) {
+      if ((previous == null || previous.isEmpty) &&
+          next != null &&
+          next.isNotEmpty &&
+          context.mounted) {
+        context.go('/home');
+      }
+    });
+
     final vehiclesAsync = ref.watch(vehiclesControllerProvider);
     final selectedId = ref.watch(selectedVehicleProvider);
     final isWide = MediaQuery.of(context).size.width >= 720;

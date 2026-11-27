@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
+import '../core/realtime/realtime_providers.dart';
 import '../core/theme/theme_provider.dart';
 import 'widgets/xev_app_bar.dart';
 
@@ -114,6 +115,7 @@ class AppShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(realtimeCoordinatorProvider);
     final currentIndex = navigationShell.currentIndex;
     final currentTitle = _getScreenTitle(currentIndex);
 

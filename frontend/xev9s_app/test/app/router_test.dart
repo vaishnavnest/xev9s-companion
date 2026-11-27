@@ -3,8 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:xev9s_app/app/router.dart';
 import 'package:xev9s_app/core/network/api_exception.dart';
+import 'package:xev9s_app/core/theme/app_theme.dart';
+import 'package:xev9s_app/core/theme/theme_provider.dart';
 import 'package:xev9s_app/features/auth/application/auth_controller.dart';
 import 'package:xev9s_app/features/auth/domain/user_summary.dart';
+import 'package:xev9s_app/features/auth/presentation/help_support_page.dart';
+import 'package:xev9s_app/features/auth/presentation/legal_document_page.dart';
 import 'package:xev9s_app/features/auth/presentation/login_page.dart';
 import 'package:xev9s_app/features/auth/presentation/register_page.dart';
 import 'package:xev9s_app/features/auth/presentation/splash_page.dart';
@@ -85,6 +89,117 @@ void main() {
 
       expect(router.state.matchedLocation, equals('/register'));
       expect(find.byType(RegisterPage), findsOneWidget);
+    });
+
+    testWidgets('unauthenticated state allows /help, /terms, and /privacy via UI navigation', (tester) async {
+      final router = createAppRouter(
+        getAuthState: () => const AuthUnauthenticated(),
+        getSelectedVehicleId: () => null,
+        initialLocation: '/login',
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap help icon on LoginPage -> routes to /help
+      await tester.tap(find.byIcon(Icons.help_outline_rounded));
+      await tester.pumpAndSettle();
+
+      expect(router.state.matchedLocation, equals('/help'));
+      expect(find.byType(HelpSupportPage), findsOneWidget);
+
+      // Navigate to /register and tap Terms of Service -> routes to /terms
+      router.go('/register');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Terms of Service'));
+      await tester.pumpAndSettle();
+
+      expect(router.state.matchedLocation, equals('/terms'));
+      expect(find.byType(TermsOfServicePage), findsOneWidget);
+
+      // Pop back to /register and tap Privacy Policy -> routes to /privacy
+      router.pop();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Privacy Policy'));
+      await tester.pumpAndSettle();
+
+      expect(router.state.matchedLocation, equals('/privacy'));
+      expect(find.byType(PrivacyPolicyPage), findsOneWidget);
+    });
+
+    testWidgets('help and legal pages adapt automatically to app light and dark themes', (tester) async {
+      final router = createAppRouter(
+        getAuthState: () => const AuthUnauthenticated(),
+        getSelectedVehicleId: () => null,
+        initialLocation: '/help',
+      );
+
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: Consumer(
+            builder: (context, ref, _) {
+              final themeMode = ref.watch(themeModeProvider);
+              return MaterialApp.router(
+                theme: AppTheme.lightTheme,
+                darkTheme: AppTheme.darkTheme,
+                themeMode: themeMode,
+                routerConfig: router,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HelpSupportPage), findsOneWidget);
+      expect(find.byIcon(Icons.nightlight_round), findsNothing);
+      expect(find.byIcon(Icons.wb_sunny_rounded), findsNothing);
+      expect(
+        Theme.of(tester.element(find.byType(HelpSupportPage))).brightness,
+        Brightness.light,
+      );
+
+      await container.read(themeModeProvider.notifier).setThemeMode(ThemeMode.dark);
+      await tester.pumpAndSettle();
+
+      expect(
+        Theme.of(tester.element(find.byType(HelpSupportPage))).brightness,
+        Brightness.dark,
+      );
+
+      router.go('/terms');
+      await tester.pumpAndSettle();
+      expect(find.byType(TermsOfServicePage), findsOneWidget);
+      expect(
+        Theme.of(tester.element(find.byType(TermsOfServicePage))).brightness,
+        Brightness.dark,
+      );
+
+      router.go('/login');
+      await tester.pumpAndSettle();
+      expect(find.byType(LoginPage), findsOneWidget);
+      expect(
+        Theme.of(tester.element(find.byType(LoginPage))).brightness,
+        Brightness.dark,
+      );
+
+      router.go('/register');
+      await tester.pumpAndSettle();
+      expect(find.byType(RegisterPage), findsOneWidget);
+      expect(
+        Theme.of(tester.element(find.byType(RegisterPage))).brightness,
+        Brightness.dark,
+      );
     });
 
     testWidgets('authenticated with selected vehicle routes to /home from auth route', (tester) async {

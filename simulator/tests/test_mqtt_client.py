@@ -22,6 +22,8 @@ def test_client_creates_vehicle_specific_topics():
     assert client.command_topic == "xev9s/vehicles/XEV-123/commands"
     assert client.response_topic == "xev9s/vehicles/XEV-123/responses"
     assert client.telemetry_topic == "xev9s/vehicles/XEV-123/telemetry"
+    assert client.charging_events_topic == "xev9s/vehicles/XEV-123/charging/events"
+    assert client.charging_preferences_topic == "xev9s/vehicles/XEV-123/charging/preferences"
 
 
 @pytest.mark.parametrize(

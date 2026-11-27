@@ -151,10 +151,34 @@ class _ActiveCommandCardState extends State<ActiveCommandCard> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              typeLabel,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      typeLabel,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'Status: ${status.label}',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onPrimaryContainer,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             Text(
@@ -168,6 +192,14 @@ class _ActiveCommandCardState extends State<ActiveCommandCard> {
         ),
         const SizedBox(height: 16),
         _buildStepProgressBar(theme, currentStep),
+        const SizedBox(height: 12),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: (currentStep + 1) / 4,
+            minHeight: 3,
+          ),
+        ),
         const SizedBox(height: 16),
         if (widget.session.stoppedWaiting) ...[
           Container(
@@ -233,37 +265,79 @@ class _ActiveCommandCardState extends State<ActiveCommandCard> {
     );
   }
 
-  Widget _buildStepProgressBar(ThemeData theme, int currentStep) {
+  Widget _buildStepProgressBar(
+    ThemeData theme,
+    int currentStep, {
+    bool isFinal = false,
+    bool isError = false,
+  }) {
     const steps = ['Submitted', 'Accepted', 'Executing', 'Result'];
+    final activeColor =
+        isError ? theme.colorScheme.error : theme.colorScheme.primary;
+    final onActiveColor =
+        isError ? theme.colorScheme.onError : theme.colorScheme.onPrimary;
 
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (var i = 0; i < steps.length; i++) ...[
+        for (var i = 0; i < steps.length; i++)
           Expanded(
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                CircleAvatar(
-                  radius: 12,
-                  backgroundColor: i <= currentStep
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.surfaceContainerHighest,
-                  child: i < currentStep
-                      ? Icon(Icons.check,
-                          size: 14, color: theme.colorScheme.onPrimary)
-                      : Text(
-                          '${i + 1}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: i == currentStep
-                                ? theme.colorScheme.onPrimary
-                                : theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: i == 0
+                          ? const SizedBox.shrink()
+                          : Container(
+                              height: 2,
+                              color: i <= currentStep
+                                  ? activeColor
+                                  : theme.colorScheme.outlineVariant,
+                            ),
+                    ),
+                    CircleAvatar(
+                      radius: 12,
+                      backgroundColor: i <= currentStep
+                          ? activeColor
+                          : theme.colorScheme.surfaceContainerHighest,
+                      child: (i < currentStep || (isFinal && i == currentStep))
+                          ? Icon(
+                              isError && i == currentStep
+                                  ? Icons.close
+                                  : Icons.check,
+                              size: 14,
+                              color: onActiveColor,
+                            )
+                          : Text(
+                              '${i + 1}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: i == currentStep
+                                    ? onActiveColor
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                    ),
+                    Expanded(
+                      child: i == steps.length - 1
+                          ? const SizedBox.shrink()
+                          : Container(
+                              height: 2,
+                              color: i < currentStep
+                                  ? activeColor
+                                  : theme.colorScheme.outlineVariant,
+                            ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 Text(
                   steps[i],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: i == currentStep
@@ -278,17 +352,6 @@ class _ActiveCommandCardState extends State<ActiveCommandCard> {
               ],
             ),
           ),
-          if (i < steps.length - 1)
-            Expanded(
-              child: Container(
-                height: 2,
-                color: i < currentStep
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.outlineVariant,
-                margin: const EdgeInsets.only(bottom: 16),
-              ),
-            ),
-        ],
       ],
     );
   }
@@ -352,6 +415,8 @@ class _ActiveCommandCardState extends State<ActiveCommandCard> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildStepProgressBar(theme, 3, isFinal: true),
+          const SizedBox(height: 16),
           Row(
             children: [
               Icon(Icons.check_circle,
@@ -417,6 +482,8 @@ class _ActiveCommandCardState extends State<ActiveCommandCard> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildStepProgressBar(theme, 3, isFinal: true, isError: true),
+          const SizedBox(height: 16),
           Row(
             children: [
               Icon(Icons.timer_off_outlined,
@@ -467,6 +534,8 @@ class _ActiveCommandCardState extends State<ActiveCommandCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _buildStepProgressBar(theme, 3, isFinal: true, isError: true),
+        const SizedBox(height: 16),
         Row(
           children: [
             Icon(Icons.error_outline,
