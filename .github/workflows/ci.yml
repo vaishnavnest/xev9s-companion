@@ -296,11 +296,16 @@ jobs:
         if: steps.filter.outputs.simulator == 'true'
         working-directory: simulator
         env:
-          PYTHONPATH: ${{ github.workspace }}/simulator
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           pytest tests \
-            --cov=. \
-            --cov-omit="tests/*" \
+            --cov=communication \
+            --cov=scenarios \
+            --cov=telemetry \
+            --cov=vehicle \
+            --cov=main \
+            --cov=mqtt_main \
+            --cov=mqtt_cli \
             --cov-report=term-missing \
             --cov-report=html:htmlcov \
             --cov-report=json:coverage.json \
