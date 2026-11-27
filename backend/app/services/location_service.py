@@ -65,8 +65,10 @@ class LocationService:
         # 1. Evaluate connectivity from the most recent telemetry record
         latest_telemetry = self.telemetry_repository.get_latest_telemetry(normalized_id)
         connectivity_status: Literal["online", "offline"] = "offline"
+        operating_state = None
 
         if latest_telemetry is not None:
+            operating_state = latest_telemetry.get("operating_state")
             tel_timestamp = self._normalize_datetime(latest_telemetry.get("timestamp"))
             if tel_timestamp is not None:
                 now = datetime.now(UTC)
@@ -85,6 +87,7 @@ class LocationService:
                 timestamp=None,
                 is_current=False,
                 connectivity_status=connectivity_status,
+                operating_state=operating_state,
             )
 
         latitude = latest_loc.get("latitude")
@@ -108,4 +111,5 @@ class LocationService:
             timestamp=loc_timestamp,
             is_current=is_current,
             connectivity_status=connectivity_status,
+            operating_state=operating_state,
         )

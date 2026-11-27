@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
+import pytest
 from backend.app.core.exceptions import TripAlreadyActiveError
 from backend.app.schemas.telemetry import TelemetryPayload
 from backend.app.services.trip_lifecycle import TripLifecycleManager
@@ -158,8 +159,41 @@ def test_parked_telemetry_when_already_parked_is_noop():
     repo.complete_trip.assert_not_called()
 
 
-def test_charging_telemetry_is_ignored():
+def test_charging_telemetry_without_active_trip_is_noop():
     repo = MagicMock()
+    repo.get_active_trip.return_value = None
     manager = TripLifecycleManager(repo)
     tel = make_telemetry(operating_state="charging")
     assert manager.process_telemetry(tel) is None
+    repo.complete_trip.assert_not_called()
+
+
+@pytest.mark.parametrize("end_state", ["charging", "interrupted"])
+def test_complete_trip_on_non_driving_transition(end_state):
+    start_time = datetime.now(UTC) - timedelta(minutes=15)
+    repo = MagicMock()
+    repo.get_active_trip.return_value = {
+        "trip_id": "trp_2",
+        "status": "ongoing",
+        "started_at": start_time,
+        "start_odometer_km": 200.0,
+        "battery": {"start_percent": 80.0, "end_percent": None},
+    }
+    repo.complete_trip.return_value = {
+        "trip_id": "trp_2",
+        "vehicle_id": "XEV-001",
+        "status": "completed",
+    }
+
+    manager = TripLifecycleManager(repo)
+    tel = make_telemetry(
+        operating_state=end_state,
+        charging_status="charging" if end_state == "charging" else "interrupted",
+        speed_kph=0.0,
+        odometer_km=210.0,
+        battery_percentage=76.0,
+    )
+    result = manager.process_telemetry(tel)
+
+    assert result["status"] == "completed"
+    repo.complete_trip.assert_called_once()

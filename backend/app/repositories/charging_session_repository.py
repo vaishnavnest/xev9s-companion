@@ -6,10 +6,26 @@ from backend.app.models.charging_session import (
 )
 from backend.app.schemas.charging_event import ChargingEvent
 from backend.app.schemas.charging_session import ChargingSessionStatus
-from pymongo import DESCENDING, ReturnDocument
+from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.client_session import ClientSession
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
+
+CHARGING_SESSION_SORT_FIELD_MAP = {
+    "startedAt": "started_at",
+    "endedAt": "ended_at",
+    "durationSeconds": "duration_seconds",
+    "chargingPowerKw": "charging_power_kw",
+}
+
+ALLOWED_CHARGING_SESSION_SORT_FIELDS = frozenset({
+    "started_at",
+    "ended_at",
+    "duration_seconds",
+    "charging_power_kw",
+    "starting_battery_percentage",
+    "ending_battery_percentage",
+})
 
 
 class ChargingSessionRepository:
@@ -95,17 +111,42 @@ class ChargingSessionRepository:
         vehicle_id: str,
         limit: int = 20,
         offset: int = 0,
-    ) -> list[dict]:
-        """Retrieve paginated charging history for a vehicle."""
+        status: ChargingSessionStatus | str | None = None,
+        from_time: datetime | None = None,
+        to_time: datetime | None = None,
+        sort: str = "-started_at",
+    ) -> tuple[list[dict], int]:
+        """Retrieve filtered, paginated charging history for a vehicle."""
 
+        query: dict = {"vehicle_id": vehicle_id}
+        if status is not None:
+            query["status"] = (
+                status.value if isinstance(status, ChargingSessionStatus) else status
+            )
+
+        time_filter: dict = {}
+        if from_time is not None:
+            time_filter["$gte"] = from_time
+        if to_time is not None:
+            time_filter["$lte"] = to_time
+        if time_filter:
+            query["started_at"] = time_filter
+
+        sort_direction = DESCENDING if sort.startswith("-") else ASCENDING
+        raw_field = sort.lstrip("+-")
+        sort_field = CHARGING_SESSION_SORT_FIELD_MAP.get(raw_field, raw_field)
+        if sort_field not in ALLOWED_CHARGING_SESSION_SORT_FIELDS:
+            sort_field = "started_at"
+
+        total_items = self.collection.count_documents(query)
         cursor = (
             self.collection.find(
-                {"vehicle_id": vehicle_id},
+                query,
                 {"_id": 0},
             )
-            .sort("started_at", DESCENDING)
+            .sort(sort_field, sort_direction)
             .skip(offset)
             .limit(limit)
         )
 
-        return list(cursor)
+        return list(cursor), total_items

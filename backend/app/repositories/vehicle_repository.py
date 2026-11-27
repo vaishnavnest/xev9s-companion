@@ -9,7 +9,10 @@ from backend.app.models.vehicle import (
     create_user_vehicle_document,
     create_vehicle_document,
 )
-from bson import ObjectId
+from backend.app.repositories.vehicle_repository_helpers import (
+    build_user_vehicle_summaries,
+    validate_user_object_id,
+)
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
@@ -74,10 +77,7 @@ class VehicleRepository:
     ) -> None:
         """Consume a pairing code and create an association atomically."""
 
-        if not ObjectId.is_valid(user_id):
-            raise ValueError("Invalid user identifier")
-
-        user_object_id = ObjectId(user_id)
+        user_object_id = validate_user_object_id(user_id)
 
         existing_association = self.associations.find_one(
             {
@@ -141,12 +141,11 @@ class VehicleRepository:
         ) -> bool:
         """Check whether a vehicle has an active association with a user."""
 
-        if not ObjectId.is_valid(user_id):
-            raise ValueError("Invalid user identifier")
+        user_object_id = validate_user_object_id(user_id)
 
         association = self.associations.find_one(
             {
-                "user_id": ObjectId(user_id),
+                "user_id": user_object_id,
                 "vehicle_id": vehicle_id,
                 "association_status": "active",
             },
@@ -159,10 +158,7 @@ class VehicleRepository:
     def get_user_vehicles(self, user_id: str) -> list[dict]:
         """Retrieve vehicles associated with a specific user."""
 
-        if not ObjectId.is_valid(user_id):
-            raise ValueError("Invalid user identifier")
-
-        user_object_id = ObjectId(user_id)
+        user_object_id = validate_user_object_id(user_id)
 
         associations = list(
             self.associations.find(
@@ -188,13 +184,4 @@ class VehicleRepository:
             )
         }
 
-        return [
-            {
-                "vehicle_id": association["vehicle_id"],
-                "model": vehicles[association["vehicle_id"]]["model"],
-                "association_status": association["association_status"],
-                "associated_at": association["associated_at"],
-            }
-            for association in associations
-            if association["vehicle_id"] in vehicles
-        ]
+        return build_user_vehicle_summaries(associations, vehicles)

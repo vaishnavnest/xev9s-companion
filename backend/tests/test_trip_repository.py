@@ -133,3 +133,29 @@ def test_list_trips_default_sort_field():
     repo = TripRepository(collection)
     repo.list_trips(vehicle_id="XEV-001", sort="+")
     cursor.sort.assert_called_once_with([("started_at", 1)])
+
+
+@pytest.mark.parametrize(
+    ("sort_arg", "expected_field", "expected_dir"),
+    [
+        ("-startedAt", "started_at", -1),
+        ("endedAt", "ended_at", 1),
+        ("-distanceKm", "distance_km", -1),
+        ("durationSeconds", "duration_seconds", 1),
+        ("-unknownField", "started_at", -1),
+    ],
+)
+def test_list_trips_normalizes_and_validates_sort_keys(
+    sort_arg, expected_field, expected_dir
+):
+    collection = MagicMock()
+    cursor = MagicMock()
+    cursor.sort.return_value = cursor
+    cursor.skip.return_value = cursor
+    cursor.limit.return_value = []
+    collection.find.return_value = cursor
+    collection.count_documents.return_value = 0
+
+    repo = TripRepository(collection)
+    repo.list_trips(vehicle_id="XEV-001", sort=sort_arg)
+    cursor.sort.assert_called_once_with([(expected_field, expected_dir)])

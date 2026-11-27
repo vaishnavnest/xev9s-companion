@@ -2,6 +2,7 @@
 from datetime import datetime
 from enum import Enum
 
+from backend.app.schemas.trip import Pagination
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -69,3 +70,4 @@ class ChargingSessionHistoryResponse(BaseModel):
 
     sessions: list[ChargingSessionResponse]
     count: int
+    pagination: Pagination | None = None

@@ -3,6 +3,7 @@ from datetime import time
 from enum import Enum
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from backend.app.schemas.charging_session import ChargingSessionResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
@@ -89,3 +90,4 @@ class ChargingPreferencesResponse(BaseModel):
     scheduled_days: list[Weekday]
     timezone: str
     stop_charging_at_target: bool
+    active_session: ChargingSessionResponse | None = None

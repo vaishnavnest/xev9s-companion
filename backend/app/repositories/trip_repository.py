@@ -8,6 +8,21 @@ from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
+TRIP_SORT_FIELD_MAP = {
+    "startedAt": "started_at",
+    "endedAt": "ended_at",
+    "distanceKm": "distance_km",
+    "durationSeconds": "duration_seconds",
+}
+
+ALLOWED_TRIP_SORT_FIELDS = frozenset({
+    "started_at",
+    "ended_at",
+    "distance_km",
+    "duration_seconds",
+    "energy_consumed_kwh",
+})
+
 
 class TripRepository:
     """Handles MongoDB persistence operations for vehicle trips."""
@@ -107,8 +122,9 @@ class TripRepository:
             query["started_at"] = time_filter
 
         sort_direction = DESCENDING if sort.startswith("-") else ASCENDING
-        sort_field = sort.lstrip("+-")
-        if not sort_field:
+        raw_field = sort.lstrip("+-")
+        sort_field = TRIP_SORT_FIELD_MAP.get(raw_field, raw_field)
+        if sort_field not in ALLOWED_TRIP_SORT_FIELDS:
             sort_field = "started_at"
 
         total_items = self.collection.count_documents(query)
