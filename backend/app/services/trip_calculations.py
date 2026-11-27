@@ -1,6 +1,13 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from backend.app.core.trip_config import DEFAULT_BATTERY_CAPACITY_KWH
+
+
+def normalize_utc_datetime(value: datetime) -> datetime:
+    """Normalize a datetime to UTC, interpreting naive datetimes as UTC."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def calculate_distance(start_odometer: float, end_odometer: float) -> float:
@@ -15,12 +22,14 @@ def calculate_distance(start_odometer: float, end_odometer: float) -> float:
 
 def calculate_duration(started_at: datetime, ended_at: datetime) -> int:
     """Calculate trip duration in integer seconds."""
-    if ended_at < started_at:
+    normalized_start = normalize_utc_datetime(started_at)
+    normalized_end = normalize_utc_datetime(ended_at)
+    if normalized_end < normalized_start:
         raise ValueError(
-            f"Invalid trip timing: ending timestamp ({ended_at}) "
-            f"cannot precede starting timestamp ({started_at})"
+            f"Invalid trip timing: ending timestamp ({normalized_end}) "
+            f"cannot precede starting timestamp ({normalized_start})"
         )
-    return int((ended_at - started_at).total_seconds())
+    return int((normalized_end - normalized_start).total_seconds())
 
 
 def calculate_average_speed(distance_km: float, duration_seconds: int) -> float:

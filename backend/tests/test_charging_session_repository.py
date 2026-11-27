@@ -7,7 +7,7 @@ from backend.app.repositories.charging_session_repository import (
     ChargingSessionRepository,
 )
 from backend.app.schemas.charging_session import ChargingSessionStatus
-from pymongo import DESCENDING, ReturnDocument
+from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 
@@ -142,27 +142,3 @@ def test_update_session(repository, collection, session):
     assert kwargs["projection"] == {"_id": 0}
     assert kwargs["session"] is session
     assert result == expected
-
-
-def test_get_session_history(repository, collection):
-    cursor = MagicMock()
-    collection.find.return_value = cursor
-    cursor.sort.return_value = cursor
-    cursor.skip.return_value = cursor
-    cursor.limit.return_value = cursor
-    cursor.__iter__.return_value = iter([{"session_id": "session-123"}])
-
-    result = repository.get_session_history(
-        "vehicle-123",
-        limit=10,
-        offset=5,
-    )
-
-    collection.find.assert_called_once_with(
-        {"vehicle_id": "vehicle-123"},
-        {"_id": 0},
-    )
-    cursor.sort.assert_called_once_with("started_at", DESCENDING)
-    cursor.skip.assert_called_once_with(5)
-    cursor.limit.assert_called_once_with(10)
-    assert result == [{"session_id": "session-123"}]

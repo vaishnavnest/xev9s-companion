@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
+from backend.app.schemas.telemetry import OperatingState
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -15,3 +16,4 @@ class VehicleLocationResponse(BaseModel):
     timestamp: datetime | None = None
     is_current: bool
     connectivity_status: Literal["online", "offline"]
+    operating_state: OperatingState | None = None

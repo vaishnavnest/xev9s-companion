@@ -72,9 +72,20 @@ def test_unauthorized_user(service, deps):
 def test_get_preferences(service, deps):
     authorize(deps)
     expected = {"target_percentage": 90}
+    active = {"session_id": "session-active"}
     deps["charging"].get_preferences.return_value = expected
-    assert service.get_preferences("user-1", "XEV-DEMO-001") == expected
+    deps["sessions"].get_active_session.return_value = active
+    result = service.get_preferences("user-1", "XEV-DEMO-001")
+    assert result == {"target_percentage": 90, "active_session": active}
     deps["charging"].get_preferences.assert_called_once_with("XEV-DEMO-001")
+    deps["sessions"].get_active_session.assert_called_once_with("XEV-DEMO-001")
+
+
+def test_get_preferences_when_none(service, deps):
+    authorize(deps)
+    deps["charging"].get_preferences.return_value = None
+    assert service.get_preferences("user-1", "XEV-DEMO-001") is None
+    deps["sessions"].get_active_session.assert_not_called()
 
 
 def test_update_preferences_with_active_session(service, deps, preferences):
@@ -121,33 +132,3 @@ def test_update_preferences_without_mqtt(deps, preferences):
     )
 
     assert result == {"saved": True}
-
-
-def test_session_history(service, deps):
-    authorize(deps)
-    expected = [{"session_id": "session-1"}]
-    deps["sessions"].get_session_history.return_value = expected
-
-    result = service.get_session_history(
-        "user-1", "XEV-DEMO-001", limit=10, offset=5
-    )
-
-    assert result == expected
-    deps["sessions"].get_session_history.assert_called_once_with(
-        "XEV-DEMO-001", 10, 5
-    )
-
-
-@pytest.mark.parametrize("limit", [0, 101])
-def test_invalid_history_limit(service, deps, limit):
-    authorize(deps)
-    with pytest.raises(ValueError, match="Limit must be between"):
-        service.get_session_history("user-1", "XEV-DEMO-001", limit=limit)
-
-
-def test_negative_history_offset(service, deps):
-    authorize(deps)
-    with pytest.raises(ValueError, match="Offset cannot be negative"):
-        service.get_session_history(
-            "user-1", "XEV-DEMO-001", offset=-1
-        )

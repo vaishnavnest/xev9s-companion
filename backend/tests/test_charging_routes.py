@@ -108,46 +108,36 @@ def test_update_preferences_mqtt_unavailable(api, preferences):
     assert response.status_code == 503
 
 
-def test_get_charging_session_history(api):
+def test_get_charging_preferences_with_active_session(api, preferences):
     client, service, _app = api
     timestamp = datetime.now(UTC)
-
-    service.get_session_history.return_value = [
-        {
-            "session_id": "session-001",
+    service.get_preferences.return_value = {
+        **preferences,
+        "active_session": {
+            "session_id": "session-active",
             "vehicle_id": "XEV-DEMO-001",
             "started_at": timestamp,
             "ended_at": None,
-            "starting_battery_percentage": 30.0,
-            "ending_battery_percentage": None,
+            "starting_battery_percentage": 40.0,
+            "ending_battery_percentage": 55.0,
             "target_percentage": 90.0,
             "final_target_percentage": 90.0,
             "charging_power_kw": 7.2,
-            "average_charging_power_kw": 7.0,
+            "average_charging_power_kw": 7.2,
             "peak_charging_power_kw": 7.2,
-            "duration_seconds": 120.0,
+            "duration_seconds": 300.0,
             "status": "active",
             "interruption_reason": None,
-        }
-    ]
+        },
+    }
 
-    response = client.get("/vehicles/XEV-DEMO-001/charging/sessions")
+    response = client.get("/vehicles/XEV-DEMO-001/charging")
 
     assert response.status_code == 200
-    assert response.json()["count"] == 1
-    assert response.json()["sessions"][0]["session_id"] == "session-001"
-
-
-def test_invalid_session_pagination(api):
-    client, service, _app = api
-
-    response = client.get(
-        "/vehicles/XEV-DEMO-001/charging/sessions",
-        params={"limit": 101},
-    )
-
-    assert response.status_code == 422
-    service.get_session_history.assert_not_called()
+    data = response.json()
+    assert data["active_session"]["session_id"] == "session-active"
+    assert data["active_session"]["status"] == "active"
+    assert data["active_session"]["ending_battery_percentage"] == 55.0
 
 
 def test_unauthenticated_charging_request(api):

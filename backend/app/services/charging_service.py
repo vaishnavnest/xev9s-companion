@@ -1,8 +1,11 @@
 
+from datetime import datetime
+
 from backend.app.communication.mqtt_charging_publisher import (
     MQTTChargingPublisher,
 )
 from backend.app.core.exceptions import (
+    ChargingSessionNotFoundError,
     VehicleAccessDeniedError,
     VehicleNotActiveError,
 )
@@ -15,6 +18,7 @@ from backend.app.repositories.charging_session_repository import (
 )
 from backend.app.repositories.vehicle_repository import VehicleRepository
 from backend.app.schemas.charging import ChargingPreferencesUpdate
+from backend.app.schemas.charging_session import ChargingSessionStatus
 
 
 class ChargingService:
@@ -120,12 +124,20 @@ class ChargingService:
         user_id: str,
         vehicle_id: str,
     ) -> dict | None:
-        """Retrieve preferences after checking vehicle ownership."""
+        """Retrieve preferences and active session after checking ownership."""
 
         normalized_id = self._validate_vehicle(vehicle_id)
         self._validate_ownership(user_id, normalized_id)
 
-        return self.charging_repository.get_preferences(normalized_id)
+        preferences = self.charging_repository.get_preferences(normalized_id)
+        if preferences is None:
+            return None
+
+        active_session = self.session_repository.get_active_session(normalized_id)
+        return {
+            **preferences,
+            "active_session": active_session,
+        }
 
     def get_session_history(
         self,
@@ -133,8 +145,12 @@ class ChargingService:
         vehicle_id: str,
         limit: int = 20,
         offset: int = 0,
-    ) -> list[dict]:
-        """Retrieve charging history after checking ownership."""
+        status: ChargingSessionStatus | None = None,
+        from_time: datetime | None = None,
+        to_time: datetime | None = None,
+        sort: str = "-started_at",
+    ) -> tuple[list[dict], int]:
+        """Retrieve filtered charging history after checking ownership."""
 
         normalized_id = self._validate_vehicle(vehicle_id)
         self._validate_ownership(user_id, normalized_id)
@@ -145,8 +161,38 @@ class ChargingService:
         if offset < 0:
             raise ValueError("Offset cannot be negative")
 
+        if from_time is not None and to_time is not None and from_time > to_time:
+            raise ValueError("Start filter timestamp cannot be after end timestamp")
+
         return self.session_repository.get_session_history(
             normalized_id,
             limit,
             offset,
+            status=status,
+            from_time=from_time,
+            to_time=to_time,
+            sort=sort,
         )
+
+    def get_session_detail(
+        self,
+        user_id: str,
+        vehicle_id: str,
+        session_id: str,
+    ) -> dict:
+        """Retrieve a single charging session after checking ownership."""
+
+        normalized_id = self._validate_vehicle(vehicle_id)
+        self._validate_ownership(user_id, normalized_id)
+
+        normalized_session_id = session_id.strip()
+        if not normalized_session_id:
+            raise ValueError("Session identifier cannot be empty")
+
+        session = self.session_repository.get_session(normalized_session_id)
+        if session is None or session.get("vehicle_id") != normalized_id:
+            raise ChargingSessionNotFoundError(
+                f"Charging session {normalized_session_id} not found for vehicle {normalized_id}"
+            )
+
+        return session

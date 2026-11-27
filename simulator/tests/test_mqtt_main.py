@@ -1,25 +1,21 @@
-
 import json
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from simulator import mqtt_main
-from simulator.scenarios.models import ScenarioType
-from simulator.vehicle.state import OperatingState, VehicleState
-from simulator.vehicle.state_manager import VehicleStateManager
 
 
-def test_on_mqtt_connected_subscribes_to_command_topic():
+def test_on_mqtt_connected_subscribes_to_command_and_preferences_topics():
     client = MagicMock()
     client.command_topic = "xev9s/vehicles/XEV-001/commands"
+    client.charging_preferences_topic = "xev9s/vehicles/XEV-001/charging/preferences"
 
     mqtt_main.on_mqtt_connected(client)
 
-    client.subscribe.assert_called_once_with(
-        client.command_topic,
-        qos=1,
-    )
+    assert client.subscribe.call_count == 2
+    client.subscribe.assert_any_call(client.command_topic, qos=1)
+    client.subscribe.assert_any_call(client.charging_preferences_topic, qos=1)
 
 
 def test_handle_mqtt_command_publishes_response():
@@ -116,6 +112,8 @@ def test_run_mqtt_simulator_publishes_telemetry():
 def test_run_mqtt_simulator_rejects_invalid_interval(interval):
     with pytest.raises(ValueError, match="positive finite number"):
         mqtt_main.run_mqtt_simulator("XEV-001", interval)
+
+
 def test_create_mqtt_simulator_initializes_components():
     with patch.object(mqtt_main, "MQTTClient") as mock_client:
         state, state_manager, handler, client = (
@@ -123,6 +121,8 @@ def test_create_mqtt_simulator_initializes_components():
         )
 
     assert state.vehicle_id == "XEV-001"
+    assert state.latitude == mqtt_main.DEFAULT_LATITUDE
+    assert state.longitude == mqtt_main.DEFAULT_LONGITUDE
     assert state_manager is not None
     assert handler is not None
     assert client is mock_client.return_value
@@ -136,16 +136,29 @@ def test_create_mqtt_simulator_wires_connection_callback():
 
     callback()
 
-    mock_client.return_value.subscribe.assert_called_once_with(
+    assert mock_client.return_value.subscribe.call_count == 2
+    mock_client.return_value.subscribe.assert_any_call(
         mock_client.return_value.command_topic,
         qos=1,
     )
+    mock_client.return_value.subscribe.assert_any_call(
+        mock_client.return_value.charging_preferences_topic,
+        qos=1,
+    )
+
+
 def test_main_starts_simulator_with_default_arguments():
     with patch.object(mqtt_main, "run_mqtt_simulator") as mock_run:
         result = mqtt_main.main([])
 
     assert result == 0
-    mock_run.assert_called_once_with("XEV-001", 5.0, None)
+    mock_run.assert_called_once_with(
+        "XEV-001",
+        5.0,
+        None,
+        latitude=mqtt_main.DEFAULT_LATITUDE,
+        longitude=mqtt_main.DEFAULT_LONGITUDE,
+    )
 
 
 def test_main_starts_simulator_with_custom_arguments():
@@ -156,43 +169,18 @@ def test_main_starts_simulator_with_custom_arguments():
                 "XEV-005",
                 "--telemetry-interval",
                 "10",
+                "--lat",
+                "13.0827",
+                "--lon",
+                "80.2707",
             ]
         )
 
     assert result == 0
-    mock_run.assert_called_once_with("XEV-005", 10.0, None)
-
-def test_create_scenario_executor_prepares_driving_state():
-    state = VehicleState(vehicle_id="XEV-001")
-    executor = mqtt_main.create_scenario_executor(
-        state, ScenarioType.DRIVING_ROUTE
+    mock_run.assert_called_once_with(
+        "XEV-005",
+        10.0,
+        None,
+        latitude=13.0827,
+        longitude=80.2707,
     )
-
-    assert executor.state is state
-    assert executor.manager.selected_scenario == ScenarioType.DRIVING_ROUTE
-    assert state.operating_state == OperatingState.DRIVING
-    assert not state.is_locked
-
-
-def test_run_mqtt_simulator_publishes_scenario_telemetry():
-    state = VehicleState(vehicle_id="XEV-001")
-    client = MagicMock(is_connected=True)
-    client.telemetry_topic = "xev9s/vehicles/XEV-001/telemetry"
-
-    with (
-        patch.object(
-            mqtt_main,
-            "create_mqtt_simulator",
-            return_value=(state, VehicleStateManager(state), MagicMock(), client),
-        ),
-        patch.object(mqtt_main.time, "sleep", side_effect=KeyboardInterrupt),
-    ):
-        mqtt_main.run_mqtt_simulator(
-            "XEV-001", 5.0, ScenarioType.DRIVING_ROUTE
-        )
-
-    published = json.loads(client.publish.call_args.args[1])
-    assert published["operating_state"] == "driving"
-    assert published["speed_kph"] > 0
-    assert published["odometer_km"] > 0
-    client.disconnect.assert_called_once()

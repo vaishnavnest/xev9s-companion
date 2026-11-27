@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from backend.app.services.trip_calculations import (
@@ -6,6 +6,7 @@ from backend.app.services.trip_calculations import (
     calculate_distance,
     calculate_duration,
     calculate_energy_consumed,
+    normalize_utc_datetime,
 )
 
 
@@ -60,3 +61,53 @@ def test_calculate_energy_consumed_no_drop_or_regen():
 def test_calculate_energy_consumed_invalid_capacity():
     with pytest.raises(ValueError, match="Battery capacity must be positive"):
         calculate_energy_consumed(80.0, 70.0, battery_capacity_kwh=-10.0)
+
+
+def test_normalize_utc_datetime_naive_and_aware():
+    naive = datetime(2026, 11, 26, 10, 0, 0)
+    assert normalize_utc_datetime(naive) == datetime(2026, 11, 26, 10, 0, 0, tzinfo=UTC)
+
+    ist = timezone(timedelta(hours=5, minutes=30))
+    aware_ist = datetime(2026, 11, 26, 15, 30, 0, tzinfo=ist)
+    assert normalize_utc_datetime(aware_ist) == datetime(
+        2026, 11, 26, 10, 0, 0, tzinfo=UTC
+    )
+
+
+def test_calculate_duration_naive_start_aware_end():
+    start = datetime(2026, 11, 26, 10, 0, 0)
+    end = datetime(2026, 11, 26, 10, 30, 0, tzinfo=UTC)
+    assert calculate_duration(start, end) == 1800
+
+
+def test_calculate_duration_aware_start_naive_end():
+    start = datetime(2026, 11, 26, 10, 0, 0, tzinfo=UTC)
+    end = datetime(2026, 11, 26, 10, 45, 0)
+    assert calculate_duration(start, end) == 2700
+
+
+def test_calculate_duration_both_naive():
+    start = datetime(2026, 11, 26, 10, 0, 0)
+    end = datetime(2026, 11, 26, 10, 15, 0)
+    assert calculate_duration(start, end) == 900
+
+
+def test_calculate_duration_different_utc_offsets():
+    ist = timezone(timedelta(hours=5, minutes=30))
+    est = timezone(timedelta(hours=-5))
+
+    # Same instant: 10:00 UTC == 15:30 IST == 05:00 EST
+    start_same = datetime(2026, 11, 26, 15, 30, 0, tzinfo=ist)
+    end_same = datetime(2026, 11, 26, 5, 0, 0, tzinfo=est)
+    assert calculate_duration(start_same, end_same) == 0
+
+    # Different instants: 10:00 UTC to 10:20 UTC
+    end_later = datetime(2026, 11, 26, 5, 20, 0, tzinfo=est)
+    assert calculate_duration(start_same, end_later) == 1200
+
+
+def test_calculate_duration_mixed_timezone_reversed_raises():
+    start = datetime(2026, 11, 26, 10, 30, 0)
+    end = datetime(2026, 11, 26, 10, 0, 0, tzinfo=UTC)
+    with pytest.raises(ValueError, match="Invalid trip timing"):
+        calculate_duration(start, end)

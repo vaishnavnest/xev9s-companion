@@ -41,7 +41,7 @@ class TripLifecycleManager:
         if state == TRIP_START_STATE:
             return self._handle_driving_telemetry(telemetry)
 
-        if state == TRIP_END_STATE:
+        if state in {TRIP_END_STATE, "charging", "interrupted"}:
             return self._handle_parked_telemetry(telemetry)
 
         return None

@@ -41,6 +41,7 @@ def test_get_location_success(api):
         timestamp=timestamp,
         is_current=True,
         connectivity_status="online",
+        operating_state="parked",
     )
 
     response = client.get("/vehicles/XEV-DEMO-001/location")
@@ -52,6 +53,7 @@ def test_get_location_success(api):
     assert data["longitude"] == 77.5946
     assert data["is_current"] is True
     assert data["connectivity_status"] == "online"
+    assert data["operating_state"] == "parked"
 
 
 def test_get_location_no_gps_history_200(api):
