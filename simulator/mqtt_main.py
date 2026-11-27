@@ -85,7 +85,13 @@ def create_scenario_executor(
     manager = ScenarioManager(state)
 
     config = ScenarioConfig()
-    if scenario in (
+
+    if scenario == ScenarioType.CHARGING_TO_TARGET:
+        config = ScenarioConfig(
+            initial_battery_percentage=50.0,
+            charging_target_percentage=90.0,
+        )
+    elif scenario in (
         ScenarioType.DRIVING_ROUTE,
         ScenarioType.COMPLETED_JOURNEY,
     ):
