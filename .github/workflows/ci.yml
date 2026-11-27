@@ -265,7 +265,7 @@ jobs:
         if: steps.filter.outputs.simulator == 'true'
         run: |
           python -m pip install -r simulator/requirements.txt
-          python -m pip install pytest==9.2.0 pytest-cov==7.1.0 ruff==0.17.6
+          python -m pip install python-dotenv pydantic pytest==9.2.0 pytest-cov==7.1.0 ruff==0.17.6
 
       - name: Enforce 200-Line Limit
         if: steps.filter.outputs.simulator == 'true'
