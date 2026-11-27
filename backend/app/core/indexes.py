@@ -1,3 +1,4 @@
+from backend.app.schemas.charging_session import ChargingSessionStatus
 from pymongo import ASCENDING, DESCENDING
 
 
@@ -82,11 +83,22 @@ def ensure_database_indexes(database) -> None:
     )
 
     database["charging_sessions"].create_index(
-        [
-            ("vehicle_id", ASCENDING),
-            ("started_at", DESCENDING),
-        ],
+        [("vehicle_id", ASCENDING), ("started_at", DESCENDING)],
         name="idx_charging_sessions_vehicle_history",
+    )
+
+    database["charging_sessions"].create_index(
+        [("vehicle_id", ASCENDING)],
+        unique=True,
+        partialFilterExpression={
+            "status": {
+                "$in": [
+                    ChargingSessionStatus.ACTIVE.value,
+                    ChargingSessionStatus.PAUSED.value,
+                ]
+            }
+        },
+        name="uq_charging_sessions_active_vehicle",
     )
 
     database["charging_events"].create_index(

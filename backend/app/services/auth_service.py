@@ -1,6 +1,7 @@
 import os
 from datetime import UTC, datetime
 
+from backend.app.core import security
 from backend.app.core.security import (
     create_access_token,
     generate_refresh_token,
@@ -136,7 +137,7 @@ class AuthService:
             "access_token": create_access_token(str(user["_id"])),
             "refresh_token": refresh_token,
             "token_type": "bearer",
-            "expires_in": 15 * 60,
+            "expires_in": security.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         }
 
     @staticmethod

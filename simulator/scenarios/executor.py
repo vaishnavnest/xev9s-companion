@@ -1,4 +1,3 @@
-
 from datetime import UTC, datetime
 from math import isfinite
 
@@ -82,7 +81,8 @@ class ScenarioExecutor:
             raise ValueError("Select a scenario before starting")
 
         if (
-            scenario in (
+            scenario
+            in (
                 ScenarioType.DRIVING_ROUTE,
                 ScenarioType.COMPLETED_JOURNEY,
             )
@@ -113,14 +113,11 @@ class ScenarioExecutor:
             ScenarioType.REMOTE_OP_SUCCESS,
             ScenarioType.REMOTE_OP_FAILURE,
         ):
-            self._run_remote_operation(
-                scenario == ScenarioType.REMOTE_OP_SUCCESS
-            )
+            self._run_remote_operation(scenario == ScenarioType.REMOTE_OP_SUCCESS)
 
         elif (
             scenario == ScenarioType.CHARGING_TO_TARGET
-            and self.state.battery_percentage
-            >= config.charging_target_percentage
+            and self.state.battery_percentage >= self.handlers.get_charging_target()
         ):
             self.handlers.complete_charging()
 
@@ -161,9 +158,7 @@ class ScenarioExecutor:
 
         if operation is None:
             operation = (
-                RemoteOperation.UNLOCK
-                if should_succeed
-                else RemoteOperation.LOCK
+                RemoteOperation.UNLOCK if should_succeed else RemoteOperation.LOCK
             )
 
         event_type, details = execute_remote_operation(

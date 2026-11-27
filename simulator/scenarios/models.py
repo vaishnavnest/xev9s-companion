@@ -1,4 +1,3 @@
-
 from dataclasses import dataclass
 from enum import Enum
 from math import isfinite
@@ -26,6 +25,7 @@ class ScenarioStatus(str, Enum):
     STOPPED = "stopped"
     COMPLETED = "completed"
 
+
 class RemoteOperation(str, Enum):
     """Supported remote vehicle operations."""
 
@@ -33,6 +33,7 @@ class RemoteOperation(str, Enum):
     UNLOCK = "UNLOCK"
     START_CABIN_PRECONDITIONING = "START_CABIN_PRECONDITIONING"
     STOP_CABIN_PRECONDITIONING = "STOP_CABIN_PRECONDITIONING"
+
 
 @dataclass(frozen=True, slots=True)
 class ScenarioConfig:
@@ -45,6 +46,7 @@ class ScenarioConfig:
     remote_operation: RemoteOperation | None = None
     offline_duration_seconds: int | None = None
     route: tuple[tuple[float, float], ...] = ()
+    loop_route: bool = False
 
     def __post_init__(self) -> None:
         """Validate scenario configuration values."""
@@ -59,27 +61,22 @@ class ScenarioConfig:
             if not isfinite(value) or not 0 <= value <= 100:
                 raise ValueError(f"{name} must be between 0 and 100")
 
-        if (
-            self.initial_lock_state is not None
-            and not isinstance(self.initial_lock_state, bool)
+        if self.initial_lock_state is not None and not isinstance(
+            self.initial_lock_state, bool
         ):
             raise TypeError("initial_lock_state must be a boolean or None")
 
-        if (
-            self.remote_operation is not None
-            and not isinstance(self.remote_operation, RemoteOperation)
+        if self.remote_operation is not None and not isinstance(
+            self.remote_operation, RemoteOperation
         ):
-            raise TypeError(
-                "remote_operation must be a RemoteOperation or None"
-            )
+            raise TypeError("remote_operation must be a RemoteOperation or None")
 
         duration = self.offline_duration_seconds
-        if duration is not None and (
-            not isfinite(duration) or duration <= 0
-        ):
-            raise ValueError(
-                "offline_duration_seconds must be finite and positive"
-            )
+        if duration is not None and (not isfinite(duration) or duration <= 0):
+            raise ValueError("offline_duration_seconds must be finite and positive")
+
+        if not isinstance(self.loop_route, bool):
+            raise TypeError("loop_route must be a boolean")
 
         if self.route and len(self.route) < 2:
             raise ValueError("A route must contain at least two coordinates")

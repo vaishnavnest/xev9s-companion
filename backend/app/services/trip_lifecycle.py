@@ -16,6 +16,7 @@ from backend.app.services.trip_calculations import (
     calculate_distance,
     calculate_duration,
     calculate_energy_consumed,
+    normalize_utc_datetime,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,13 +106,39 @@ class TripLifecycleManager:
         start_battery = active_trip["battery"]["start_percent"]
 
         # Ensure timezone compatibility for calculation
-        ended_at = telemetry.timestamp
+        ended_at = normalize_utc_datetime(telemetry.timestamp)
         if isinstance(started_at, str):
             started_at = datetime.fromisoformat(started_at)
+        started_at = normalize_utc_datetime(started_at)
 
-        distance = calculate_distance(start_odo, telemetry.odometer_km)
+        if ended_at < started_at:
+            logger.warning(
+                "Ignoring out-of-order %s telemetry for active trip %s "
+                "(ended_at=%s < started_at=%s)",
+                telemetry.operating_state,
+                trip_id,
+                ended_at.isoformat(),
+                started_at.isoformat(),
+            )
+            return None
+
         duration = calculate_duration(started_at, ended_at)
-        avg_speed = calculate_average_speed(distance, duration)
+        try:
+            distance: float | None = calculate_distance(
+                start_odo, telemetry.odometer_km
+            )
+            avg_speed: float | None = calculate_average_speed(distance, duration)
+        except ValueError:
+            logger.warning(
+                "Odometer reset or invalid distance for trip %s "
+                "(start=%s, end=%s); finalizing trip without distance",
+                trip_id,
+                start_odo,
+                telemetry.odometer_km,
+            )
+            distance = None
+            avg_speed = None
+
         energy_kwh, is_estimated = calculate_energy_consumed(
             start_battery=start_battery,
             end_battery=telemetry.battery_percentage,

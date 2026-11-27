@@ -1,4 +1,3 @@
-
 from datetime import UTC, datetime
 
 from backend.app.models.charging_session import (
@@ -18,14 +17,29 @@ CHARGING_SESSION_SORT_FIELD_MAP = {
     "chargingPowerKw": "charging_power_kw",
 }
 
-ALLOWED_CHARGING_SESSION_SORT_FIELDS = frozenset({
-    "started_at",
-    "ended_at",
-    "duration_seconds",
-    "charging_power_kw",
-    "starting_battery_percentage",
-    "ending_battery_percentage",
-})
+ALLOWED_CHARGING_SESSION_SORT_FIELDS = frozenset(
+    {
+        "started_at",
+        "ended_at",
+        "duration_seconds",
+        "charging_power_kw",
+        "starting_battery_percentage",
+        "ending_battery_percentage",
+    }
+)
+
+
+def _normalize_session_timestamps(document: dict | None) -> dict | None:
+    """Normalize naive UTC datetimes in stored charging session documents."""
+    if document is None:
+        return None
+    for field in ("started_at", "ended_at", "created_at", "updated_at"):
+        value = document.get(field)
+        if isinstance(value, datetime) and (
+            value.tzinfo is None or value.utcoffset() is None
+        ):
+            document[field] = value.replace(tzinfo=UTC)
+    return document
 
 
 class ChargingSessionRepository:
@@ -50,19 +64,18 @@ class ChargingSessionRepository:
         try:
             self.collection.insert_one(document, session=session)
         except DuplicateKeyError as exc:
-            raise ValueError(
-                "Charging session already exists"
-            ) from exc
+            raise ValueError("Charging session already exists") from exc
 
         return document
 
     def get_session(self, session_id: str) -> dict | None:
         """Retrieve a charging session by its identifier."""
 
-        return self.collection.find_one(
+        doc = self.collection.find_one(
             {"session_id": session_id},
             {"_id": 0},
         )
+        return _normalize_session_timestamps(doc)
 
     def get_active_session(
         self,
@@ -71,7 +84,7 @@ class ChargingSessionRepository:
     ) -> dict | None:
         """Retrieve the active or paused session for a vehicle."""
 
-        return self.collection.find_one(
+        doc = self.collection.find_one(
             {
                 "vehicle_id": vehicle_id,
                 "status": {
@@ -84,6 +97,7 @@ class ChargingSessionRepository:
             {"_id": 0},
             session=session,
         )
+        return _normalize_session_timestamps(doc)
 
     def update_session(
         self,
@@ -98,13 +112,14 @@ class ChargingSessionRepository:
             "updated_at": datetime.now(UTC),
         }
 
-        return self.collection.find_one_and_update(
+        doc = self.collection.find_one_and_update(
             {"session_id": session_id},
             {"$set": update_fields},
             return_document=ReturnDocument.AFTER,
             projection={"_id": 0},
             session=session,
         )
+        return _normalize_session_timestamps(doc)
 
     def get_session_history(
         self,
@@ -149,4 +164,5 @@ class ChargingSessionRepository:
             .limit(limit)
         )
 
-        return list(cursor), total_items
+        sessions = [_normalize_session_timestamps(doc) for doc in cursor]
+        return [doc for doc in sessions if doc is not None], total_items

@@ -1,4 +1,3 @@
-
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import isfinite
@@ -28,9 +27,7 @@ class SimulationConfig:
             self.charging_power_kw,
         )
         if any(not isfinite(value) or value <= 0 for value in values):
-            raise ValueError(
-                "Simulation parameters must be finite and positive"
-            )
+            raise ValueError("Simulation parameters must be finite and positive")
 
 
 class SimulationEngine:
@@ -45,6 +42,7 @@ class SimulationEngine:
         self.config = config or SimulationConfig()
         self.target_percentage: float = 100.0
         self.stop_charging_at_target: bool = True
+        self._target_preference_set: bool = False
         self.schedule_enabled: bool = False
         self.scheduled_start_time: str | None = None
         self.scheduled_end_time: str | None = None
@@ -63,11 +61,11 @@ class SimulationEngine:
             ):
                 raise ValueError("target_percentage must be between 0 and 100")
             self.target_percentage = float(target)
+            self._target_preference_set = True
 
         if "stop_charging_at_target" in preferences:
-            self.stop_charging_at_target = bool(
-                preferences["stop_charging_at_target"]
-            )
+            self.stop_charging_at_target = bool(preferences["stop_charging_at_target"])
+            self._target_preference_set = True
 
         if "schedule_enabled" in preferences:
             self.schedule_enabled = bool(preferences["schedule_enabled"])
@@ -83,18 +81,14 @@ class SimulationEngine:
         ):
             self.scheduled_days = list(preferences["scheduled_days"])
 
-        if "timezone" in preferences and isinstance(
-            preferences["timezone"], str
-        ):
+        if "timezone" in preferences and isinstance(preferences["timezone"], str):
             self.timezone = preferences["timezone"]
 
     def advance(self, elapsed_seconds: float) -> VehicleState:
         """Advance vehicle measurements by the specified elapsed time."""
 
         if not isfinite(elapsed_seconds) or elapsed_seconds <= 0:
-            raise ValueError(
-                "elapsed_seconds must be finite and positive"
-            )
+            raise ValueError("elapsed_seconds must be finite and positive")
 
         if self.state.operating_state == OperatingState.DRIVING:
             self._advance_driving(elapsed_seconds)
@@ -122,35 +116,21 @@ class SimulationEngine:
         )
 
     def _advance_driving(self, elapsed_seconds: float) -> None:
-        distance = (
-            self.config.driving_speed_kph * elapsed_seconds / 3600
-        )
-        energy_required = (
-            distance
-            * self.config.energy_consumption_kwh_per_100km
-            / 100
-        )
+        distance = self.config.driving_speed_kph * elapsed_seconds / 3600
+        energy_required = distance * self.config.energy_consumption_kwh_per_100km / 100
         available_energy = (
-            self.state.battery_percentage
-            * self.config.battery_capacity_kwh
-            / 100
+            self.state.battery_percentage * self.config.battery_capacity_kwh / 100
         )
 
         if energy_required >= available_energy:
             distance = (
-                available_energy
-                * 100
-                / self.config.energy_consumption_kwh_per_100km
+                available_energy * 100 / self.config.energy_consumption_kwh_per_100km
             )
             self.state.battery_percentage = 0.0
             self.state.operating_state = OperatingState.PARKED
             self.state.speed_kph = 0.0
         else:
-            battery_drop = (
-                energy_required
-                / self.config.battery_capacity_kwh
-                * 100
-            )
+            battery_drop = energy_required / self.config.battery_capacity_kwh * 100
             self.state.battery_percentage -= battery_drop
             self.state.speed_kph = self.config.driving_speed_kph
 
@@ -167,12 +147,8 @@ class SimulationEngine:
             self._complete_charging()
             return
 
-        energy_added = (
-            self.config.charging_power_kw * elapsed_seconds / 3600
-        )
-        battery_increase = (
-            energy_added / self.config.battery_capacity_kwh * 100
-        )
+        energy_added = self.config.charging_power_kw * elapsed_seconds / 3600
+        battery_increase = energy_added / self.config.battery_capacity_kwh * 100
 
         if battery_increase >= effective_target - self.state.battery_percentage:
             self.state.battery_percentage = effective_target

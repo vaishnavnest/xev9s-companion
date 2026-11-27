@@ -5,6 +5,13 @@ from contextlib import asynccontextmanager
 from backend.app.communication.mqtt_command_handler import MQTTCommandHandler
 from backend.app.communication.mqtt_subscriber import MQTTSubscriber
 from backend.app.communication.websocket_manager import WebSocketManager
+from backend.app.communication.websocket_notifications import (
+    _log_broadcast_error as _log_ws_broadcast_error,
+)
+from backend.app.communication.websocket_notifications import (
+    create_command_notification_callback,
+    create_telemetry_notification_callback,
+)
 from backend.app.core.database import close_database_connection, connect_to_database
 from backend.app.core.indexes import ensure_database_indexes
 from backend.app.repositories.command_repository import CommandRepository
@@ -18,7 +25,6 @@ from backend.app.routes.telemetry import router as telemetry_router
 from backend.app.routes.trips import router as trips_router
 from backend.app.routes.vehicles import router as vehicles_router
 from backend.app.routes.websocket import router as websocket_router
-from backend.app.schemas.telemetry import TelemetryResponse
 from backend.app.services.charging_runtime import (
     create_charging_notification_callback,
     create_charging_runtime,
@@ -26,6 +32,7 @@ from backend.app.services.charging_runtime import (
 from backend.app.services.command_response_service import CommandResponseService
 from backend.app.services.command_service import CommandService
 from backend.app.services.command_timeout_manager import CommandTimeoutManager
+from backend.app.services.geocoding_service import GeocodingService
 from backend.app.services.location_service import LocationService
 from backend.app.services.telemetry_service import TelemetryService
 from backend.app.services.trip_runtime import (
@@ -43,6 +50,7 @@ async def lifespan(app: FastAPI):
     app.state.database = connect_to_database()
     mqtt_subscriber = None
     timeout_manager = None
+    geocoding_service = None
     websocket_manager = WebSocketManager()
     event_loop = asyncio.get_running_loop()
     app.state.websocket_manager = websocket_manager
@@ -63,41 +71,21 @@ async def lifespan(app: FastAPI):
         telemetry_service = TelemetryService(
             telemetry_repository, vehicle_repository, trip_service=trip_service
         )
-        timeout_manager = CommandTimeoutManager(command_repository)
-
-        def notify_websocket_command_clients(command: dict) -> None:
-            message = {
-                **command,
-                "requested_at": command["requested_at"].isoformat(),
-                "completed_at": command["completed_at"].isoformat(),
-            }
-            future = asyncio.run_coroutine_threadsafe(
-                websocket_manager.broadcast(command["vehicle_id"], message),
-                event_loop,
-            )
-            future.add_done_callback(
-                lambda res: _log_broadcast_error(
-                    res, "WebSocket command broadcast failed"
-                )
-            )
+        notify_websocket_command_clients = create_command_notification_callback(
+            websocket_manager, event_loop
+        )
+        timeout_manager = CommandTimeoutManager(
+            command_repository,
+            on_command_timed_out=notify_websocket_command_clients,
+        )
 
         command_response_service = CommandResponseService(
             command_repository, timeout_manager, notify_websocket_command_clients
         )
 
-        def notify_websocket_clients(telemetry: dict) -> None:
-            message = TelemetryResponse.model_validate(telemetry).model_dump(
-                mode="json"
-            )
-            future = asyncio.run_coroutine_threadsafe(
-                websocket_manager.broadcast(message["vehicle_id"], message),
-                event_loop,
-            )
-            future.add_done_callback(
-                lambda res: _log_broadcast_error(
-                    res, "WebSocket telemetry broadcast failed"
-                )
-            )
+        notify_websocket_clients = create_telemetry_notification_callback(
+            websocket_manager, event_loop
+        )
 
         charging_callback = create_charging_notification_callback(
             websocket_manager, event_loop
@@ -123,7 +111,12 @@ async def lifespan(app: FastAPI):
             command_handler.publish_command,
             timeout_manager,
         )
-        location_service = LocationService(vehicle_repository, telemetry_repository)
+        geocoding_service = GeocodingService()
+        location_service = LocationService(
+            vehicle_repository,
+            telemetry_repository,
+            geocoding_service=geocoding_service,
+        )
 
         app.state.telemetry_service = telemetry_service
         app.state.command_repository = command_repository
@@ -144,15 +137,14 @@ async def lifespan(app: FastAPI):
             mqtt_subscriber.stop()
         if timeout_manager is not None:
             timeout_manager.stop_all()
+        if geocoding_service is not None:
+            geocoding_service.shutdown(wait=True)
         await websocket_manager.disconnect_all()
         close_database_connection()
 
 
 def _log_broadcast_error(result, message: str) -> None:
-    try:
-        result.result()
-    except Exception:
-        logger.exception(message)
+    _log_ws_broadcast_error(result, message)
 
 
 app = FastAPI(

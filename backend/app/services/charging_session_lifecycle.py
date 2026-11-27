@@ -1,3 +1,4 @@
+from math import isfinite
 
 from backend.app.core.exceptions import (
     ChargingSessionAlreadyActiveError,
@@ -17,6 +18,7 @@ from backend.app.schemas.charging_session import ChargingSessionStatus
 from backend.app.services.charging_session_transitions import (
     ChargingSessionTransitions,
 )
+from backend.app.services.trip_calculations import normalize_utc_datetime
 
 
 class ChargingSessionLifecycle:
@@ -49,11 +51,24 @@ class ChargingSessionLifecycle:
             event.target_percentage or 100.0,
         )
 
-        self.session_repository.create_session(
-            event,
-            document["target_percentage"],
-            session=session,
-        )
+        try:
+            self.session_repository.create_session(
+                event,
+                document["target_percentage"],
+                session=session,
+            )
+        except ValueError as exc:
+            if (
+                self.session_repository.get_active_session(
+                    event.vehicle_id,
+                    session=session,
+                )
+                is not None
+            ):
+                raise ChargingSessionAlreadyActiveError(
+                    "Vehicle already has an active charging session"
+                ) from exc
+            raise
 
         return {
             "session_id": event.session_id,
@@ -71,9 +86,11 @@ class ChargingSessionLifecycle:
         if (
             event.battery_percentage is None
             or event.charging_power_kw is None
+            or not isfinite(event.charging_power_kw)
+            or event.charging_power_kw < 0
         ):
             raise InvalidChargingTransitionError(
-                "Charging progress requires battery and power values"
+                "Charging progress requires valid battery and power values"
             )
 
         self.transitions.require_status(
@@ -81,20 +98,30 @@ class ChargingSessionLifecycle:
             ChargingSessionStatus.ACTIVE,
         )
 
-        if event.timestamp < active_session["started_at"]:
+        started_at = normalize_utc_datetime(active_session["started_at"])
+        event_timestamp = normalize_utc_datetime(event.timestamp)
+
+        if event_timestamp < started_at:
             raise InvalidChargingTransitionError(
                 "Event timestamp cannot precede session start"
             )
 
-        sample_count = active_session.get("power_sample_count", 1)
-        previous_average = active_session.get(
-            "average_charging_power_kw",
-            active_session.get("charging_power_kw", 0.0),
+        previous_average = active_session.get("average_charging_power_kw")
+        if previous_average is None:
+            sample_count = 0
+            previous_average = 0.0
+        else:
+            sample_count = active_session.get("power_sample_count", 1)
+
+        average = (previous_average * sample_count + event.charging_power_kw) / (
+            sample_count + 1
         )
 
-        average = (
-            previous_average * sample_count + event.charging_power_kw
-        ) / (sample_count + 1)
+        previous_peak = active_session.get("peak_charging_power_kw")
+        peak_power = max(
+            previous_peak if previous_peak is not None else 0.0,
+            event.charging_power_kw,
+        )
 
         self.session_repository.update_session(
             event.session_id,
@@ -102,14 +129,9 @@ class ChargingSessionLifecycle:
                 "ending_battery_percentage": event.battery_percentage,
                 "charging_power_kw": event.charging_power_kw,
                 "average_charging_power_kw": average,
-                "peak_charging_power_kw": max(
-                    active_session.get("peak_charging_power_kw", 0.0),
-                    event.charging_power_kw,
-                ),
+                "peak_charging_power_kw": peak_power,
                 "power_sample_count": sample_count + 1,
-                "duration_seconds": (
-                    event.timestamp - active_session["started_at"]
-                ).total_seconds(),
+                "duration_seconds": (event_timestamp - started_at).total_seconds(),
             },
             session=session,
         )

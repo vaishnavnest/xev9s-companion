@@ -17,3 +17,4 @@ class VehicleLocationResponse(BaseModel):
     is_current: bool
     connectivity_status: Literal["online", "offline"]
     operating_state: OperatingState | None = None
+    description: str | None = None

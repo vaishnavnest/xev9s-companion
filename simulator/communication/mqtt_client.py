@@ -1,4 +1,3 @@
-
 import logging
 import os
 from collections.abc import Callable
@@ -22,7 +21,7 @@ class MQTTClient:
         vehicle_id: str = "XEV-001",
         message_callback: MessageCallback | None = None,
         on_connected: ConnectionCallback | None = None,
-        ) -> None:
+    ) -> None:
         if not vehicle_id.strip() or any(
             character in vehicle_id for character in "/+#"
         ):
@@ -34,10 +33,8 @@ class MQTTClient:
 
         if not host.strip():
             raise ValueError("MQTT broker host cannot be empty")
-
         if not 1 <= port <= 65535:
             raise ValueError("MQTT broker port must be between 1 and 65535")
-
         if keepalive <= 0:
             raise ValueError("MQTT keepalive must be positive")
 
@@ -54,6 +51,7 @@ class MQTTClient:
             client_id=f"xev9s-simulator-{vehicle_id}",
             protocol=mqtt.MQTTv311,
         )
+        self.client.reconnect_delay_set(min_delay=1, max_delay=30)
 
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
@@ -141,18 +139,14 @@ class MQTTClient:
         """Subscribe to an MQTT topic."""
         if not topic.strip():
             raise ValueError("MQTT subscription topic cannot be empty")
-
         if qos not in (0, 1, 2):
             raise ValueError("MQTT QoS must be 0, 1, or 2")
-
         if not self.client.is_connected():
             raise RuntimeError("Cannot subscribe while MQTT is disconnected")
 
         result, _ = self.client.subscribe(topic, qos=qos)
-
         if result != mqtt.MQTT_ERR_SUCCESS:
             raise RuntimeError(f"MQTT subscription failed: {result}")
-
         logger.info("Subscribed to MQTT topic: %s", topic)
 
     def publish(
@@ -164,18 +158,14 @@ class MQTTClient:
         """Publish a message to an MQTT topic."""
         if not topic.strip():
             raise ValueError("MQTT publication topic cannot be empty")
-
         if qos not in (0, 1, 2):
             raise ValueError("MQTT QoS must be 0, 1, or 2")
-
         if not self.client.is_connected():
             raise RuntimeError("Cannot publish while MQTT is disconnected")
 
         result = self.client.publish(topic, payload, qos=qos)
-
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
             raise RuntimeError(f"MQTT publication failed: {result.rc}")
-
         return result
 
     def connect(self) -> None:
@@ -183,7 +173,16 @@ class MQTTClient:
         if self.client.is_connected():
             return
 
-        self.client.connect(self.host, self.port, self.keepalive)
+        try:
+            self.client.connect(self.host, self.port, self.keepalive)
+        except OSError as exc:
+            logger.warning(
+                "MQTT broker unavailable at %s:%s (%s); retrying in background",
+                self.host,
+                self.port,
+                exc,
+            )
+            self.client.connect_async(self.host, self.port, self.keepalive)
         self.client.loop_start()
 
     def disconnect(self) -> None:

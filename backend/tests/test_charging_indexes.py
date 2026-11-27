@@ -41,6 +41,12 @@ def test_charging_indexes_are_created_centrally():
             [("vehicle_id", 1), ("started_at", -1)],
             name="idx_charging_sessions_vehicle_history",
         ),
+        call(
+            [("vehicle_id", 1)],
+            unique=True,
+            partialFilterExpression={"status": {"$in": ["active", "paused"]}},
+            name="uq_charging_sessions_active_vehicle",
+        ),
     ]
 
     assert collections["charging_events"].create_index.call_args_list == [

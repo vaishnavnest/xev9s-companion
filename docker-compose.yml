@@ -4,6 +4,7 @@ services:
     image: mongo:7.0
     container_name: xev9s-mongodb
     restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all"]
     ports:
       - "27017:27017"
     environment:
@@ -13,7 +14,14 @@ services:
     networks:
       - xev9s-network
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "--quiet",
+          "--eval",
+          "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongodb:27017' }] }).ok }",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -41,7 +49,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_URI: mongodb://mongodb:27017/?replicaSet=rs0
       MONGODB_DATABASE: Xev9s_db
       JWT_SECRET_KEY: dev_secret_key_minimum_32_characters_for_xev9s_auth
       VEHICLE_PAIRING_PEPPER: dev_vehicle_pairing_pepper_secret_min_32_chars
@@ -136,7 +144,7 @@ services:
       AWS_SECRET_ACCESS_KEY: test # gitleaks:allow
       REPORT_QUEUE_URL: http://localstack:4566/000000000000/xev9s-report-queue
       REPORT_BUCKET_NAME: xev9s-reports
-      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_URI: mongodb://mongodb:27017/?replicaSet=rs0
       MONGODB_DATABASE: Xev9s_db
       POLL_INTERVAL: 5
     depends_on:
