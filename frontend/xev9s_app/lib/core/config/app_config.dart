@@ -28,18 +28,18 @@ class AppConfig {
 
   /// Base URL for REST API calls.
   /// Injected at compile time via `--dart-define=API_BASE_URL=...`.
-  /// Default points to the local Prism mock server.
+  /// Default points to the local FastAPI backend server.
   static const apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://localhost:4010',
+    defaultValue: 'http://localhost:8000',
   );
 
   /// Base URL for WebSocket connections.
   /// Injected at compile time via `--dart-define=WS_BASE_URL=...`.
-  /// Default points to the local mock WebSocket server on port 4011.
+  /// Default points to the local FastAPI WebSocket server on port 8000.
   static const wsBaseUrl = String.fromEnvironment(
     'WS_BASE_URL',
-    defaultValue: 'ws://localhost:4011',
+    defaultValue: 'ws://localhost:8000',
   );
 
   /// Raw realtime communication mode: 'ws' (WebSocket) or 'polling'.

@@ -68,8 +68,12 @@ final chargingViewProvider = Provider<AsyncValue<ChargingViewState?>>((ref) {
       DateTime.fromMillisecondsSinceEpoch(0);
   final statusTime = status?.lastUpdatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
 
-  // If vehicle status has a strictly newer timestamp, use its live telemetry
-  final useStatusLive = status != null && statusTime.isAfter(overviewTime);
+  // If vehicle status has a strictly newer timestamp, OR overview has no live
+  // telemetry (e.g. initial load from GET /vehicles/{id}/charging preferences),
+  // use vehicleStatusProvider's live telemetry immediately.
+  final hasOverviewLiveTelemetry = overview.batteryPercent != null;
+  final useStatusLive = status != null &&
+      (!hasOverviewLiveTelemetry || statusTime.isAfter(overviewTime));
 
   // Physical domain rule: an actively driving vehicle is disconnected from chargers
   final isDriving = status?.vehicleState == VehicleState.driving;

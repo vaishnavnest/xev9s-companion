@@ -12,6 +12,8 @@ class ChargingOverview extends Equatable {
     this.sessionDurationSeconds,
     this.schedule,
     this.currentSessionId,
+    this.timezone = 'UTC',
+    this.stopChargingAtTarget = true,
   });
 
   final ChargingState state;
@@ -21,30 +23,66 @@ class ChargingOverview extends Equatable {
   final int? sessionDurationSeconds;
   final ChargingSchedule? schedule;
   final String? currentSessionId;
+  final String timezone;
+  final bool stopChargingAtTarget;
 
   factory ChargingOverview.fromJson(Map<String, dynamic> json) {
-    final state = ChargingState.fromString(json['state'] as String?);
-    final battery = (json['batteryPercent'] as num?)?.toDouble();
-    final target = (json['targetPercent'] as num?)?.toInt();
-    final power = (json['powerKw'] as num?)?.toDouble();
-    final duration = (json['sessionDurationSeconds'] as num?)?.toInt();
+    final eventMap = json['event'] is Map<String, dynamic>
+        ? json['event'] as Map<String, dynamic>
+        : null;
+    final sessionMap = json['session'] is Map<String, dynamic>
+        ? json['session'] as Map<String, dynamic>
+        : null;
+
+    final isPreferencesPayload = json.containsKey('target_percentage') ||
+        json.containsKey('schedule_enabled');
+
+    final rawState = (json['state'] ??
+            sessionMap?['status'] ??
+            eventMap?['event_type'] ??
+            (isPreferencesPayload ? 'NOT_CONNECTED' : null))
+        as String?;
+    final state = ChargingState.fromString(rawState);
+
+    final battery = (json['batteryPercent'] ??
+            json['battery_percentage'] ??
+            eventMap?['battery_percentage'] ??
+            sessionMap?['ending_battery_percentage'] ??
+            sessionMap?['starting_battery_percentage']) as num?;
+    final target = (json['targetPercent'] ??
+            json['target_percentage'] ??
+            sessionMap?['final_target_percentage'] ??
+            sessionMap?['target_percentage']) as num?;
+    final power = (json['powerKw'] ??
+            json['charging_power_kw'] ??
+            eventMap?['charging_power_kw'] ??
+            sessionMap?['charging_power_kw']) as num?;
+    final duration = (json['sessionDurationSeconds'] ??
+            sessionMap?['duration_seconds']) as num?;
 
     ChargingSchedule? schedule;
     if (json['schedule'] is Map<String, dynamic>) {
       schedule =
           ChargingSchedule.fromJson(json['schedule'] as Map<String, dynamic>);
+    } else if (json.containsKey('schedule_enabled')) {
+      schedule = ChargingSchedule.fromJson(json);
     }
 
-    final currentSession = json['currentSessionId'] as String?;
+    final currentSession =
+        (json['currentSessionId'] ?? sessionMap?['session_id']) as String?;
+    final timezone = (json['timezone'] as String?)?.trim();
+    final stopAtTarget = json['stop_charging_at_target'] as bool?;
 
     return ChargingOverview(
       state: state,
-      batteryPercent: battery,
-      targetPercent: target,
-      powerKw: power,
-      sessionDurationSeconds: duration,
+      batteryPercent: battery?.toDouble(),
+      targetPercent: target?.round(),
+      powerKw: power?.toDouble(),
+      sessionDurationSeconds: duration?.toInt(),
       schedule: schedule,
       currentSessionId: currentSession,
+      timezone: (timezone != null && timezone.isNotEmpty) ? timezone : 'UTC',
+      stopChargingAtTarget: stopAtTarget ?? true,
     );
   }
 
@@ -70,6 +108,8 @@ class ChargingOverview extends Equatable {
     ChargingSchedule? schedule,
     String? currentSessionId,
     bool clearCurrentSessionId = false,
+    String? timezone,
+    bool? stopChargingAtTarget,
   }) {
     return ChargingOverview(
       state: state ?? this.state,
@@ -82,6 +122,9 @@ class ChargingOverview extends Equatable {
       currentSessionId: clearCurrentSessionId
           ? null
           : (currentSessionId ?? this.currentSessionId),
+      timezone: timezone ?? this.timezone,
+      stopChargingAtTarget:
+          stopChargingAtTarget ?? this.stopChargingAtTarget,
     );
   }
 
@@ -94,5 +137,7 @@ class ChargingOverview extends Equatable {
         sessionDurationSeconds,
         schedule,
         currentSessionId,
+        timezone,
+        stopChargingAtTarget,
       ];
 }

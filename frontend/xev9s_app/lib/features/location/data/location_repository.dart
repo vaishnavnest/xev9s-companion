@@ -21,7 +21,7 @@ class ApiLocationRepository implements LocationRepository {
   @override
   Future<VehicleLocation> getLocation(String vehicleId) async {
     return apiClient.get<VehicleLocation>(
-      '/vehicles/$vehicleId/telemetry/latest',
+      '/vehicles/$vehicleId/location',
       parse: (json) {
         if (json is! Map<String, dynamic>) {
           throw const FormatException('Expected JSON map for VehicleLocationResponse');
