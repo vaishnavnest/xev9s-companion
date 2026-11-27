@@ -39,16 +39,16 @@ void main() {
       expect(result.batteryPercent, 64.0);
     });
 
-    test('setTarget calls PUT /vehicles/{id}/charging/target', () async {
+    test('setTarget calls PUT /vehicles/{id}/charging/preferences', () async {
       const overview = ChargingOverview(
-        state: ChargingState.charging,
+        state: ChargingState.notConnected,
         targetPercent: 85,
       );
 
       when(
         () => mockApiClient.put<ChargingOverview>(
-          '/vehicles/veh_9S0001/charging/target',
-          body: {'targetPercent': 85},
+          '/vehicles/veh_9S0001/charging/preferences',
+          body: any(named: 'body'),
           parse: any(named: 'parse'),
         ),
       ).thenAnswer((_) async => overview);
@@ -57,7 +57,7 @@ void main() {
       expect(result.targetPercent, 85);
     });
 
-    test('saveSchedule calls PUT /vehicles/{id}/charging/schedule', () async {
+    test('saveSchedule calls PUT /vehicles/{id}/charging/preferences', () async {
       const schedule = ChargingSchedule(
         enabled: true,
         startTime: ScheduleTime(hour: 22, minute: 0),
@@ -71,7 +71,7 @@ void main() {
 
       when(
         () => mockApiClient.put<ChargingOverview>(
-          '/vehicles/veh_9S0001/charging/schedule',
+          '/vehicles/veh_9S0001/charging/preferences',
           body: any(named: 'body'),
           parse: any(named: 'parse'),
         ),
@@ -81,15 +81,16 @@ void main() {
       expect(result.schedule?.enabled, isTrue);
     });
 
-    test('deleteSchedule calls DELETE /vehicles/{id}/charging/schedule', () async {
+    test('deleteSchedule calls PUT /vehicles/{id}/charging/preferences', () async {
       const overview = ChargingOverview(
         state: ChargingState.notConnected,
         schedule: null,
       );
 
       when(
-        () => mockApiClient.delete<ChargingOverview>(
-          '/vehicles/veh_9S0001/charging/schedule',
+        () => mockApiClient.put<ChargingOverview>(
+          '/vehicles/veh_9S0001/charging/preferences',
+          body: any(named: 'body'),
           parse: any(named: 'parse'),
         ),
       ).thenAnswer((_) async => overview);
@@ -98,7 +99,7 @@ void main() {
       expect(result.schedule, isNull);
     });
 
-    test('listSessions calls getPaged with default -startedAt sort', () async {
+    test('listSessions calls getPaged with limit and offset', () async {
       final session = ChargingSession(
         sessionId: 'chs_1',
         vehicleId: 'veh_9S0001',
@@ -121,7 +122,7 @@ void main() {
       expect(result.items.first.sessionId, 'chs_1');
     });
 
-    test('getSession calls GET /vehicles/{id}/charging/sessions/{sessionId}', () async {
+    test('getSession resolves matching session from listSessions', () async {
       final session = ChargingSession(
         sessionId: 'chs_42',
         vehicleId: 'veh_9S0001',
@@ -130,11 +131,14 @@ void main() {
       );
 
       when(
-        () => mockApiClient.get<ChargingSession>(
-          '/vehicles/veh_9S0001/charging/sessions/chs_42',
-          parse: any(named: 'parse'),
+        () => mockApiClient.getPaged<ChargingSession>(
+          '/vehicles/veh_9S0001/charging/sessions',
+          query: {'limit': 100, 'offset': 0},
+          parseItem: any(named: 'parseItem'),
         ),
-      ).thenAnswer((_) async => session);
+      ).thenAnswer(
+        (_) async => PagedResult<ChargingSession>(items: [session]),
+      );
 
       final result = await repository.getSession('veh_9S0001', 'chs_42');
       expect(result.sessionId, 'chs_42');

@@ -42,8 +42,8 @@ class ApiTripRepository implements TripRepository {
   }) async {
     final query = <String, dynamic>{
       'page': page ?? 1,
-      'pageSize': pageSize ?? AppConstants.tripsPageSize,
-      'sort': sort ?? '-startedAt',
+      'page_size': pageSize ?? AppConstants.tripsPageSize,
+      'sort': sort ?? '-started_at',
     };
 
     final wireStatus = status?.toApi();

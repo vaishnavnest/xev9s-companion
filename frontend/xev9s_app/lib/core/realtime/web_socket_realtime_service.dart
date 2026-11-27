@@ -103,6 +103,11 @@ class WebSocketRealtimeService implements RealtimeService {
       return;
     }
 
+    if (_currentVehicleId == null || _currentVehicleId!.isEmpty) {
+      _setState(RealtimeConnectionState.disconnected);
+      return;
+    }
+
     try {
       // Note: Passing the access token as a query parameter (?token=...) is a known tradeoff
       // for standard browser WebSocket connections, as the browser WebSocket API does not allow
@@ -110,14 +115,11 @@ class WebSocketRealtimeService implements RealtimeService {
       final base = _wsBaseUrl.endsWith('/')
           ? _wsBaseUrl.substring(0, _wsBaseUrl.length - 1)
           : _wsBaseUrl;
-      final path = _currentVehicleId != null && _currentVehicleId!.isNotEmpty
-          ? '$base/ws/vehicles/$_currentVehicleId'
-          : '$base/ws';
+      final path = '$base/ws/vehicles/$_currentVehicleId';
       final uri = Uri.parse(path).replace(
         queryParameters: {
           'token': token,
-          if (_currentVehicleId != null && _currentVehicleId!.isNotEmpty)
-            'vehicleId': _currentVehicleId!,
+          'vehicleId': _currentVehicleId!,
         },
       );
 
@@ -161,7 +163,7 @@ class WebSocketRealtimeService implements RealtimeService {
       final decoded = jsonDecode(raw);
       if (decoded is Map<String, dynamic>) {
         RealtimeEvent event;
-        if (decoded.containsKey('event')) {
+        if (decoded['event'] is String || decoded['type'] == 'charging_update') {
           event = RealtimeEvent.fromJson(decoded);
         } else if (decoded.containsKey('vehicle_id') || decoded.containsKey('battery_percentage')) {
           final vid = (decoded['vehicle_id'] ?? _currentVehicleId ?? '') as String;
@@ -214,7 +216,7 @@ class WebSocketRealtimeService implements RealtimeService {
     if (apiClient != null) {
       try {
         await apiClient!.get<void>(
-          '/users/me',
+          '/auth/me',
           parse: (_) {},
         );
       } catch (_) {
