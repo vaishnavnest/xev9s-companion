@@ -19,6 +19,7 @@ def test_command_indexes_are_created_centrally():
             "charging_preferences",
             "charging_sessions",
             "charging_events",
+            "trips",
         ]
     }
 

@@ -1,4 +1,3 @@
-
 from unittest.mock import MagicMock, call
 
 from backend.app.core.indexes import ensure_database_indexes
@@ -15,10 +14,9 @@ def test_charging_indexes_are_created_centrally():
         "charging_preferences",
         "charging_sessions",
         "charging_events",
+        "trips",
     ]
-    collections = {
-        name: MagicMock() for name in collection_names
-    }
+    collections = {name: MagicMock() for name in collection_names}
 
     database = MagicMock()
     database.__getitem__.side_effect = collections.__getitem__

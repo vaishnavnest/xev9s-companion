@@ -15,6 +15,7 @@ from backend.app.routes.charging import router as charging_router
 from backend.app.routes.commands import router as commands_router
 from backend.app.routes.location import router as location_router
 from backend.app.routes.telemetry import router as telemetry_router
+from backend.app.routes.trips import router as trips_router
 from backend.app.routes.vehicles import router as vehicles_router
 from backend.app.routes.websocket import router as websocket_router
 from backend.app.schemas.telemetry import TelemetryResponse
@@ -27,6 +28,10 @@ from backend.app.services.command_service import CommandService
 from backend.app.services.command_timeout_manager import CommandTimeoutManager
 from backend.app.services.location_service import LocationService
 from backend.app.services.telemetry_service import TelemetryService
+from backend.app.services.trip_runtime import (
+    create_trip_notification_callback,
+    create_trip_runtime,
+)
 from fastapi import FastAPI, HTTPException, Request
 from pymongo.errors import PyMongoError
 
@@ -51,8 +56,13 @@ async def lifespan(app: FastAPI):
             database["vehicles"], database["user_vehicles"]
         )
         command_repository = CommandRepository(database["commands"])
-        telemetry_service = TelemetryService(telemetry_repository, vehicle_repository)
-
+        trip_callback = create_trip_notification_callback(websocket_manager, event_loop)
+        trip_repo, trip_service = create_trip_runtime(
+            database, vehicle_repository, on_trip_completed=trip_callback
+        )
+        telemetry_service = TelemetryService(
+            telemetry_repository, vehicle_repository, trip_service=trip_service
+        )
         timeout_manager = CommandTimeoutManager(command_repository)
 
         def notify_websocket_command_clients(command: dict) -> None:
@@ -66,15 +76,13 @@ async def lifespan(app: FastAPI):
                 event_loop,
             )
             future.add_done_callback(
-                lambda result: _log_broadcast_error(
-                    result, "WebSocket command broadcast failed"
+                lambda res: _log_broadcast_error(
+                    res, "WebSocket command broadcast failed"
                 )
             )
 
         command_response_service = CommandResponseService(
-            command_repository,
-            timeout_manager,
-            notify_websocket_command_clients,
+            command_repository, timeout_manager, notify_websocket_command_clients
         )
 
         def notify_websocket_clients(telemetry: dict) -> None:
@@ -86,8 +94,8 @@ async def lifespan(app: FastAPI):
                 event_loop,
             )
             future.add_done_callback(
-                lambda result: _log_broadcast_error(
-                    result, "WebSocket telemetry broadcast failed"
+                lambda res: _log_broadcast_error(
+                    res, "WebSocket telemetry broadcast failed"
                 )
             )
 
@@ -104,8 +112,7 @@ async def lifespan(app: FastAPI):
             charging_handler=charging_handler,
         )
         command_handler = MQTTCommandHandler(
-            mqtt_subscriber.client,
-            command_response_service.handle_response,
+            mqtt_subscriber.client, command_response_service.handle_response
         )
         mqtt_subscriber.command_handler = command_handler
 
@@ -116,10 +123,7 @@ async def lifespan(app: FastAPI):
             command_handler.publish_command,
             timeout_manager,
         )
-        location_service = LocationService(
-            vehicle_repository,
-            telemetry_repository,
-        )
+        location_service = LocationService(vehicle_repository, telemetry_repository)
 
         app.state.telemetry_service = telemetry_service
         app.state.command_repository = command_repository
@@ -128,6 +132,8 @@ async def lifespan(app: FastAPI):
         app.state.command_timeout_manager = timeout_manager
         app.state.charging_event_service = charging_event_service
         app.state.location_service = location_service
+        app.state.trip_service = trip_service
+        app.state.trip_repository = trip_repo
         app.state.mqtt_subscriber = mqtt_subscriber
 
         mqtt_subscriber.start()
@@ -162,6 +168,7 @@ app.include_router(commands_router)
 app.include_router(telemetry_router)
 app.include_router(charging_router)
 app.include_router(location_router)
+app.include_router(trips_router)
 app.include_router(websocket_router)
 
 

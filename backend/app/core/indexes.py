@@ -102,3 +102,24 @@ def ensure_database_indexes(database) -> None:
         ],
         name="idx_charging_events_vehicle_timestamp",
     )
+
+    database["trips"].create_index(
+        [("trip_id", ASCENDING)],
+        unique=True,
+        name="uq_trips_trip_id",
+    )
+
+    database["trips"].create_index(
+        [("vehicle_id", ASCENDING)],
+        unique=True,
+        partialFilterExpression={"status": "ongoing"},
+        name="uq_trips_active_vehicle",
+    )
+
+    database["trips"].create_index(
+        [
+            ("vehicle_id", ASCENDING),
+            ("started_at", DESCENDING),
+        ],
+        name="idx_trips_vehicle_history",
+    )
