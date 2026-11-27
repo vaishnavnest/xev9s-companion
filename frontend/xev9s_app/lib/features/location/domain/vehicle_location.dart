@@ -86,7 +86,13 @@ class VehicleLocation extends Equatable {
     final double? longitude = (rawLng is num) ? rawLng.toDouble() : null;
 
     final rawState = (json['vehicleState'] ?? json['operating_state']) as String?;
-    final vehicleState = VehicleState.fromString(rawState);
+    final rawConnectivity =
+        (json['connectivity_status'] ?? json['connectivityStatus']) as String?;
+    final vehicleState = rawState != null && rawState.trim().isNotEmpty
+        ? VehicleState.fromString(rawState)
+        : (rawConnectivity?.trim().toLowerCase() == 'offline'
+            ? VehicleState.offline
+            : VehicleState.unknown);
 
     DateTime? reportedAt;
     final rawReported = (json['reportedAt'] ?? json['timestamp']) as String?;

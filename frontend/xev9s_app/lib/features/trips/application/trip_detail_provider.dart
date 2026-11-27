@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/error_codes.dart';
+import '../../../core/realtime/realtime_providers.dart';
+import '../../vehicles/domain/realtime_event.dart';
 import '../data/trip_repository.dart';
 import '../domain/route_point.dart';
 import '../domain/route_utils.dart';
@@ -59,6 +61,19 @@ class TripDetailNotifier extends AsyncNotifier<TripDetailState> {
     _repository = ref.watch(tripRepositoryProvider);
     _cancelTimer();
     ref.onDispose(_cancelTimer);
+
+    ref.listen<AsyncValue<RealtimeEvent>>(realtimeEventsProvider,
+        (previous, next) {
+      next.whenData((event) {
+        if (event.type != RealtimeEventType.tripCompleted) return;
+        if (event.vehicleId != arg.vehicleId) return;
+        final eventTripId =
+            (event.rawData?['trip_id'] ?? event.rawData?['tripId']) as String?;
+        if (eventTripId == null || eventTripId == arg.tripId) {
+          refresh();
+        }
+      });
+    });
 
     final loaded = await _fetchDetail();
     _handleLifecycle(loaded);

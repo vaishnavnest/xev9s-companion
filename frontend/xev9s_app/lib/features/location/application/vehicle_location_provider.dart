@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart';
 import '../../../core/realtime/realtime_providers.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../vehicles/application/vehicle_status_provider.dart';
@@ -13,6 +14,11 @@ class VehicleLocationNotifier extends AsyncNotifier<VehicleLocation?> {
   LocationRepository? _repository;
   Object? _refreshError;
   String? _currentVehicleId;
+  DateTime? _lastAddressFetchAt;
+  bool _isFetchingAddress = false;
+
+  static const double _addressRefreshDistanceMeters = 150.0;
+  static const Duration _addressRefreshCooldown = Duration(seconds: 10);
 
   /// Exposes the last background refresh error while preserving existing location data.
   Object? get lastRefreshError => _refreshError;
@@ -95,20 +101,43 @@ class VehicleLocationNotifier extends AsyncNotifier<VehicleLocation?> {
   }
 
   void _handleRealtimeEvent(RealtimeEvent event) {
-    if (event.type != RealtimeEventType.vehicleLocation) return;
+    if (event.type != RealtimeEventType.vehicleLocation &&
+        event.type != RealtimeEventType.vehicleStatus) {
+      return;
+    }
     if (event.rawData == null) return;
 
     try {
       final map = Map<String, dynamic>.from(event.rawData!);
+      if (event.type == RealtimeEventType.vehicleStatus) {
+        if (map['latitude'] is! num || map['longitude'] is! num) {
+          return;
+        }
+        if (!map.containsKey('isCurrent') && !map.containsKey('is_current')) {
+          map['isCurrent'] = true;
+        }
+        if (!map.containsKey('reportedAt') && !map.containsKey('timestamp')) {
+          map['reportedAt'] = event.timestamp.toUtc().toIso8601String();
+        }
+      }
+
       if (!map.containsKey('vehicleId') || map['vehicleId'] == null) {
         map['vehicleId'] = event.vehicleId;
       }
 
-      final incoming = VehicleLocation.fromJson(map);
+      var incoming = VehicleLocation.fromJson(map);
+      if (event.type == RealtimeEventType.vehicleStatus &&
+          !incoming.hasCoordinates) {
+        return;
+      }
+
       final current = state.hasValue ? state.value : null;
 
       if (current == null) {
         state = AsyncData(incoming);
+        if (incoming.description == null && incoming.hasCoordinates) {
+          _scheduleAddressFetch(incoming.vehicleId);
+        }
       } else {
         final currentReported = current.reportedAt;
         final newReported = incoming.reportedAt;
@@ -116,12 +145,66 @@ class VehicleLocationNotifier extends AsyncNotifier<VehicleLocation?> {
         // Replace state if reportedAt is newer than the current one (or current reportedAt is null)
         if (currentReported == null ||
             (newReported != null && newReported.isAfter(currentReported))) {
+          final hadDescription = incoming.description != null;
+          final movedEnough = _hasMovedBeyondThreshold(current, incoming);
+          if (!hadDescription && current.description != null) {
+            incoming = incoming.copyWith(description: current.description);
+          }
           state = AsyncData(incoming);
+
+          if (!hadDescription &&
+              (incoming.description == null || movedEnough) &&
+              incoming.hasCoordinates) {
+            _scheduleAddressFetch(incoming.vehicleId);
+          }
         }
       }
     } catch (_) {
       // Parse failures in push events are safely ignored, not thrown
     }
+  }
+
+  bool _hasMovedBeyondThreshold(
+    VehicleLocation previous,
+    VehicleLocation next,
+  ) {
+    if (!previous.hasCoordinates || !next.hasCoordinates) return true;
+    final meters = const Distance().as(
+      LengthUnit.Meter,
+      LatLng(previous.latitude!, previous.longitude!),
+      LatLng(next.latitude!, next.longitude!),
+    );
+    return meters >= _addressRefreshDistanceMeters;
+  }
+
+  void _scheduleAddressFetch(String vehicleId) {
+    if (_isFetchingAddress || _repository == null) return;
+    final now = DateTime.now();
+    if (_lastAddressFetchAt != null &&
+        now.difference(_lastAddressFetchAt!) < _addressRefreshCooldown) {
+      return;
+    }
+
+    _isFetchingAddress = true;
+    _lastAddressFetchAt = now;
+
+    unawaited(() async {
+      try {
+        final fetched = await _repository!.getLocation(vehicleId);
+        if (!ref.mounted || _currentVehicleId != vehicleId) return;
+        final latest = state.hasValue ? state.value : null;
+        if (latest == null) {
+          state = AsyncData(fetched);
+        } else if (fetched.description != null &&
+            fetched.description!.trim().isNotEmpty) {
+          state = AsyncData(latest.copyWith(description: fetched.description));
+        }
+      } catch (_) {
+        // Silent background address fetch failure is safely ignored
+      } finally {
+        _isFetchingAddress = false;
+      }
+    }());
   }
 }
 

@@ -50,13 +50,13 @@ class Trip extends Equatable {
     if (rawStartedAt is! String) {
       throw const FormatException('Missing required field: started_at / startedAt');
     }
-    final startedAt = DateTime.tryParse(rawStartedAt);
+    final startedAt = _parseUtcDateTime(rawStartedAt);
     if (startedAt == null) {
       throw FormatException('Invalid started_at timestamp: $rawStartedAt');
     }
 
     final rawEndedAt = json['ended_at'] ?? json['endedAt'];
-    final endedAt = rawEndedAt is String ? DateTime.tryParse(rawEndedAt) : null;
+    final endedAt = rawEndedAt is String ? _parseUtcDateTime(rawEndedAt) : null;
 
     final rawStartLoc = json['start_location'] ?? json['startLocation'];
     final startLocation = rawStartLoc is Map<String, dynamic>
@@ -90,6 +90,15 @@ class Trip extends Equatable {
       durationSeconds: durationSeconds,
       energyConsumedKwh: energyConsumedKwh,
     );
+  }
+
+  static DateTime? _parseUtcDateTime(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    final hasTz = trimmed.endsWith('Z') ||
+        trimmed.endsWith('z') ||
+        RegExp(r'[+-]\d{2}:?\d{2}$').hasMatch(trimmed);
+    return DateTime.tryParse(hasTz ? trimmed : '${trimmed}Z');
   }
 
   @override

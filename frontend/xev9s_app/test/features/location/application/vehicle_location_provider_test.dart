@@ -251,6 +251,109 @@ void main() {
       expect(current, equals(initialLocation));
     });
 
+    test('vehicle.status telemetry event with valid coordinates updates location', () async {
+      await container.read(vehicleLocationProvider.future);
+
+      final newerTime = DateTime.parse('2026-11-23T10:10:00Z');
+      final event = RealtimeEvent(
+        type: RealtimeEventType.vehicleStatus,
+        vehicleId: 'veh_9S0001',
+        timestamp: newerTime,
+        rawData: {
+          'vehicle_id': 'veh_9S0001',
+          'latitude': 12.9800,
+          'longitude': 77.6000,
+          'operating_state': 'PARKED',
+          'timestamp': newerTime.toIso8601String(),
+          'battery_percentage': 72.0,
+        },
+      );
+
+      fakeRealtimeService.eventsController.add(event);
+      await pumpEventQueue();
+
+      final current = container.read(vehicleLocationProvider).value;
+      expect(current?.latitude, 12.9800);
+      expect(current?.longitude, 77.6000);
+      expect(current?.vehicleState, VehicleState.parked);
+      expect(current?.reportedAt, newerTime);
+      expect(current?.isCurrent, isTrue);
+      // Preserves existing description while background address fetch resolves
+      expect(current?.description, 'MG Road, Bengaluru');
+    });
+
+    test('vehicle.status movement >= 150m silently refreshes address without clearing coordinates', () async {
+      await container.read(vehicleLocationProvider.future);
+      expect(fakeRepository.getLocationCalls, 1);
+
+      fakeRepository.locationResult = initialLocation.copyWith(
+        latitude: 12.9800,
+        longitude: 77.6000,
+        description: 'Indiranagar, Bengaluru',
+      );
+
+      final newerTime = DateTime.parse('2026-11-23T10:15:00Z');
+      fakeRealtimeService.eventsController.add(
+        RealtimeEvent(
+          type: RealtimeEventType.vehicleStatus,
+          vehicleId: 'veh_9S0001',
+          timestamp: newerTime,
+          rawData: {
+            'vehicle_id': 'veh_9S0001',
+            'latitude': 12.9800,
+            'longitude': 77.6000,
+            'operating_state': 'DRIVING',
+            'timestamp': newerTime.toIso8601String(),
+          },
+        ),
+      );
+      await pumpEventQueue();
+
+      final current = container.read(vehicleLocationProvider).value;
+      expect(current?.latitude, 12.9800);
+      expect(current?.vehicleState, VehicleState.driving);
+      expect(current?.description, 'Indiranagar, Bengaluru');
+      expect(fakeRepository.getLocationCalls, 2);
+    });
+
+    test('vehicle.status telemetry event without coordinates or older timestamp is ignored', () async {
+      await container.read(vehicleLocationProvider.future);
+
+      // Missing coordinates
+      fakeRealtimeService.eventsController.add(
+        RealtimeEvent(
+          type: RealtimeEventType.vehicleStatus,
+          vehicleId: 'veh_9S0001',
+          timestamp: DateTime.parse('2026-11-23T10:10:00Z'),
+          rawData: {
+            'vehicle_id': 'veh_9S0001',
+            'operating_state': 'PARKED',
+            'timestamp': '2026-11-23T10:10:00Z',
+          },
+        ),
+      );
+      await pumpEventQueue();
+      expect(container.read(vehicleLocationProvider).value, equals(initialLocation));
+
+      // Older timestamp with coordinates
+      fakeRealtimeService.eventsController.add(
+        RealtimeEvent(
+          type: RealtimeEventType.vehicleStatus,
+          vehicleId: 'veh_9S0001',
+          timestamp: DateTime.parse('2026-11-23T09:00:00Z'),
+          rawData: {
+            'vehicle_id': 'veh_9S0001',
+            'latitude': 12.9999,
+            'longitude': 77.6999,
+            'operating_state': 'PARKED',
+            'timestamp': '2026-11-23T09:00:00Z',
+          },
+        ),
+      );
+      await pumpEventQueue();
+      expect(container.read(vehicleLocationProvider).value, equals(initialLocation));
+    });
+
     test('older reportedAt event is ignored', () async {
       await container.read(vehicleLocationProvider.future);
 
@@ -272,6 +375,109 @@ void main() {
 
       final current = container.read(vehicleLocationProvider).value;
       expect(current, equals(initialLocation));
+    });
+
+    test('vehicle.status telemetry event with valid coordinates updates location', () async {
+      await container.read(vehicleLocationProvider.future);
+
+      final newerTime = DateTime.parse('2026-11-23T10:10:00Z');
+      final event = RealtimeEvent(
+        type: RealtimeEventType.vehicleStatus,
+        vehicleId: 'veh_9S0001',
+        timestamp: newerTime,
+        rawData: {
+          'vehicle_id': 'veh_9S0001',
+          'latitude': 12.9800,
+          'longitude': 77.6000,
+          'operating_state': 'PARKED',
+          'timestamp': newerTime.toIso8601String(),
+          'battery_percentage': 72.0,
+        },
+      );
+
+      fakeRealtimeService.eventsController.add(event);
+      await pumpEventQueue();
+
+      final current = container.read(vehicleLocationProvider).value;
+      expect(current?.latitude, 12.9800);
+      expect(current?.longitude, 77.6000);
+      expect(current?.vehicleState, VehicleState.parked);
+      expect(current?.reportedAt, newerTime);
+      expect(current?.isCurrent, isTrue);
+      // Preserves existing description while background address fetch resolves
+      expect(current?.description, 'MG Road, Bengaluru');
+    });
+
+    test('vehicle.status movement >= 150m silently refreshes address without clearing coordinates', () async {
+      await container.read(vehicleLocationProvider.future);
+      expect(fakeRepository.getLocationCalls, 1);
+
+      fakeRepository.locationResult = initialLocation.copyWith(
+        latitude: 12.9800,
+        longitude: 77.6000,
+        description: 'Indiranagar, Bengaluru',
+      );
+
+      final newerTime = DateTime.parse('2026-11-23T10:15:00Z');
+      fakeRealtimeService.eventsController.add(
+        RealtimeEvent(
+          type: RealtimeEventType.vehicleStatus,
+          vehicleId: 'veh_9S0001',
+          timestamp: newerTime,
+          rawData: {
+            'vehicle_id': 'veh_9S0001',
+            'latitude': 12.9800,
+            'longitude': 77.6000,
+            'operating_state': 'DRIVING',
+            'timestamp': newerTime.toIso8601String(),
+          },
+        ),
+      );
+      await pumpEventQueue();
+
+      final current = container.read(vehicleLocationProvider).value;
+      expect(current?.latitude, 12.9800);
+      expect(current?.vehicleState, VehicleState.driving);
+      expect(current?.description, 'Indiranagar, Bengaluru');
+      expect(fakeRepository.getLocationCalls, 2);
+    });
+
+    test('vehicle.status telemetry event without coordinates or older timestamp is ignored', () async {
+      await container.read(vehicleLocationProvider.future);
+
+      // Missing coordinates
+      fakeRealtimeService.eventsController.add(
+        RealtimeEvent(
+          type: RealtimeEventType.vehicleStatus,
+          vehicleId: 'veh_9S0001',
+          timestamp: DateTime.parse('2026-11-23T10:10:00Z'),
+          rawData: {
+            'vehicle_id': 'veh_9S0001',
+            'operating_state': 'PARKED',
+            'timestamp': '2026-11-23T10:10:00Z',
+          },
+        ),
+      );
+      await pumpEventQueue();
+      expect(container.read(vehicleLocationProvider).value, equals(initialLocation));
+
+      // Older timestamp with coordinates
+      fakeRealtimeService.eventsController.add(
+        RealtimeEvent(
+          type: RealtimeEventType.vehicleStatus,
+          vehicleId: 'veh_9S0001',
+          timestamp: DateTime.parse('2026-11-23T09:00:00Z'),
+          rawData: {
+            'vehicle_id': 'veh_9S0001',
+            'latitude': 12.9999,
+            'longitude': 77.6999,
+            'operating_state': 'PARKED',
+            'timestamp': '2026-11-23T09:00:00Z',
+          },
+        ),
+      );
+      await pumpEventQueue();
+      expect(container.read(vehicleLocationProvider).value, equals(initialLocation));
     });
 
     test('realtime resync stream triggers re-fetch', () async {

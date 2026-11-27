@@ -140,6 +140,52 @@ void main() {
       expect(overview.schedule, isNull);
       expect(overview.currentSessionId, isNull);
     });
+
+    test('parses active_session from GET /vehicles/{id}/charging payload', () {
+      final overview = ChargingOverview.fromJson({
+        'vehicle_id': 'XEV-DEMO-001',
+        'target_percentage': 85.0,
+        'schedule_enabled': false,
+        'scheduled_days': <String>[],
+        'timezone': 'Asia/Kolkata',
+        'stop_charging_at_target': true,
+        'active_session': {
+          'session_id': 'session-active',
+          'vehicle_id': 'XEV-DEMO-001',
+          'started_at': '2026-11-23T10:00:00Z',
+          'starting_battery_percentage': 20.0,
+          'ending_battery_percentage': 55.0,
+          'target_percentage': 85.0,
+          'charging_power_kw': 11.2,
+          'duration_seconds': 1800,
+          'status': 'active',
+        },
+      });
+
+      expect(overview.state, ChargingState.charging);
+      expect(overview.targetPercent, 85);
+      expect(overview.batteryPercent, 55.0);
+      expect(overview.powerKw, 11.2);
+      expect(overview.sessionDurationSeconds, 1800);
+      expect(overview.currentSessionId, 'session-active');
+      expect(overview.timezone, 'Asia/Kolkata');
+
+      final idleOverview = ChargingOverview.fromJson({
+        'vehicle_id': 'XEV-DEMO-001',
+        'target_percentage': 80.0,
+        'schedule_enabled': false,
+        'scheduled_days': <String>[],
+        'timezone': 'UTC',
+        'stop_charging_at_target': true,
+        'active_session': null,
+      });
+
+      expect(idleOverview.state, ChargingState.notConnected);
+      expect(idleOverview.batteryPercent, isNull);
+      expect(idleOverview.powerKw, isNull);
+      expect(idleOverview.sessionDurationSeconds, isNull);
+      expect(idleOverview.currentSessionId, isNull);
+    });
   });
 
   group('ChargingSession model', () {

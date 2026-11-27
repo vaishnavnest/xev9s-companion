@@ -188,15 +188,43 @@ class ChargingOverviewNotifier extends AsyncNotifier<ChargingOverview?> {
           }
         }
 
-        // If an incoming event is older than the last locally confirmed update timestamp,
-        // preserve the user-confirmed targetPercent to avoid stale WebSocket frames reverting changes
+        // Preserve existing preferences/session fields when partial WebSocket payloads omit them
+        final raw = event.rawData!;
         final lastUpdated = ref.read(chargingOverviewLastUpdatedProvider);
         ChargingOverview effective = incoming;
-        if (lastUpdated != null &&
-            event.timestamp.isBefore(lastUpdated) &&
-            previous?.targetPercent != null &&
-            incoming.targetPercent != previous?.targetPercent) {
-          effective = incoming.copyWith(targetPercent: previous!.targetPercent);
+        if (previous != null) {
+          final isStaleTarget = lastUpdated != null &&
+              event.timestamp.isBefore(lastUpdated) &&
+              previous.targetPercent != null &&
+              incoming.targetPercent != previous.targetPercent;
+
+          final sessionFinished = (previous.state == ChargingState.charging ||
+                  previous.state == ChargingState.paused ||
+                  previous.state == ChargingState.connected) &&
+              (incoming.state == ChargingState.completed ||
+                  incoming.state == ChargingState.interrupted ||
+                  incoming.state == ChargingState.notConnected);
+
+          effective = incoming.copyWith(
+            batteryPercent: incoming.batteryPercent ?? previous.batteryPercent,
+            targetPercent: (isStaleTarget || incoming.targetPercent == null)
+                ? previous.targetPercent
+                : incoming.targetPercent,
+            powerKw: incoming.powerKw ?? previous.powerKw,
+            sessionDurationSeconds:
+                incoming.sessionDurationSeconds ?? previous.sessionDurationSeconds,
+            schedule: incoming.schedule ?? previous.schedule,
+            currentSessionId: sessionFinished
+                ? null
+                : (incoming.currentSessionId ?? previous.currentSessionId),
+            clearCurrentSessionId: sessionFinished,
+            timezone: raw.containsKey('timezone')
+                ? incoming.timezone
+                : previous.timezone,
+            stopChargingAtTarget: raw.containsKey('stop_charging_at_target')
+                ? incoming.stopChargingAtTarget
+                : previous.stopChargingAtTarget,
+          );
         }
 
         ref

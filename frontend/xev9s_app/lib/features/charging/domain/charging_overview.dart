@@ -32,7 +32,9 @@ class ChargingOverview extends Equatable {
         : null;
     final sessionMap = json['session'] is Map<String, dynamic>
         ? json['session'] as Map<String, dynamic>
-        : null;
+        : (json['active_session'] is Map<String, dynamic>
+            ? json['active_session'] as Map<String, dynamic>
+            : null);
 
     final isPreferencesPayload = json.containsKey('target_percentage') ||
         json.containsKey('schedule_enabled');

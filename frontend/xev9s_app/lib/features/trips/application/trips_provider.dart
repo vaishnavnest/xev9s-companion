@@ -6,6 +6,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/realtime/realtime_providers.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../vehicles/application/vehicle_status_provider.dart';
+import '../../vehicles/domain/realtime_event.dart';
 import '../../vehicles/domain/vehicle_status.dart';
 import '../../vehicles/selected_vehicle_provider.dart';
 import '../data/trip_repository.dart';
@@ -110,6 +111,17 @@ class TripsNotifier extends AsyncNotifier<TripsState> {
       });
     });
 
+    // Refresh first page when a trip completes for the active vehicle.
+    ref.listen<AsyncValue<RealtimeEvent>>(realtimeEventsProvider,
+        (previous, next) {
+      next.whenData((event) {
+        if (event.type == RealtimeEventType.tripCompleted &&
+            event.vehicleId == _currentVehicleId) {
+          refresh();
+        }
+      });
+    });
+
     if (authState is! AuthAuthenticated ||
         vehicleId == null ||
         vehicleId.isEmpty) {
@@ -160,7 +172,7 @@ class TripsNotifier extends AsyncNotifier<TripsState> {
         vehicleId,
         page: 1,
         pageSize: AppConstants.tripsPageSize,
-        sort: '-startedAt',
+        sort: '-started_at',
         status: statusFilter,
         from: fromIso,
         to: toIso,
@@ -324,7 +336,7 @@ class TripsNotifier extends AsyncNotifier<TripsState> {
         vehicleId,
         page: nextPage,
         pageSize: AppConstants.tripsPageSize,
-        sort: '-startedAt',
+        sort: '-started_at',
         status: current.statusFilter,
         from: fromIso,
         to: toIso,

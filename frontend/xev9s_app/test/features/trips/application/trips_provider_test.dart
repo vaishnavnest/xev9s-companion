@@ -18,6 +18,7 @@ import 'package:xev9s_app/features/trips/domain/trip_detail.dart';
 import 'package:xev9s_app/features/trips/domain/trip_location.dart';
 import 'package:xev9s_app/features/trips/domain/trip_status.dart';
 import 'package:xev9s_app/features/vehicles/application/vehicle_status_provider.dart';
+import 'package:xev9s_app/features/vehicles/domain/realtime_event.dart';
 import 'package:xev9s_app/features/vehicles/domain/vehicle_status.dart';
 import 'package:xev9s_app/features/vehicles/selected_vehicle_provider.dart';
 
@@ -65,7 +66,7 @@ class _FakeVehicleStatusNotifier extends AsyncNotifier<VehicleStatus?>
 }
 
 class _FakeTripRepository implements TripRepository {
-  final List<({int page, TripStatus? status, String? from, String? to})> calls = [];
+  final List<({int page, String? sort, TripStatus? status, String? from, String? to})> calls = [];
   Future<PagedResult<Trip>> Function(int page, TripStatus? status, String? from, String? to)?
       onList;
 
@@ -80,7 +81,7 @@ class _FakeTripRepository implements TripRepository {
     String? to,
   }) async {
     final p = page ?? 1;
-    calls.add((page: p, status: status, from: from, to: to));
+    calls.add((page: p, sort: sort, status: status, from: from, to: to));
     if (onList != null) {
       return onList!(p, status, from, to);
     }
@@ -325,5 +326,67 @@ void main() {
     await auth.logout();
     final afterLogout = await container.read(tripsProvider.future);
     expect(afterLogout.items, isEmpty);
+  });
+
+  test('uses -started_at sort parameter and refreshes on trip.completed event', () async {
+    final eventsController = StreamController<RealtimeEvent>.broadcast();
+    addTearDown(eventsController.close);
+
+    final repo = _FakeTripRepository()
+      ..onList = (page, _, _, _) async {
+        if (page == 1) {
+          return PagedResult(
+            items: [_makeTrip('t1')],
+            pagination: const Pagination(page: 1, pageSize: 1, totalItems: 2, totalPages: 2),
+          );
+        }
+        return PagedResult(
+          items: [_makeTrip('t2')],
+          pagination: const Pagination(page: 2, pageSize: 1, totalItems: 2, totalPages: 2),
+        );
+      };
+
+    final container = ProviderContainer(
+      overrides: [
+        authControllerProvider.overrideWith(_FakeAuthController.new),
+        tripRepositoryProvider.overrideWithValue(repo),
+        vehicleStatusProvider.overrideWith(_FakeVehicleStatusNotifier.new),
+        realtimeEventsProvider.overrideWith((ref) => eventsController.stream),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.listen(tripsProvider, (previous, next) {});
+
+    await container.read(selectedVehicleProvider.notifier).select('veh_1');
+    await container.read(tripsProvider.future);
+    expect(repo.calls.first.sort, '-started_at');
+
+    await container.read(tripsProvider.notifier).loadMore();
+    expect(repo.calls.last.sort, '-started_at');
+    expect(repo.calls.length, 2);
+
+    // Event for another vehicle is ignored
+    eventsController.add(
+      RealtimeEvent(
+        type: RealtimeEventType.tripCompleted,
+        vehicleId: 'veh_OTHER',
+        timestamp: DateTime.utc(2026, 11, 25, 10, 0),
+        rawData: const {'trip_id': 't_other'},
+      ),
+    );
+    await pumpEventQueue();
+    expect(repo.calls.length, 2);
+
+    // Event for active vehicle triggers refresh
+    eventsController.add(
+      RealtimeEvent(
+        type: RealtimeEventType.tripCompleted,
+        vehicleId: 'veh_1',
+        timestamp: DateTime.utc(2026, 11, 25, 10, 5),
+        rawData: const {'trip_id': 't_new'},
+      ),
+    );
+    await pumpEventQueue();
+    expect(repo.calls.length, 3);
   });
 }

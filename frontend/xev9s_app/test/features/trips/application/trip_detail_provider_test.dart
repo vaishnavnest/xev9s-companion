@@ -1,3 +1,4 @@
+import 'dart:async';
 // ignore: depend_on_referenced_packages
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +7,7 @@ import 'package:xev9s_app/core/constants/app_constants.dart';
 import 'package:xev9s_app/core/network/api_exception.dart';
 import 'package:xev9s_app/core/network/api_response.dart';
 import 'package:xev9s_app/core/network/error_codes.dart';
+import 'package:xev9s_app/core/realtime/realtime_providers.dart';
 import 'package:xev9s_app/features/trips/application/trip_detail_provider.dart';
 import 'package:xev9s_app/features/trips/data/trip_repository.dart';
 import 'package:xev9s_app/features/trips/domain/route_point.dart';
@@ -13,6 +15,7 @@ import 'package:xev9s_app/features/trips/domain/trip.dart';
 import 'package:xev9s_app/features/trips/domain/trip_detail.dart';
 import 'package:xev9s_app/features/trips/domain/trip_location.dart';
 import 'package:xev9s_app/features/trips/domain/trip_status.dart';
+import 'package:xev9s_app/features/vehicles/domain/realtime_event.dart';
 
 class _FakeDetailTripRepository implements TripRepository {
   int getTripCalls = 0;
@@ -132,5 +135,56 @@ void main() {
       async.elapse(const Duration(seconds: AppConstants.ongoingTripRefreshSeconds * 3));
       expect(repo.getTripCalls, 4);
     });
+  });
+
+  test('trip.completed event refreshes matching trip detail only', () async {
+    final eventsController = StreamController<RealtimeEvent>.broadcast();
+    addTearDown(eventsController.close);
+
+    final repo = _FakeDetailTripRepository()
+      ..onGetTrip = (_, id) async => TripDetail(
+            trip: Trip(
+              tripId: id,
+              status: TripStatus.completed,
+              startedAt: DateTime.utc(2026, 11, 24, 9, 0),
+              startLocation: const TripLocation(latitude: 12.97, longitude: 77.59),
+            ),
+          );
+
+    final container = ProviderContainer(
+      overrides: [
+        tripRepositoryProvider.overrideWithValue(repo),
+        realtimeEventsProvider.overrideWith((ref) => eventsController.stream),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.listen(tripDetailProvider(key), (previous, next) {});
+
+    await container.read(tripDetailProvider(key).future);
+    expect(repo.getTripCalls, 1);
+
+    // Different trip_id is ignored
+    eventsController.add(
+      RealtimeEvent(
+        type: RealtimeEventType.tripCompleted,
+        vehicleId: 'veh_1',
+        timestamp: DateTime.utc(2026, 11, 24, 9, 30),
+        rawData: const {'trip_id': 'trp_OTHER'},
+      ),
+    );
+    await pumpEventQueue();
+    expect(repo.getTripCalls, 1);
+
+    // Matching vehicle_id and trip_id triggers refresh
+    eventsController.add(
+      RealtimeEvent(
+        type: RealtimeEventType.tripCompleted,
+        vehicleId: 'veh_1',
+        timestamp: DateTime.utc(2026, 11, 24, 9, 35),
+        rawData: const {'trip_id': 'trp_01'},
+      ),
+    );
+    await pumpEventQueue();
+    expect(repo.getTripCalls, 2);
   });
 }

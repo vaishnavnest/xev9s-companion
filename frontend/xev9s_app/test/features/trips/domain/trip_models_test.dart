@@ -147,5 +147,18 @@ void main() {
       expect(detail.route, isEmpty);
       expect(RoutePoint.parseList(null), isEmpty);
     });
+    test('parses naive ISO timestamps without Z suffix as UTC', () {
+      final trip = Trip.fromJson({
+        'trip_id': 'trp_naive',
+        'status': 'completed',
+        'started_at': '2026-11-27T07:30:00',
+        'ended_at': '2026-11-27T08:15:00',
+        'start_location': {'description': 'A'},
+      });
+      expect(trip.startedAt.isUtc, isTrue);
+      expect(trip.startedAt, DateTime.utc(2026, 11, 27, 7, 30));
+      expect(trip.endedAt?.isUtc, isTrue);
+      expect(trip.endedAt, DateTime.utc(2026, 11, 27, 8, 15));
+    });
   });
 }

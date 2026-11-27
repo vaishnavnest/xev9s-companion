@@ -7,6 +7,8 @@ import 'package:xev9s_app/core/network/error_codes.dart';
 import 'package:xev9s_app/core/realtime/realtime_providers.dart';
 import 'package:xev9s_app/features/charging/data/charging_repository.dart';
 import 'package:xev9s_app/features/charging/domain/charging_overview.dart';
+import 'package:xev9s_app/features/charging/domain/charging_schedule.dart';
+import 'package:xev9s_app/features/charging/domain/day_of_week.dart';
 import 'package:xev9s_app/features/charging/presentation/providers/charging_overview_provider.dart';
 import 'package:xev9s_app/features/vehicles/domain/realtime_event.dart';
 import 'package:xev9s_app/features/vehicles/domain/vehicle_status.dart';
@@ -165,6 +167,54 @@ void main() {
       resyncController.add(null);
       await pumpEventQueue();
       expect(container.read(chargingOverviewProvider).value?.batteryPercent, 52.0);
+    });
+
+    test('partial charging.updated event preserves targetPercent, schedule, and duration', () async {
+      const schedule = ChargingSchedule(
+        enabled: true,
+        startTime: ScheduleTime(hour: 12, minute: 2),
+        endTime: ScheduleTime(hour: 12, minute: 11),
+        daysOfWeek: {DayOfWeek.mon, DayOfWeek.fri},
+      );
+      const initial = ChargingOverview(
+        state: ChargingState.charging,
+        batteryPercent: 81.0,
+        targetPercent: 85,
+        powerKw: 7.2,
+        sessionDurationSeconds: 120,
+        schedule: schedule,
+        currentSessionId: 'chs_1',
+        timezone: 'Asia/Kolkata',
+      );
+
+      when(() => mockRepository.getOverview('veh_9S0001'))
+          .thenAnswer((_) async => initial);
+
+      final container = createContainer();
+      container.listen(chargingOverviewProvider, (previous, next) {});
+      await container.read(chargingOverviewProvider.future);
+
+      // Partial WebSocket charging progress event omitting target, schedule, and duration
+      eventController.add(RealtimeEvent(
+        type: RealtimeEventType.chargingUpdated,
+        vehicleId: 'veh_9S0001',
+        timestamp: DateTime.now().add(const Duration(seconds: 5)),
+        rawData: const {
+          'state': 'CHARGING',
+          'battery_percentage': 82.0,
+          'charging_power_kw': 7.4,
+        },
+      ));
+      await pumpEventQueue();
+
+      final updated = container.read(chargingOverviewProvider).value!;
+      expect(updated.batteryPercent, 82.0);
+      expect(updated.powerKw, 7.4);
+      expect(updated.targetPercent, 85);
+      expect(updated.sessionDurationSeconds, 120);
+      expect(updated.schedule, schedule);
+      expect(updated.currentSessionId, 'chs_1');
+      expect(updated.timezone, 'Asia/Kolkata');
     });
   });
 }

@@ -3,7 +3,6 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/api_response.dart';
-import '../../../core/network/error_codes.dart';
 import '../../../core/providers.dart';
 import '../../vehicles/domain/vehicle_status.dart';
 import '../domain/charging_overview.dart';
@@ -172,6 +171,23 @@ class ApiChargingRepository implements ChargingRepository {
     return updated;
   }
 
+  String? _mapStatusToQuery(ChargingState status) {
+    switch (status) {
+      case ChargingState.charging:
+        return 'active';
+      case ChargingState.paused:
+        return 'paused';
+      case ChargingState.completed:
+        return 'completed';
+      case ChargingState.interrupted:
+        return 'interrupted';
+      case ChargingState.connected:
+      case ChargingState.notConnected:
+      case ChargingState.unknown:
+        return null;
+    }
+  }
+
   @override
   Future<PagedResult<ChargingSession>> listSessions(
     String vehicleId, {
@@ -189,7 +205,25 @@ class ApiChargingRepository implements ChargingRepository {
     final query = <String, dynamic>{
       'limit': limit,
       'offset': offset,
+      'page': currentPage,
+      'page_size': limit,
     };
+
+    if (status != null) {
+      final mappedStatus = _mapStatusToQuery(status);
+      if (mappedStatus != null) {
+        query['status'] = mappedStatus;
+      }
+    }
+    if (from != null) {
+      query['from'] = from.toUtc().toIso8601String();
+    }
+    if (to != null) {
+      query['to'] = to.toUtc().toIso8601String();
+    }
+    if (sort != null && sort.isNotEmpty) {
+      query['sort'] = sort;
+    }
 
     return apiClient.getPaged<ChargingSession>(
       '/vehicles/$vehicleId/charging/sessions',
@@ -205,16 +239,14 @@ class ApiChargingRepository implements ChargingRepository {
 
   @override
   Future<ChargingSession> getSession(String vehicleId, String sessionId) async {
-    final paged = await listSessions(vehicleId, page: 1, pageSize: 100);
-    for (final session in paged.items) {
-      if (session.sessionId == sessionId) {
-        return session;
-      }
-    }
-    throw const AppError(
-      code: ApiErrorCode.notFound,
-      message: 'Charging session not found',
-      httpStatus: 404,
+    return apiClient.get<ChargingSession>(
+      '/vehicles/$vehicleId/charging/sessions/$sessionId',
+      parse: (json) {
+        if (json is! Map<String, dynamic>) {
+          throw const FormatException('Expected JSON map for ChargingSession');
+        }
+        return ChargingSession.fromJson(json);
+      },
     );
   }
 }

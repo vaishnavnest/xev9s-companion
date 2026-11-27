@@ -261,6 +261,8 @@ void main() {
     expect(find.byKey(const Key('trip_row_t_page2')), findsOneWidget);
 
     // Open a trip detail and pop back -> page2 item still present
+    await tester.ensureVisible(find.byKey(const Key('trip_row_t_page2')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('trip_row_t_page2')));
     await tester.pumpAndSettle();
     expect(find.text('Detail t_page2'), findsOneWidget);

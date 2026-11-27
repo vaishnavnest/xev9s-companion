@@ -99,30 +99,58 @@ void main() {
       expect(result.schedule, isNull);
     });
 
-    test('listSessions calls getPaged with limit and offset', () async {
+    test('listSessions passes pagination, status, from, to, and sort query parameters', () async {
       final session = ChargingSession(
         sessionId: 'chs_1',
         vehicleId: 'veh_9S0001',
         startedAt: DateTime.now(),
         status: ChargingState.completed,
       );
+      final from = DateTime.utc(2026, 11, 1);
+      final to = DateTime.utc(2026, 11, 30);
 
       when(
         () => mockApiClient.getPaged<ChargingSession>(
           '/vehicles/veh_9S0001/charging/sessions',
-          query: any(named: 'query'),
+          query: {
+            'limit': 10,
+            'offset': 10,
+            'page': 2,
+            'page_size': 10,
+            'status': 'active',
+            'from': from.toIso8601String(),
+            'to': to.toIso8601String(),
+            'sort': '-started_at',
+          },
           parseItem: any(named: 'parseItem'),
         ),
       ).thenAnswer(
-        (_) async => PagedResult<ChargingSession>(items: [session]),
+        (_) async => PagedResult<ChargingSession>(
+          items: [session],
+          pagination: const Pagination(
+            page: 2,
+            pageSize: 10,
+            totalItems: 11,
+            totalPages: 2,
+          ),
+        ),
       );
 
-      final result = await repository.listSessions('veh_9S0001', page: 1);
+      final result = await repository.listSessions(
+        'veh_9S0001',
+        page: 2,
+        pageSize: 10,
+        status: ChargingState.charging,
+        from: from,
+        to: to,
+        sort: '-started_at',
+      );
       expect(result.items.length, 1);
       expect(result.items.first.sessionId, 'chs_1');
+      expect(result.pagination?.totalPages, 2);
     });
 
-    test('getSession resolves matching session from listSessions', () async {
+    test('getSession fetches single session directly from /sessions/{sessionId}', () async {
       final session = ChargingSession(
         sessionId: 'chs_42',
         vehicleId: 'veh_9S0001',
@@ -131,17 +159,20 @@ void main() {
       );
 
       when(
-        () => mockApiClient.getPaged<ChargingSession>(
-          '/vehicles/veh_9S0001/charging/sessions',
-          query: {'limit': 100, 'offset': 0},
-          parseItem: any(named: 'parseItem'),
+        () => mockApiClient.get<ChargingSession>(
+          '/vehicles/veh_9S0001/charging/sessions/chs_42',
+          parse: any(named: 'parse'),
         ),
-      ).thenAnswer(
-        (_) async => PagedResult<ChargingSession>(items: [session]),
-      );
+      ).thenAnswer((_) async => session);
 
       final result = await repository.getSession('veh_9S0001', 'chs_42');
       expect(result.sessionId, 'chs_42');
+      verify(
+        () => mockApiClient.get<ChargingSession>(
+          '/vehicles/veh_9S0001/charging/sessions/chs_42',
+          parse: any(named: 'parse'),
+        ),
+      ).called(1);
     });
   });
 }

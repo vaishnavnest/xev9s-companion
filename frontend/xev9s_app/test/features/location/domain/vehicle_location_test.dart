@@ -143,6 +143,38 @@ void main() {
       expect(location.vehicleState, VehicleState.unknown);
     });
 
+    test('parses operating_state and falls back to offline when connectivity_status is offline', () {
+      final driving = VehicleLocation.fromJson({
+        'vehicle_id': 'veh_9S0001',
+        'latitude': 12.9716,
+        'longitude': 77.5946,
+        'operating_state': 'DRIVING',
+        'connectivity_status': 'online',
+        'is_current': true,
+      });
+      expect(driving.vehicleState, VehicleState.driving);
+
+      final offline = VehicleLocation.fromJson({
+        'vehicle_id': 'veh_9S0001',
+        'latitude': 12.9716,
+        'longitude': 77.5946,
+        'operating_state': null,
+        'connectivity_status': 'offline',
+        'is_current': false,
+      });
+      expect(offline.vehicleState, VehicleState.offline);
+
+      final onlineNullState = VehicleLocation.fromJson({
+        'vehicle_id': 'veh_9S0001',
+        'latitude': 12.9716,
+        'longitude': 77.5946,
+        'operating_state': null,
+        'connectivity_status': 'online',
+        'is_current': true,
+      });
+      expect(onlineNullState.vehicleState, VehicleState.unknown);
+    });
+
     test('Missing required vehicleId throws FormatException', () {
       expect(
         () => VehicleLocation.fromJson({

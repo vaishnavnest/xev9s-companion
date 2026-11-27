@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
@@ -140,6 +141,7 @@ class _AppMapState extends ConsumerState<AppMap>
   late final MapController _mapController;
   late final AppMapController _effectiveController;
   late final AnimationController _animController;
+  VoidCallback? _activeAnimListener;
   bool _internalControllerCreated = false;
 
   static const double _minZoom = 3.0;
@@ -197,6 +199,10 @@ class _AppMapState extends ConsumerState<AppMap>
 
   @override
   void dispose() {
+    if (_activeAnimListener != null) {
+      _animController.removeListener(_activeAnimListener!);
+      _activeAnimListener = null;
+    }
     _effectiveController.detach();
     if (_internalControllerCreated) {
       _effectiveController.dispose();
@@ -208,6 +214,11 @@ class _AppMapState extends ConsumerState<AppMap>
 
   void _animateTo(LatLng target, {double? zoom}) {
     if (!mounted) return;
+    if (_activeAnimListener != null) {
+      _animController.removeListener(_activeAnimListener!);
+      _activeAnimListener = null;
+    }
+
     final currentZoom = _mapController.camera.zoom;
     final targetZoom = (zoom ?? currentZoom).clamp(_minZoom, _maxZoom);
 
@@ -229,10 +240,14 @@ class _AppMapState extends ConsumerState<AppMap>
       );
     }
 
+    _activeAnimListener = listener;
     _animController.reset();
     _animController.addListener(listener);
     _animController.forward().whenComplete(() {
-      _animController.removeListener(listener);
+      if (_activeAnimListener == listener) {
+        _animController.removeListener(listener);
+        _activeAnimListener = null;
+      }
     });
   }
 
@@ -364,8 +379,15 @@ class _AppMapState extends ConsumerState<AppMap>
             children: [
               TileLayer(
                 urlTemplate: AppConfig.mapTileUrl,
-                userAgentPackageName: AppConfig.mapUserAgentPackageName,
+                userAgentPackageName:
+                    kIsWeb ? 'unknown' : AppConfig.mapUserAgentPackageName,
                 tileProvider: tileProvider,
+                evictErrorTileStrategy: EvictErrorTileStrategy.notVisible,
+                errorTileCallback: (tile, error, stackTrace) {
+                  debugPrint(
+                    '[AppMap] Tile load failed (${tile.coordinates}): $error',
+                  );
+                },
               ),
               if (widget.polyline.isNotEmpty)
                 PolylineLayer(

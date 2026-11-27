@@ -84,6 +84,7 @@ enum ChargingState {
     if (value == null || value.trim().isEmpty) return ChargingState.unknown;
     final normalized = value.trim().toUpperCase();
     if (normalized == 'DISCONNECTED') return ChargingState.notConnected;
+    if (normalized == 'ACTIVE') return ChargingState.charging;
     for (final state in ChargingState.values) {
       if (state.wireValue == normalized) return state;
     }
