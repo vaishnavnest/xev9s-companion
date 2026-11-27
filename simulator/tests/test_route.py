@@ -1,6 +1,5 @@
 
 import pytest
-
 from simulator.scenarios.route import (
     advance_route,
     calculate_distance,

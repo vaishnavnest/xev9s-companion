@@ -1,5 +1,4 @@
 import pytest
-
 from simulator.vehicle.simulation_engine import SimulationEngine
 from simulator.vehicle.state import (
     ChargingStatus,

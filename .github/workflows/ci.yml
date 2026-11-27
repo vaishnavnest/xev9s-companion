@@ -235,7 +235,105 @@ jobs:
           path: htmlcov
 
 
-  # 3. Report Worker Validation
+  # 3. Vehicle Simulator Validation
+  simulator-verify:
+    name: Vehicle Simulator Lint & Test
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Check if simulator changed
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            simulator:
+              - 'simulator/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Setup Python
+        if: steps.filter.outputs.simulator == 'true'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: simulator/requirements.txt
+
+      - name: Install Simulator Dependencies
+        if: steps.filter.outputs.simulator == 'true'
+        run: |
+          python -m pip install -r simulator/requirements.txt
+          python -m pip install python-dotenv pydantic pytest==9.2.0 pytest-cov==7.1.0 ruff==0.17.6
+
+      - name: Enforce 200-Line Limit
+        if: steps.filter.outputs.simulator == 'true'
+        run: |
+          FAILED=0
+
+          while IFS= read -r -d '' file; do
+            LINES=$(wc -l < "$file")
+
+            if [ "$LINES" -gt 200 ]; then
+              echo "$file has $LINES lines (limit is 200)"
+              FAILED=1
+            fi
+          done < <(find simulator -path "simulator/tests" -prune -o -name "*.py" -print0)
+
+          if [ "$FAILED" -eq 1 ]; then
+            exit 1
+          fi
+
+          echo "All simulator Python files are within 200 lines."
+
+      - name: Lint Python Code
+        if: steps.filter.outputs.simulator == 'true'
+        working-directory: simulator
+        run: ruff check .
+
+      - name: Run Simulator Tests with 70% Coverage Gate
+        if: steps.filter.outputs.simulator == 'true'
+        working-directory: simulator
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest tests \
+            --cov=communication \
+            --cov=scenarios \
+            --cov=telemetry \
+            --cov=vehicle \
+            --cov=main \
+            --cov=mqtt_main \
+            --cov=mqtt_cli \
+            --cov-report=term-missing \
+            --cov-report=html:htmlcov \
+            --cov-report=json:coverage.json \
+            -v
+
+          COVERAGE=$(python -c "import json; data=json.load(open('coverage.json')); print(f\"{data['totals']['percent_covered']:.1f}\")")
+
+          echo "### Vehicle Simulator Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Line Coverage:** ${COVERAGE}%" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Required Threshold:** 70.0%" >> "$GITHUB_STEP_SUMMARY"
+
+          python -c "
+          cov = float('$COVERAGE')
+          if cov < 70.0:
+              print(f'Simulator coverage {cov}% is below the 70.0% threshold!')
+              exit(1)
+          print(f'Simulator coverage check passed ({cov}% >= 70.0%)')
+          "
+
+      - name: Upload Simulator HTML Coverage Report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.filter.outputs.simulator == 'true' && hashFiles('simulator/htmlcov/index.html') != ''
+        with:
+          name: simulator-html-coverage-report
+          path: simulator/htmlcov
+
+
+  # 4. Report Worker Validation
   report-worker-verify:
     name: Report Worker Lint & Test
     runs-on: ubuntu-24.04
@@ -373,7 +471,7 @@ jobs:
             .
 
 
-  # 5. Mandatory CI Gate
+  # 6. Mandatory CI Gate
   ci-gate:
     name: Mandatory CI Gate
     runs-on: ubuntu-24.04
@@ -381,6 +479,7 @@ jobs:
     needs:
       - flutter-verify
       - backend-verify
+      - simulator-verify
       - report-worker-verify
       - security-scan
 
@@ -391,11 +490,13 @@ jobs:
         env:
           FLUTTER_RESULT: ${{ needs.flutter-verify.result }}
           BACKEND_RESULT: ${{ needs.backend-verify.result }}
+          SIMULATOR_RESULT: ${{ needs.simulator-verify.result }}
           REPORT_WORKER_RESULT: ${{ needs.report-worker-verify.result }}
           SECURITY_RESULT: ${{ needs.security-scan.result }}
         run: |
           echo "Flutter result: $FLUTTER_RESULT"
           echo "Backend result: $BACKEND_RESULT"
+          echo "Simulator result: $SIMULATOR_RESULT"
           echo "Report worker result: $REPORT_WORKER_RESULT"
           echo "Security result: $SECURITY_RESULT"
 
@@ -406,6 +507,11 @@ jobs:
 
           if [[ "$BACKEND_RESULT" != "success" && "$BACKEND_RESULT" != "skipped" ]]; then
             echo "Backend checks failed!"
+            exit 1
+          fi
+
+          if [[ "$SIMULATOR_RESULT" != "success" && "$SIMULATOR_RESULT" != "skipped" ]]; then
+            echo "Simulator checks failed!"
             exit 1
           fi
 

@@ -2,7 +2,6 @@ from unittest.mock import MagicMock
 
 import paho.mqtt.client as mqtt
 import pytest
-
 from simulator.communication.mqtt_client import MQTTClient
 
 

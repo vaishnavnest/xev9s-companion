@@ -1,6 +1,5 @@
 
 import pytest
-
 from simulator.scenarios.models import (
     ScenarioConfig,
     ScenarioStatus,
