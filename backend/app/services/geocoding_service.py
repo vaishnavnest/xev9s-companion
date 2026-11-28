@@ -1,18 +1,16 @@
-
 import http.client
-import json
 import logging
 import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
+import httpx
 from backend.app.services.geocoding_formatter import format_nominatim_address
 
 logger = logging.getLogger(__name__)
-
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
 NOMINATIM_HOST = "nominatim.openstreetmap.org"
 DEFAULT_USER_AGENT = "xev9s-companion/1.0"
@@ -22,30 +20,27 @@ def _cache_key(latitude: float, longitude: float) -> tuple[float, float]:
     return round(latitude, 4), round(longitude, 4)
 
 
-def _default_http_get(
-    url: str, headers: dict[str, str], timeout: float
-) -> object:
-    """Perform an HTTPS-only request to the Nominatim endpoint."""
+def _default_http_get(url: str, headers: dict[str, str], timeout: float) -> object:
+    """Perform a validated HTTPS request to the Nominatim endpoint."""
     parsed = urlsplit(url)
     if (
         parsed.scheme != "https"
         or parsed.netloc != NOMINATIM_HOST
         or parsed.path != "/reverse"
-        or parsed.username or parsed.password or parsed.fragment
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
     ):
         raise ValueError("Invalid geocoding URL")
 
-    connection = http.client.HTTPSConnection(NOMINATIM_HOST, timeout=timeout)
-    try:
-        connection.request("GET", f"/reverse?{parsed.query}", headers=headers)
-        with connection.getresponse() as response:
-            if response.status >= 400:
-                raise http.client.HTTPException(
-                    f"Geocoding failed: HTTP {response.status}"
-                )
-            return json.loads(response.read().decode("utf-8"))
-    finally:
-        connection.close()
+    with httpx.Client(timeout=timeout, verify=True, follow_redirects=False) as client:
+        response = client.get(
+            NOMINATIM_URL,
+            params=parse_qsl(parsed.query),
+            headers=headers,
+        )
+        response.raise_for_status()
+        return response.json()
 
 
 class GeocodingService:
@@ -70,7 +65,9 @@ class GeocodingService:
         self._cache_ttl_seconds = cache_ttl_seconds
         self._http_get = http_get or _default_http_get
         self._owns_executor = executor is None
-        self._executor = executor or ThreadPoolExecutor(max_workers=2, thread_name_prefix="geocoder")
+        self._executor = executor or ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="geocoder"
+        )
         self._time = time_fn or time.monotonic
         self._sleep = sleep_fn or time.sleep
         self._lock = threading.Lock()
@@ -95,7 +92,10 @@ class GeocodingService:
 
     def _set_cached(self, key: tuple[float, float], description: str) -> None:
         with self._lock:
-            self._cache[key] = description, self._time() + self._cache_ttl_seconds
+            self._cache[key] = (
+                description,
+                self._time() + self._cache_ttl_seconds,
+            )
             self._cache.move_to_end(key)
             while len(self._cache) > self._cache_max_size:
                 self._cache.popitem(last=False)
@@ -120,18 +120,26 @@ class GeocodingService:
         if cached is not None:
             return cached
 
-        query = urlencode({
-            "format": "jsonv2",
-            "lat": f"{latitude:.6f}",
-            "lon": f"{longitude:.6f}",
-        })
+        query = urlencode(
+            {
+                "format": "jsonv2",
+                "lat": f"{latitude:.6f}",
+                "lon": f"{longitude:.6f}",
+            }
+        )
         try:
             payload = self._http_get(
                 f"{NOMINATIM_URL}?{query}",
                 headers={"User-Agent": self._user_agent},
                 timeout=self._timeout_seconds,
             )
-        except (http.client.HTTPException, OSError, ValueError, TypeError) as exc:
+        except (
+            httpx.HTTPError,
+            http.client.HTTPException,
+            OSError,
+            ValueError,
+            TypeError,
+        ) as exc:
             logger.warning("Reverse geocoding failed (%s)", type(exc).__name__)
             return None
 
@@ -143,16 +151,11 @@ class GeocodingService:
     def _handle_future_done(self, future: Future[None]) -> None:
         with self._lock:
             self._pending_futures.discard(future)
-
         if future.cancelled():
             return
-
         exc = future.exception()
         if exc is not None:
-            logger.warning(
-            "Background geocoding task failed (%s)",
-            type(exc).__name__,
-            )
+            logger.warning("Background geocoding task failed (%s)", type(exc).__name__)
 
     def schedule_lookup(
         self,
