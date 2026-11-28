@@ -63,7 +63,29 @@ class ScenarioExecutionHandlers:
         return connectivity
 
     def _advance_driving(self, elapsed_seconds: float) -> None:
-        route = self.manager.config.route
+        config = self.manager.config
+        route = config.route
+
+        if config.loop_route:
+            total_distance = sum(
+                calculate_distance(route[index], route[index + 1])
+                for index in range(len(route) - 1)
+            )
+            if total_distance <= 0:
+                self._complete_journey()
+                return
+
+            self.engine.advance(elapsed_seconds)
+            travelled = self.state.odometer_km - self.starting_odometer
+            progress = advance_route(route, 0, travelled % total_distance)
+            self.route_segment_index = progress.segment_index
+            self.state.latitude = progress.latitude
+            self.state.longitude = progress.longitude
+
+            if self.state.operating_state != OperatingState.DRIVING:
+                self.manager.status = ScenarioStatus.COMPLETED
+                self.emit("JOURNEY_ENDED", reason="BATTERY_DEPLETED")
+            return
 
         remaining = sum(
             calculate_distance(route[index], route[index + 1])
@@ -74,9 +96,7 @@ class ScenarioExecutionHandlers:
             self._complete_journey()
             return
 
-        allowed_seconds = (
-            remaining / self.engine.config.driving_speed_kph * 3600
-        )
+        allowed_seconds = remaining / self.engine.config.driving_speed_kph * 3600
         self.engine.advance(min(elapsed_seconds, allowed_seconds))
 
         travelled = self.state.odometer_km - self.starting_odometer
@@ -103,8 +123,18 @@ class ScenarioExecutionHandlers:
         self.manager.status = ScenarioStatus.COMPLETED
         self.emit("JOURNEY_COMPLETED", odometer_km=self.state.odometer_km)
 
+    def get_charging_target(self) -> float:
+        """Return the active charging target percentage."""
+        if getattr(self.engine, "_target_preference_set", False):
+            return (
+                self.engine.target_percentage
+                if self.engine.stop_charging_at_target
+                else 100.0
+            )
+        return self.manager.config.charging_target_percentage
+
     def _advance_charging(self, elapsed_seconds: float) -> None:
-        target = self.manager.config.charging_target_percentage
+        target = self.get_charging_target()
 
         if self.state.battery_percentage >= target:
             self.complete_charging()
@@ -112,14 +142,12 @@ class ScenarioExecutionHandlers:
 
         power = self.engine.config.charging_power_kw
         capacity = self.engine.config.battery_capacity_kwh
-        energy_needed = (
-            (target - self.state.battery_percentage) * capacity / 100
-        )
+        energy_needed = (target - self.state.battery_percentage) * capacity / 100
         seconds_to_target = energy_needed / power * 3600
 
         self.engine.advance(min(elapsed_seconds, seconds_to_target))
 
-        if self.state.battery_percentage >= target:
+        if self.state.battery_percentage >= target - 1e-9:
             self.state.battery_percentage = target
             self.complete_charging()
 

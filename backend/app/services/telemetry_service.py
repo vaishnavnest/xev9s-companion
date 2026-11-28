@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 from backend.app.core.exceptions import (
@@ -9,6 +10,8 @@ from backend.app.repositories.telemetry_repository import (
 )
 from backend.app.repositories.vehicle_repository import VehicleRepository
 from backend.app.schemas.telemetry import TelemetryPayload
+
+logger = logging.getLogger(__name__)
 
 
 class TelemetryService:
@@ -44,7 +47,13 @@ class TelemetryService:
         if self.trip_service is not None and hasattr(
             self.trip_service, "process_telemetry"
         ):
-            self.trip_service.process_telemetry(normalized_telemetry)
+            try:
+                self.trip_service.process_telemetry(normalized_telemetry)
+            except Exception:
+                logger.exception(
+                    "Trip processing failed for vehicle %s",
+                    vehicle_id,
+                )
 
         return saved
 

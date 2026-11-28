@@ -42,6 +42,7 @@ def test_get_location_success(api):
         is_current=True,
         connectivity_status="online",
         operating_state="parked",
+        description="MG Road, Bengaluru, Karnataka",
     )
 
     response = client.get("/vehicles/XEV-DEMO-001/location")
@@ -54,6 +55,7 @@ def test_get_location_success(api):
     assert data["is_current"] is True
     assert data["connectivity_status"] == "online"
     assert data["operating_state"] == "parked"
+    assert data["description"] == "MG Road, Bengaluru, Karnataka"
 
 
 def test_get_location_no_gps_history_200(api):
@@ -76,6 +78,7 @@ def test_get_location_no_gps_history_200(api):
     assert data["timestamp"] is None
     assert data["is_current"] is False
     assert data["connectivity_status"] == "online"
+    assert data["description"] is None
 
 
 def test_get_location_access_denied_403(api):
@@ -125,7 +128,13 @@ def test_get_location_service_fallback():
     request.app = mock_app
 
     service = location_routes.get_location_service(request)
+    second_service = location_routes.get_location_service(request)
+
     assert service is not None
+    assert service.geocoding_service is not None
+    assert second_service is service
+    assert second_service.geocoding_service is service.geocoding_service
+    assert mock_app.state.location_service is service
 
 
 def test_get_location_service_from_state():

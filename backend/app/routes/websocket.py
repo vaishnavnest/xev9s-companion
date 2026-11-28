@@ -1,4 +1,4 @@
-
+import asyncio
 import logging
 
 from backend.app.communication.websocket_manager import WebSocketManager
@@ -7,8 +7,10 @@ from backend.app.repositories.user_repository import UserRepository
 from backend.app.repositories.vehicle_repository import VehicleRepository
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jwt import InvalidTokenError
+from pymongo.errors import PyMongoError
 
 logger = logging.getLogger(__name__)
+WS_AUTH_TIMEOUT_SECONDS = 10.0
 
 router = APIRouter(tags=["Vehicle WebSocket"])
 
@@ -23,7 +25,14 @@ async def vehicle_telemetry_socket(
     manager: WebSocketManager = websocket.app.state.websocket_manager
 
     try:
-        credentials = await websocket.receive_json()
+        try:
+            credentials = await asyncio.wait_for(
+                websocket.receive_json(),
+                timeout=WS_AUTH_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            await websocket.close(code=1008)
+            return
 
         if not isinstance(credentials, dict):
             await websocket.close(code=1008)
@@ -44,7 +53,7 @@ async def vehicle_telemetry_socket(
 
         database = websocket.app.state.database
         user_repository = UserRepository(database["users"])
-        user = user_repository.get_user_by_id(user_id)
+        user = await asyncio.to_thread(user_repository.get_user_by_id, user_id)
 
         if not user or not user.get("is_active"):
             await websocket.close(code=1008)
@@ -55,10 +64,12 @@ async def vehicle_telemetry_socket(
             database["user_vehicles"],
         )
 
-        if not vehicle_repository.is_vehicle_associated_with_user(
+        is_associated = await asyncio.to_thread(
+            vehicle_repository.is_vehicle_associated_with_user,
             user_id,
             vehicle_id,
-        ):
+        )
+        if not is_associated:
             await websocket.close(code=1008)
             return
 
@@ -73,6 +84,9 @@ async def vehicle_telemetry_socket(
 
     except InvalidTokenError:
         await websocket.close(code=1008)
+    except PyMongoError:
+        logger.exception("Database error during WebSocket authentication")
+        await websocket.close(code=1011)
     except WebSocketDisconnect:
         logger.info(
             "WebSocket client disconnected from vehicle %s",

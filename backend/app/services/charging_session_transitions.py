@@ -1,4 +1,3 @@
-
 from datetime import UTC, datetime
 
 from backend.app.core.exceptions import (
@@ -9,6 +8,7 @@ from backend.app.repositories.charging_session_repository import (
 )
 from backend.app.schemas.charging_event import ChargingEvent
 from backend.app.schemas.charging_session import ChargingSessionStatus
+from backend.app.services.trip_calculations import normalize_utc_datetime
 
 
 class ChargingSessionTransitions:
@@ -63,7 +63,10 @@ class ChargingSessionTransitions:
     ) -> dict:
         """Close a session with its final charging details."""
 
-        if event.timestamp < active_session["started_at"]:
+        started_at = normalize_utc_datetime(active_session["started_at"])
+        event_timestamp = normalize_utc_datetime(event.timestamp)
+
+        if event_timestamp < started_at:
             raise InvalidChargingTransitionError(
                 "Event timestamp cannot precede session start"
             )
@@ -72,12 +75,10 @@ class ChargingSessionTransitions:
             event.session_id,
             {
                 "status": status.value,
-                "ended_at": event.timestamp,
+                "ended_at": event_timestamp,
                 "ending_battery_percentage": event.battery_percentage,
                 "charging_power_kw": 0.0,
-                "duration_seconds": (
-                    event.timestamp - active_session["started_at"]
-                ).total_seconds(),
+                "duration_seconds": (event_timestamp - started_at).total_seconds(),
                 "interruption_reason": event.interruption_reason,
                 "updated_at": datetime.now(UTC),
             },

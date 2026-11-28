@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import time
+from collections import deque
 
 from simulator.communication.message_handler import MQTTMessageHandler
 from simulator.communication.mqtt_client import MQTTClient
@@ -16,6 +17,7 @@ from simulator.mqtt_cli import (
     create_scenario_executor,
     parse_mqtt_args,
 )
+from simulator.scenarios.execution_models import ConnectivityStatus
 from simulator.scenarios.models import ScenarioStatus, ScenarioType
 from simulator.telemetry.generator import generate_telemetry
 from simulator.vehicle.charging_tracker import ChargingEventTracker
@@ -91,6 +93,7 @@ def run_mqtt_simulator(
     if not isinstance(engine, SimulationEngine):
         engine = SimulationEngine(state)
     charging_tracker = ChargingEventTracker()
+    pending_events: deque[dict] = deque(maxlen=100)
     executor = (
         create_scenario_executor(state, scenario, engine=engine)
         if scenario is not None
@@ -99,6 +102,7 @@ def run_mqtt_simulator(
 
     if executor is not None:
         update = executor.start()
+        pending_events.extend(charging_tracker.evaluate(state, engine))
         logger.info("Started scenario %s for vehicle %s", scenario.value, vehicle_id)
         logger.info("Initial scenario telemetry: %s", update.telemetry)
 
@@ -108,26 +112,46 @@ def run_mqtt_simulator(
 
         while True:
             if mqtt_client.is_connected:
+                connectivity = ConnectivityStatus.ONLINE
                 if (
                     executor is not None
                     and executor.manager.status == ScenarioStatus.RUNNING
                 ):
-                    telemetry = executor.advance(telemetry_interval).telemetry
+                    update = executor.advance(telemetry_interval)
+                    telemetry = update.telemetry
+                    connectivity = update.connectivity
                 else:
                     telemetry = generate_telemetry(state)
 
-                mqtt_client.publish(
-                    mqtt_client.telemetry_topic,
-                    json.dumps(telemetry),
-                    qos=0,
-                )
+                pending_events.extend(charging_tracker.evaluate(state, engine))
 
-                for event in charging_tracker.evaluate(state, engine):
-                    mqtt_client.publish(
-                        mqtt_client.charging_events_topic,
-                        json.dumps(event),
-                        qos=1,
-                    )
+                if connectivity == ConnectivityStatus.ONLINE:
+                    try:
+                        mqtt_client.publish(
+                            mqtt_client.telemetry_topic,
+                            json.dumps(telemetry),
+                            qos=0,
+                        )
+                    except RuntimeError:
+                        logger.warning(
+                            "Failed to publish telemetry; broker disconnected"
+                        )
+
+                    while pending_events:
+                        event = pending_events[0]
+                        try:
+                            mqtt_client.publish(
+                                mqtt_client.charging_events_topic,
+                                json.dumps(event),
+                                qos=1,
+                            )
+                            pending_events.popleft()
+                        except RuntimeError:
+                            logger.warning(
+                                "Failed to publish charging event %s; will retry",
+                                event.get("event_id"),
+                            )
+                            break
 
             time.sleep(telemetry_interval)
 
@@ -135,10 +159,7 @@ def run_mqtt_simulator(
         logger.info("MQTT simulator shutdown requested")
 
     finally:
-        if (
-            executor is not None
-            and executor.manager.status == ScenarioStatus.RUNNING
-        ):
+        if executor is not None and executor.manager.status == ScenarioStatus.RUNNING:
             executor.stop()
 
         mqtt_client.disconnect()

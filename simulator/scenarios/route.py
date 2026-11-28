@@ -1,4 +1,3 @@
-
 from dataclasses import dataclass
 from math import asin, cos, isfinite, radians, sin, sqrt
 
@@ -28,9 +27,7 @@ def calculate_distance(start: Coordinate, end: Coordinate) -> float:
 
     haversine = (
         sin(latitude_delta / 2) ** 2
-        + cos(latitude_1)
-        * cos(latitude_2)
-        * sin(longitude_delta / 2) ** 2
+        + cos(latitude_1) * cos(latitude_2) * sin(longitude_delta / 2) ** 2
     )
 
     return 2 * EARTH_RADIUS_KM * asin(sqrt(haversine))
@@ -81,4 +78,36 @@ def advance_route(
         final_longitude,
         len(route) - 2,
         True,
+    )
+
+
+def _offset_coordinate(
+    latitude: float,
+    longitude: float,
+    delta_lat: float,
+    delta_lon: float,
+) -> Coordinate:
+    lat_step = delta_lat if -90 <= latitude + delta_lat <= 90 else -delta_lat
+    lon_step = delta_lon if -180 <= longitude + delta_lon <= 180 else -delta_lon
+    return (round(latitude + lat_step, 6), round(longitude + lon_step, 6))
+
+
+def build_route(
+    start_latitude: float,
+    start_longitude: float,
+    loop: bool = False,
+) -> tuple[Coordinate, ...]:
+    """Build a valid geographic route starting at the given coordinates."""
+    start = (start_latitude, start_longitude)
+    if loop:
+        return (
+            start,
+            _offset_coordinate(start_latitude, start_longitude, 0.008, 0.004),
+            _offset_coordinate(start_latitude, start_longitude, 0.004, 0.012),
+            _offset_coordinate(start_latitude, start_longitude, -0.004, 0.006),
+            start,
+        )
+    return (
+        start,
+        _offset_coordinate(start_latitude, start_longitude, 0.005, 0.008),
     )

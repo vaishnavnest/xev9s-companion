@@ -6,6 +6,7 @@ from backend.app.core.exceptions import (
 from backend.app.repositories.telemetry_repository import TelemetryRepository
 from backend.app.repositories.vehicle_repository import VehicleRepository
 from backend.app.schemas.location import VehicleLocationResponse
+from backend.app.services.geocoding_service import GeocodingService
 from backend.app.services.location_service import LocationService
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
@@ -18,13 +19,16 @@ def get_location_service(request: Request) -> LocationService:
         return request.app.state.location_service
 
     database = request.app.state.database
-    return LocationService(
+    service = LocationService(
         vehicle_repository=VehicleRepository(
             database["vehicles"],
             database["user_vehicles"],
         ),
         telemetry_repository=TelemetryRepository(database["vehicle_telemetry"]),
+        geocoding_service=GeocodingService(),
     )
+    request.app.state.location_service = service
+    return service
 
 
 @router.get(

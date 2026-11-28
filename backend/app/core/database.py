@@ -25,6 +25,7 @@ def connect_to_database():
     new_client = MongoClient(
         MONGODB_URI,
         serverSelectionTimeoutMS=5000,
+        tz_aware=True,
     )
 
     try:

@@ -1,8 +1,17 @@
+from concurrent.futures import Future
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
+from backend.app.services.geocoding_service import GeocodingService
 from backend.app.services.location_service import LocationService
+
+
+class _ImmediateExecutor:
+    def submit(self, fn, *args, **kwargs):
+        future: Future = Future()
+        future.set_result(fn(*args, **kwargs))
+        return future
 
 
 @pytest.fixture
@@ -130,3 +139,41 @@ def test_get_location_no_gps_history_ever(mock_repos):
     assert result.timestamp is None
     assert result.is_current is False
     assert result.connectivity_status == "online"
+    assert result.description is None
+
+
+def _setup_vehicle(vehicle_repo, telemetry_repo, lat, lon, vehicle_id="XEV-001"):
+    now = datetime.now(UTC)
+    vehicle_repo.get_vehicle_by_id.return_value = {
+        "vehicle_id": vehicle_id,
+        "is_active": True,
+    }
+    vehicle_repo.is_vehicle_associated_with_user.return_value = True
+    telemetry_repo.get_latest_telemetry.return_value = {
+        "vehicle_id": vehicle_id,
+        "timestamp": now,
+        "operating_state": "driving",
+    }
+    telemetry_repo.get_latest_valid_location.return_value = {
+        "vehicle_id": vehicle_id,
+        "latitude": lat,
+        "longitude": lon,
+        "timestamp": now,
+    }
+
+
+def test_get_location_returns_cached_description_and_lazy_pending(mock_repos):
+    vehicle_repo, telemetry_repo = mock_repos
+    _setup_vehicle(vehicle_repo, telemetry_repo, 12.9716, 77.5946)
+
+    geocoder = MagicMock(spec=GeocodingService)
+    geocoder.get_cached.side_effect = [None, "MG Road, Bengaluru"]
+
+    service = LocationService(vehicle_repo, telemetry_repo, geocoding_service=geocoder)
+
+    first = service.get_vehicle_location("user-1", "XEV-001")
+    second = service.get_vehicle_location("user-1", "XEV-001")
+
+    assert first.description is None
+    geocoder.schedule_lookup.assert_called_once()
+    assert second.description == "MG Road, Bengaluru"

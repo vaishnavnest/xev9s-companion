@@ -1,10 +1,10 @@
-
 import json
 import logging
 import os
 import re
 from collections.abc import Callable
 from typing import Any
+from uuid import uuid4
 
 import paho.mqtt.client as mqtt
 from backend.app.communication.mqtt_charging_handler import (
@@ -52,11 +52,16 @@ class MQTTSubscriber:
             raise ValueError("MQTT keepalive must be positive")
 
         self._connected = False
+        client_id = (
+            os.getenv("MQTT_CLIENT_ID", "").strip()
+            or f"xev9s-backend-telemetry-{uuid4().hex[:8]}"
+        )
         self.client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-            client_id="xev9s-backend-telemetry",
+            client_id=client_id,
             protocol=mqtt.MQTTv311,
         )
+        self.client.reconnect_delay_set(min_delay=1, max_delay=30)
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_message
@@ -122,14 +127,10 @@ class MQTTSubscriber:
         """Route messages to their respective handlers."""
         if message.topic.endswith("/responses"):
             if self.command_handler is not None:
-                self.command_handler.handle_response(
-                    message.topic, message.payload
-                )
+                self.command_handler.handle_response(message.topic, message.payload)
         elif message.topic.endswith("/charging/events"):
             if self.charging_handler is not None:
-                self.charging_handler.handle_message(
-                    message.topic, message.payload
-                )
+                self.charging_handler.handle_message(message.topic, message.payload)
         else:
             self._handle_telemetry(message)
 
@@ -142,9 +143,7 @@ class MQTTSubscriber:
 
         vehicle_id = match.group(1)
         try:
-            telemetry = TelemetryPayload.model_validate(
-                json.loads(message.payload)
-            )
+            telemetry = TelemetryPayload.model_validate(json.loads(message.payload))
             if telemetry.vehicle_id != vehicle_id:
                 logger.warning("Telemetry vehicle ID does not match topic")
                 return
@@ -170,7 +169,16 @@ class MQTTSubscriber:
         """Connect to the broker and start its network loop."""
         if self.client.is_connected():
             return
-        self.client.connect(self.host, self.port, self.keepalive)
+        try:
+            self.client.connect(self.host, self.port, self.keepalive)
+        except OSError as exc:
+            logger.warning(
+                "MQTT broker unavailable at %s:%s (%s); retrying in background",
+                self.host,
+                self.port,
+                exc,
+            )
+            self.client.connect_async(self.host, self.port, self.keepalive)
         self.client.loop_start()
 
     def stop(self) -> None:
