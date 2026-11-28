@@ -3,7 +3,6 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-
 import simulator.main as simulator_main
 from simulator.main import (
     build_parser,

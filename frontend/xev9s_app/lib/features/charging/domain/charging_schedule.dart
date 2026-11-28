@@ -12,11 +12,11 @@ class ScheduleTime extends Equatable {
   final int hour;
   final int minute;
 
-  /// Parses a 24-hour time string in "HH:mm" format.
-  /// Throws [FormatException] if string does not strictly match "HH:mm".
+  /// Parses a 24-hour time string in "HH:mm" or "HH:mm:ss" format.
+  /// Throws [FormatException] if string does not strictly match.
   factory ScheduleTime.parse(String value) {
     final trimmed = value.trim();
-    final regex = RegExp(r'^([01]\d|2[0-3]):([0-5]\d)$');
+    final regex = RegExp(r'^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$');
     final match = regex.firstMatch(trimmed);
     if (match == null) {
       throw FormatException('Invalid time string, expected HH:mm: $value');
@@ -65,16 +65,20 @@ class ChargingSchedule extends Equatable {
   final Set<DayOfWeek> daysOfWeek;
 
   factory ChargingSchedule.fromJson(Map<String, dynamic> json) {
-    final enabled = json['enabled'] as bool? ?? false;
-    final startStr = json['startTime'] as String?;
-    final endStr = json['endTime'] as String?;
+    final enabled =
+        (json['enabled'] ?? json['schedule_enabled']) as bool? ?? false;
+    final startStr =
+        (json['startTime'] ?? json['scheduled_start_time']) as String?;
+    final endStr =
+        (json['endTime'] ?? json['scheduled_end_time']) as String?;
 
     final ScheduleTime? start =
         startStr != null ? ScheduleTime.parse(startStr) : null;
     final ScheduleTime? end =
         endStr != null ? ScheduleTime.parse(endStr) : null;
 
-    final daysList = json['daysOfWeek'] as List<dynamic>?;
+    final daysList =
+        (json['daysOfWeek'] ?? json['scheduled_days']) as List<dynamic>?;
     final Set<DayOfWeek> days;
     if (daysList != null) {
       days = daysList

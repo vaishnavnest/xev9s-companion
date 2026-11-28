@@ -45,11 +45,14 @@ class ChargingSession extends Equatable {
   bool get isInterrupted => status == ChargingState.interrupted;
 
   factory ChargingSession.fromJson(Map<String, dynamic> json) {
-    final sessionId = json['sessionId'] as String? ?? '';
-    final vehicleId = json['vehicleId'] as String? ?? '';
+    final sessionId =
+        (json['sessionId'] ?? json['session_id']) as String? ?? '';
+    final vehicleId =
+        (json['vehicleId'] ?? json['vehicle_id']) as String? ?? '';
 
     DateTime startedAt;
-    final startStr = json['startedAt'] as String?;
+    final startStr =
+        (json['startedAt'] ?? json['started_at']) as String?;
     if (startStr != null) {
       startedAt = DateTime.tryParse(startStr) ?? DateTime.now();
     } else {
@@ -57,19 +60,34 @@ class ChargingSession extends Equatable {
     }
 
     DateTime? endedAt;
-    final endStr = json['endedAt'] as String?;
+    final endStr = (json['endedAt'] ?? json['ended_at']) as String?;
     if (endStr != null) {
       endedAt = DateTime.tryParse(endStr);
     }
 
-    final duration = (json['durationSeconds'] as num?)?.toInt();
-    final startBattery = (json['startBatteryPercent'] as num?)?.toDouble();
-    final endBattery = (json['endBatteryPercent'] as num?)?.toDouble();
-    final target = (json['targetPercent'] as num?)?.toInt();
-    final avgPower = (json['avgPowerKw'] as num?)?.toDouble();
-    final maxPower = (json['maxPowerKw'] as num?)?.toDouble();
+    final duration =
+        ((json['durationSeconds'] ?? json['duration_seconds']) as num?)
+            ?.toInt();
+    final startBattery = ((json['startBatteryPercent'] ??
+            json['starting_battery_percentage']) as num?)
+        ?.toDouble();
+    final endBattery = ((json['endBatteryPercent'] ??
+            json['ending_battery_percentage']) as num?)
+        ?.toDouble();
+    final target = ((json['targetPercent'] ??
+            json['final_target_percentage'] ??
+            json['target_percentage']) as num?)
+        ?.round();
+    final avgPower = ((json['avgPowerKw'] ??
+            json['average_charging_power_kw'] ??
+            json['charging_power_kw']) as num?)
+        ?.toDouble();
+    final maxPower = ((json['maxPowerKw'] ??
+            json['peak_charging_power_kw']) as num?)
+        ?.toDouble();
     final status = ChargingState.fromString(json['status'] as String?);
-    final interruptionReason = json['interruptionReason'] as String?;
+    final interruptionReason =
+        (json['interruptionReason'] ?? json['interruption_reason']) as String?;
 
     return ChargingSession(
       sessionId: sessionId,

@@ -2,7 +2,6 @@
 import json
 
 import pytest
-
 from simulator.communication.message_handler import MQTTMessageHandler
 from simulator.scenarios.models import RemoteOperation
 from simulator.vehicle.state import VehicleState

@@ -1,6 +1,5 @@
 
 import pytest
-
 from simulator.scenarios.execution_models import ConnectivityStatus
 from simulator.scenarios.executor import ScenarioExecutor
 from simulator.scenarios.manager import ScenarioManager
