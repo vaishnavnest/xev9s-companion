@@ -2,7 +2,6 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from simulator import mqtt_cli, mqtt_main
 from simulator.scenarios.models import ScenarioType
 from simulator.vehicle.charging_tracker import ChargingEventTracker
